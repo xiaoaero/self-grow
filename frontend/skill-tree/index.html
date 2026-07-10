@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Skill Tree - 智能知识树生成器</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/sidebar.css" />
+  <link rel="stylesheet" href="css/detail-panel.css" />
+  <style>
+    /* ====== 用户模式：隐藏编辑 UI ====== */
+    body.role-user #sidebar,
+    body.role-user #ai-panel,
+    body.role-user #context-menu,
+    body.role-user #node-editor,
+    body.role-user #settings-modal,
+    body.role-user #new-tree-modal,
+    body.role-user #toolbar { display: none !important; }
+
+    body.role-user #canvas-hint {
+      pointer-events: none;
+      user-select: none;
+    }
+    body.role-user #canvas-hint::before {
+      content: '🖱 右键拖拽平移 | 滚轮缩放 | 点击节点查看详情';
+    }
+    body.role-user #canvas-hint .editor-only {
+      display: none;
+    }
+
+    /* ====== 预览模式：隐藏详情面板和画布提示 ====== */
+    body.role-preview #sidebar,
+    body.role-preview #ai-panel,
+    body.role-preview #context-menu,
+    body.role-preview #node-editor,
+    body.role-preview #settings-modal,
+    body.role-preview #new-tree-modal,
+    body.role-preview #toolbar,
+    body.role-preview #detail-panel,
+    body.role-preview #canvas-hint { display: none !important; }
+  </style>
+</head>
+<body class="">
+  <script>
+    // 从 URL 读取 role 参数
+    var SKILL_TREE_ROLE = new URLSearchParams(location.search).get('role') || 'admin';
+    var SKILL_TREE_PREVIEW = new URLSearchParams(location.search).get('preview') === 'true';
+    var bodyClasses = [];
+    if (SKILL_TREE_PREVIEW) bodyClasses.push('role-preview');
+    if (SKILL_TREE_ROLE === 'user') bodyClasses.push('role-user');
+    document.body.className = bodyClasses.join(' ');
+  </script>
+
+  <!-- ==================== 顶部工具栏 ==================== -->
+  <div id="toolbar">
+    <div class="toolbar-group">
+      <button id="btn-save" title="保存到草稿">💾 保存</button>
+      <button id="btn-publish" title="上线到技能库">🚀 上线</button>
+      <button id="btn-update" title="更新已上线版本" disabled>🔄 更新</button>
+    </div>
+    <div class="toolbar-group">
+      <button id="btn-undo" title="撤销 (Ctrl+Z)" disabled>↩</button>
+      <button id="btn-redo" title="重做 (Ctrl+Y)" disabled>↪</button>
+    </div>
+    <div class="toolbar-group">
+      <button id="btn-add-root" title="添加根节点">➕ 节点</button>
+      <button id="btn-add-child" title="为选中节点添加子节点">➕ 子节点</button>
+      <button id="btn-delete-selected" title="删除选中节点 (Delete)">🗑 删除</button>
+    </div>
+    <div class="toolbar-group">
+      <button id="btn-zoom-in" title="放大">🔍+</button>
+      <span id="zoom-level">100%</span>
+      <button id="btn-zoom-out" title="缩小">🔍-</button>
+      <button id="btn-fit" title="适应窗口">⊞</button>
+    </div>
+    <div class="toolbar-group toolbar-right">
+      <button id="btn-toggle-ai" class="active" title="AI 助手面板">🤖 AI助手</button>
+      <button id="btn-settings" title="API 设置">⚙️</button>
+    </div>
+  </div>
+
+  <!-- ==================== 主内容区 ==================== -->
+  <div id="main-container">
+
+    <!-- 左侧栏：技能树列表 -->
+    <div id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4fc3f7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12"/>
+            <path d="M12 7C9 7 7 9 7 11"/>
+            <circle cx="7" cy="11" r="1.5"/>
+            <path d="M12 7c3 0 5 2 5 4"/>
+            <circle cx="17" cy="11" r="1.5"/>
+            <circle cx="12" cy="15" r="1.5"/>
+          </svg>
+          技能树
+        </span>
+        <button id="btn-new-tree-sidebar" title="新建技能树">➕</button>
+      </div>
+      <div id="tree-list" class="tree-list">
+        <!-- 动态渲染 -->
+      </div>
+    </div>
+
+    <!-- 新建技能树弹窗 -->
+    <div id="new-tree-modal" class="modal hidden">
+      <div class="modal-content" style="width:400px;">
+        <div class="modal-header">
+          <span>🌳 新建技能树</span>
+          <button class="btn-close-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label>名称</label>
+          <input type="text" id="new-tree-name" placeholder="请输入技能树名称..." />
+          <label style="margin-top:12px">技能介绍</label>
+          <textarea id="new-tree-description" rows="3" placeholder="描述这个技能树的内容和用途..." style="resize:vertical"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-cancel">取消</button>
+          <button id="btn-confirm-new-tree">创建</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 树画布 -->
+    <div id="canvas-container">
+      <div id="tree-canvas">
+        <!-- 网格背景层 -->
+        <svg id="grid-layer"></svg>
+        <!-- 框选层 -->
+        <svg id="selection-box-layer" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10">
+          <rect id="selection-box" style="display:none;fill:rgba(79,195,247,0.12);stroke:#4fc3f7;stroke-width:1.5;stroke-dasharray:4 2" />
+        </svg>
+        <!-- 连线层 -->
+        <svg id="connection-layer"></svg>
+        <!-- 节点层 -->
+        <div id="node-layer"></div>
+      </div>
+      <!-- 画布提示 -->
+      <div id="canvas-hint">
+        <span class="editor-only">🖱 右键拖拽平移 | 滚轮缩放 | 空格+拖拽平移 | Shift+点击多选 | 拖拽节点移动</span>
+      </div>
+    </div>
+
+    <!-- 右侧详情面板 -->
+    <div id="detail-panel" class="detail-panel">
+      <div class="detail-header">
+        <span id="detail-title">节点详情</span>
+        <button id="btn-close-detail" title="关闭">✕</button>
+      </div>
+      <div id="detail-content" class="detail-content">
+        <div class="detail-empty">点击节点查看详情</div>
+      </div>
+    </div>
+
+    <!-- AI 助手面板 -->
+    <div id="ai-panel" class="panel-open">
+      <div id="ai-panel-header">
+        <span>🤖 AI 助手</span>
+        <button id="btn-minimize-ai" title="折叠面板">−</button>
+      </div>
+      <div id="ai-chat">
+        <div id="ai-messages"></div>
+        <div id="ai-quick-actions">
+          <button class="ai-quick-btn" data-prompt="请为"主题名"生成一个完整的知识树，包含根节点和3-4层子节点">🎯 生成知识树</button>
+          <button class="ai-quick-btn" data-prompt="请为选中的节点扩展3-5个子节点">🌿 扩展子节点</button>
+          <button class="ai-quick-btn" data-prompt="请帮我优化当前知识树的结构，使其更合理">🔧 优化结构</button>
+        </div>
+      </div>
+      <div id="ai-input-area">
+        <textarea id="ai-input" placeholder="输入指令，让AI帮你操作知识树..." rows="2"></textarea>
+        <button id="btn-ai-send">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 节点编辑弹窗 ==================== -->
+  <div id="node-editor" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>✏️ 编辑节点</span>
+        <button class="btn-close-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label>名称</label>
+        <input type="text" id="edit-name" />
+        <label>描述</label>
+        <textarea id="edit-description" rows="3"></textarea>
+        <label>标签（逗号分隔）</label>
+        <input type="text" id="edit-tags" />
+        <label>颜色</label>
+        <input type="color" id="edit-color" />
+        <label>图标</label>
+        <select id="edit-icon">
+          <option value="📚">📚 学习</option>
+          <option value="💡">💡 概念</option>
+          <option value="🔧">🔧 技能</option>
+          <option value="🎯">🎯 目标</option>
+          <option value="📊">📊 数据</option>
+          <option value="🌟">🌟 核心</option>
+          <option value="🔗">🔗 关联</option>
+          <option value="⚡">⚡ 关键</option>
+          <option value="🏆">🏆 成就</option>
+          <option value="📝">📝 笔记</option>
+        </select>
+        <label>优先级</label>
+        <select id="edit-priority">
+          <option value="none">无</option>
+          <option value="high">🔴 高</option>
+          <option value="medium">🟡 中</option>
+          <option value="low">🟢 低</option>
+        </select>
+        <label>学习状态</label>
+        <select id="edit-progress">
+          <option value="0">未学习</option>
+          <option value="50">学习中</option>
+          <option value="100">已完成</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-node">保存</button>
+        <button class="btn-close-modal">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 设置弹窗 ==================== -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>⚙️ 设置</span>
+        <button class="btn-close-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>后端地址已配置，无需额外设置。</p>
+        <p class="hint">如需修改后端地址，请编辑 <code>js/ai-bridge.js</code> 中的 <code>serverUrl</code>。</p>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-settings">确定</button>
+        <button class="btn-close-modal">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 右键菜单 ==================== -->
+  <div id="context-menu" class="hidden">
+    <div class="context-item" data-action="edit">✏️ 编辑</div>
+    <div class="context-item" data-action="add-child">➕ 添加子节点</div>
+    <div class="context-item" data-action="connect">🔗 从此节点连线</div>
+    <div class="context-separator"></div>
+    <div class="context-item" data-action="expand-ai">🤖 AI扩展子节点</div>
+    <div class="context-separator"></div>
+    <div class="context-item danger" data-action="delete">🗑 删除</div>
+  </div>
+
+  <!-- 确认弹窗遮罩层 -->
+  <div id="modal-overlay" class="hidden" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.55);z-index:1000;align-items:center;justify-content:center" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="modal-content" style="width:400px;max-width:90vw;background:#1e1e2e;border:1px solid #2a2a4a;border-radius:12px;overflow:hidden"></div>
+  </div>
+
+  <!-- Toast 提示 -->
+  <div id="toast" class="hidden"></div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/history.js"></script>
+  <script src="js/tree-renderer.js"></script>
+  <script src="js/interaction.js"></script>
+  <script src="js/ai-bridge.js"></script>
+  <script src="js/sidebar.js"></script>
+  <script src="js/detail-panel.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var app = new App(SKILL_TREE_ROLE);
+    });
+  </script>
+</body>
+</html>

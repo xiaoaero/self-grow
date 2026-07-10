@@ -1,0 +1,280 @@
+/* ================================================================
+   detail-panel.css — 右侧详情栏样式
+   ================================================================ */
+
+.detail-panel {
+  width: 300px;
+  min-width: 300px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.3s ease, min-width 0.3s ease;
+  flex-shrink: 0;
+}
+
+.detail-panel.collapsed {
+  width: 0;
+  min-width: 0;
+  border-left: none;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+#btn-close-detail {
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  transition: background var(--transition), color var(--transition);
+}
+
+#btn-close-detail:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.detail-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.detail-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 40px 12px;
+  font-size: 14px;
+}
+
+/* 节点头部 */
+.detail-node-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-node-icon {
+  font-size: 40px;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 3px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.detail-node-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-node-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.detail-node-status {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+/* 状态标签颜色 */
+.detail-node-status.status-locked {
+  background: rgba(100, 100, 120, 0.2);
+  color: #888;
+  border: 1px solid #555;
+}
+
+.detail-node-status.status-available {
+  background: rgba(79, 195, 247, 0.15);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  animation: status-pulse 2s infinite;
+}
+
+.detail-node-status.status-completed {
+  background: rgba(102, 187, 106, 0.15);
+  color: var(--success);
+  border: 1px solid var(--success);
+}
+
+/* 学习中状态 — 橙色系 */
+.detail-node-status.status-learning {
+  background: rgba(255, 167, 38, 0.15);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  animation: status-pulse 2s infinite;
+}
+
+/* 按钮学习中状态 */
+.detail-btn.btn-learning {
+  background: var(--warning);
+  color: #000;
+  cursor: default;
+  opacity: 0.8;
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* 信息区块 */
+.detail-section {
+  margin-bottom: 16px;
+}
+
+.detail-section-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.detail-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.detail-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.detail-priority {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 前置条件列表 */
+.prerequisite-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prerequisite-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+}
+
+.prerequisite-item .prereq-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.prerequisite-item .prereq-name {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.prerequisite-item.prereq-met {
+  border-color: var(--success);
+}
+
+.prerequisite-item.prereq-unmet {
+  border-color: var(--border);
+  opacity: 0.7;
+}
+
+/* 操作按钮 */
+.detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.detail-btn {
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: background var(--transition), opacity var(--transition);
+}
+
+.detail-btn.btn-learn {
+  background: var(--accent);
+  color: #000;
+}
+
+.detail-btn.btn-learn:hover {
+  background: var(--accent-hover);
+}
+
+.detail-btn.btn-learn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.detail-btn.btn-mark-complete {
+  background: var(--success);
+  color: #000;
+}
+
+.detail-btn.btn-mark-complete:hover {
+  background: #5aaf5e;
+}
+
+.detail-btn.btn-mark-complete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.detail-btn-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}

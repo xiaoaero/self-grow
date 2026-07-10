@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人成长系统 - Self Grow</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/sidebar.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/pages.css">
+    <!-- Chart.js for radar/bubble charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- SVG Gradients for attribute icons -->
+    <svg style="position:absolute;width:0;height:0" aria-hidden="true">
+        <defs>
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="2.5" result="blur"/>
+                <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+            </filter>
+            <linearGradient id="g-health" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#FF7B72"/><stop offset="100%" stop-color="#E5534D"/>
+            </linearGradient>
+            <linearGradient id="g-study" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#58D5C9"/><stop offset="100%" stop-color="#2DBBAF"/>
+            </linearGradient>
+            <linearGradient id="g-relate" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#FF91A8"/><stop offset="100%" stop-color="#F06590"/>
+            </linearGradient>
+            <linearGradient id="g-work" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#FFCA40"/><stop offset="100%" stop-color="#F5A623"/>
+            </linearGradient>
+            <linearGradient id="g-create" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#B794F6"/><stop offset="100%" stop-color="#8B5CF6"/>
+            </linearGradient>
+            <linearGradient id="g-money" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#4ADE80"/><stop offset="100%" stop-color="#22C55E"/>
+            </linearGradient>
+            <linearGradient id="g-hobby" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#F472B6"/><stop offset="100%" stop-color="#E879F9"/>
+            </linearGradient>
+            <linearGradient id="g-soul" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#FBBF24"/><stop offset="100%" stop-color="#F97316"/>
+            </linearGradient>
+            <!-- History page icon gradients -->
+            <linearGradient id="g-gr" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#059669"/></linearGradient>
+            <linearGradient id="g-day" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#60a5fa"/><stop offset="100%" stop-color="#2563eb"/></linearGradient>
+            <linearGradient id="g-exp" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#fbbf24"/><stop offset="100%" stop-color="#d97706"/></linearGradient>
+            <linearGradient id="g-task" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#7c3aed"/></linearGradient>
+            <linearGradient id="g-score" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#fb7185"/><stop offset="100%" stop-color="#e11d48"/></linearGradient>
+            <linearGradient id="g-target" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#0891b2"/></linearGradient>
+            <linearGradient id="g-rew" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f472b6"/><stop offset="100%" stop-color="#db2777"/></linearGradient>
+            <linearGradient id="g-heat" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#fb923c"/><stop offset="100%" stop-color="#ea580c"/></linearGradient>
+            <linearGradient id="g-radar" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#c084fc"/><stop offset="100%" stop-color="#9333ea"/></linearGradient>
+            <linearGradient id="g-rank" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4ade80"/><stop offset="100%" stop-color="#16a34a"/></linearGradient>
+            <linearGradient id="g-trend" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#facc15"/><stop offset="100%" stop-color="#ca8a04"/></linearGradient>
+            <!-- Header title icon gradients -->
+            <linearGradient id="g-hdr-attr" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0a3d3d"/><stop offset="100%" stop-color="#062828"/></linearGradient>
+            <linearGradient id="g-hdr-goal" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0a4d3a"/><stop offset="100%" stop-color="#063020"/></linearGradient>
+            <linearGradient id="g-hdr-today" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3d2810"/><stop offset="100%" stop-color="#2a1a08"/></linearGradient>
+            <linearGradient id="g-hdr-week" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2e1a4d"/><stop offset="100%" stop-color="#1a0a30"/></linearGradient>
+            <linearGradient id="g-hdr-hist" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1f1f2e"/><stop offset="100%" stop-color="#0f0f1a"/></linearGradient>
+            <linearGradient id="g-hdr-habit" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0a4d3a"/><stop offset="100%" stop-color="#062820"/></linearGradient>
+            <linearGradient id="g-hdr-reward" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3d2a0a"/><stop offset="100%" stop-color="#2a1a04"/></linearGradient>
+        </defs>
+    </svg>
+
+    <!-- 背景装饰 -->
+    <div class="bg-orb bg-orb--1"></div>
+    <div class="bg-orb bg-orb--2"></div>
+    <div class="bg-orb bg-orb--3"></div>
+
+    <!-- 侧边栏 -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar__brand">
+            <div class="sidebar__logo">
+                <svg viewBox="0 0 40 40" fill="none">
+                    <circle cx="20" cy="20" r="18" stroke="currentColor" stroke-width="2"/>
+                    <path d="M12 28 L20 12 L28 28" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="20" cy="18" r="3" fill="currentColor"/>
+                </svg>
+            </div>
+            <div class="sidebar__title">
+                <span class="sidebar__title-main">Self Grow</span>
+                <span class="sidebar__title-sub">个人成长系统</span>
+            </div>
+        </div>
+
+        <nav class="sidebar__nav">
+            <a class="sidebar__nav-item active" data-page="dashboard" onclick="navigateTo('dashboard')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                <span>仪表盘</span>
+            </a>
+            <a class="sidebar__nav-item" data-page="action" onclick="navigateTo('action')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                <span>行动</span>
+                <svg class="sidebar__nav-arrow" id="action-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </a>
+            <div class="sidebar__subnav" id="subnav-action">
+                <a class="sidebar__subnav-item active" data-subpage="action.quick" onclick="navigateTo('action', 'quick')"><span>开始行动</span></a>
+                <a class="sidebar__subnav-item" data-subpage="action.center" onclick="navigateTo('action', 'center')"><span>行动中心</span></a>
+                <a class="sidebar__subnav-item" data-subpage="action.history" onclick="navigateTo('action', 'history')"><span>行动历史</span></a>
+            </div>
+            <a class="sidebar__nav-item" data-page="history" onclick="navigateTo('history')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/><path d="M8 2v4"/><path d="M16 2v4"/></svg>
+                <span>成长记录</span>
+            </a>
+            <a class="sidebar__nav-item" data-page="attributes" onclick="navigateTo('attributes')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 22 2 22"/><circle cx="12" cy="15" r="3"/></svg>
+                <span>属性</span>
+            </a>
+            <a class="sidebar__nav-item" data-page="goals" onclick="navigateTo('goals')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="8"/></svg>
+                <span>目标</span>
+            </a>
+            <a class="sidebar__nav-item" data-page="tasks" onclick="navigateTo('tasks')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="9 12 11 14 15 10"/></svg>
+                <span>任务</span>
+                <svg class="sidebar__nav-arrow" id="tasks-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </a>
+            <div class="sidebar__subnav" id="subnav-tasks">
+                <a class="sidebar__subnav-item active" data-subpage="tasks.today" onclick="navigateTo('tasks', 'today')"><span>本日任务</span></a>
+                <a class="sidebar__subnav-item" data-subpage="tasks.week" onclick="navigateTo('tasks', 'week')"><span>本周任务</span></a>
+                <a class="sidebar__subnav-item" data-subpage="tasks.history" onclick="navigateTo('tasks', 'history')"><span>历史任务</span></a>
+            </div>
+            <a class="sidebar__nav-item" data-page="habits" onclick="navigateTo('habits')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 22h20L12 2z"/><circle cx="12" cy="16" r="2"/></svg>
+                <span>习惯</span>
+            </a>
+            <a class="sidebar__nav-item" data-page="skill" onclick="navigateTo('skill')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                <span>技能</span>
+                <svg class="sidebar__nav-arrow" id="skill-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </a>
+            <div class="sidebar__subnav" id="subnav-skill">
+                <a class="sidebar__subnav-item active" data-subpage="skill.mine" onclick="navigateTo('skill', 'mine')"><span>我的技能</span></a>
+                <a class="sidebar__subnav-item" data-subpage="skill.lib" onclick="navigateTo('skill', 'lib')"><span>技能库</span></a>
+            </div>
+            <a class="sidebar__nav-item" data-page="rewards" onclick="navigateTo('rewards')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+                <span>奖励商城</span>
+            </a>
+        </nav>
+
+        <div class="sidebar__footer" id="sidebar-footer"></div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+        <div id="page-dashboard" class="page page--active"></div>
+        <div id="page-action" class="page"></div>
+        <div id="page-history" class="page"></div>
+        <div id="page-attributes" class="page"></div>
+        <div id="page-goals" class="page"></div>
+        <div id="page-tasks" class="page"></div>
+        <div id="page-habits" class="page"></div>
+        <div id="page-skill" class="page"></div>
+        <div id="page-rewards" class="page"></div>
+    </main>
+
+    <!-- 模态层 -->
+    <div class="modal-overlay" id="modal-overlay" onclick="closeModal()"></div>
+    <div class="modal" id="modal"></div>
+
+    <!-- Toast通知 -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Core scripts (always loaded) -->
+    <script src="js/data.js"></script>
+    <script src="js/router.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/components.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

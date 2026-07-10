@@ -1,0 +1,18 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# backend runtime
+backend/.pixi/
+backend/pixi.lock
+backend/.env
+backend/data.db
+backend/*.bak
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE
+.idea/workspace.xml
+.idea/*.iml

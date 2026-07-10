@@ -1,0 +1,16 @@
+[workspace]
+authors = ["zhangxiaohang <1811182327@qq.com>"]
+channels = ["conda-forge"]
+name = "ai-skill-tree"
+platforms = ["win-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.12.*"
+fastapi = ">=0.139.0,<0.140"
+uvicorn = ">=0.50.2,<0.51"
+httpx = ">=0.28.1,<0.29"
+python-dotenv = ">=1.2.2,<2"
+apscheduler = ">=3.11.3,<4"

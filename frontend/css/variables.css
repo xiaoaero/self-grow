@@ -1,0 +1,78 @@
+/* ================================================================
+   CSS Variables & Theme System
+   暖色调主题 — 翡翠绿 + 琥珀金 + 暖灰
+   ================================================================ */
+
+:root {
+    /* --- 主色调：翡翠/鼠尾草绿 --- */
+    --color-primary:        #4A9C6C;
+    --color-primary-light:  #6DBD8A;
+    --color-primary-dark:   #357A4F;
+    --color-primary-bg:     rgba(74, 156, 108, 0.12);
+    --color-primary-glow:   rgba(74, 156, 108, 0.35);
+
+    /* --- 强调色：琥珀金 --- */
+    --color-accent:         #D49A3E;
+    --color-accent-light:   #E8B85A;
+    --color-accent-dark:    #B07D2E;
+    --color-accent-bg:      rgba(212, 154, 62, 0.12);
+    --color-accent-glow:    rgba(212, 154, 62, 0.35);
+
+    /* --- 语义色 --- */
+    --color-success:        #5CAD6C;
+    --color-warning:        #D4943E;
+    --color-danger:         #C85A4A;
+    --color-info:           #6BA3B8;
+
+    /* --- 中性色（暖灰） --- */
+    --color-bg-deep:        #1A1817;
+    --color-bg-base:        #23211F;
+    --color-bg-elevated:    #2C2927;
+    --color-bg-surface:     #353230;
+    --color-bg-high:        #403C3A;
+    --color-border:         rgba(255, 255, 255, 0.08);
+    --color-border-light:   rgba(255, 255, 255, 0.05);
+    --color-text-primary:   rgba(255, 255, 255, 0.92);
+    --color-text-secondary: rgba(255, 255, 255, 0.60);
+    --color-text-muted:     rgba(255, 255, 255, 0.35);
+
+    /* --- 毛玻璃 --- */
+    --glass-bg:             rgba(53, 50, 48, 0.55);
+    --glass-bg-strong:      rgba(53, 50, 48, 0.75);
+    --glass-border:         rgba(255, 255, 255, 0.10);
+    --glass-blur:           16px;
+
+    /* --- 圆角 --- */
+    --radius-sm:            8px;
+    --radius-md:            12px;
+    --radius-lg:            16px;
+    --radius-xl:            24px;
+    --radius-full:          9999px;
+
+    /* --- 阴影 --- */
+    --shadow-sm:            0 2px 8px rgba(0, 0, 0, 0.15);
+    --shadow-md:            0 4px 16px rgba(0, 0, 0, 0.25);
+    --shadow-lg:            0 8px 32px rgba(0, 0, 0, 0.35);
+    --shadow-glow-primary:  0 0 20px var(--color-primary-glow);
+    --shadow-glow-accent:   0 0 20px var(--color-accent-glow);
+
+    /* --- 字体 --- */
+    --font-family:          'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+    --font-mono:            'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+
+    /* --- 尺寸 --- */
+    --sidebar-width:        260px;
+    --header-height:        64px;
+    --content-max-width:    1280px;
+
+    /* --- 过渡 --- */
+    --transition-fast:      150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-normal:    280ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow:      400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Dark scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-bg-high); border-radius: var(--radius-full); }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }

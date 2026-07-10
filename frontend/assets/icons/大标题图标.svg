@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 200" width="700" height="200">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0a3d3d"/><stop offset="100%" stop-color="#062828"/></linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0a4d3a"/><stop offset="100%" stop-color="#063020"/></linearGradient>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3d2810"/><stop offset="100%" stop-color="#2a1a08"/></linearGradient>
+    <linearGradient id="g4" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2e1a4d"/><stop offset="100%" stop-color="#1a0a30"/></linearGradient>
+    <linearGradient id="g5" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1f1f2e"/><stop offset="100%" stop-color="#0f0f1a"/></linearGradient>
+    <linearGradient id="g6" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0a4d3a"/><stop offset="100%" stop-color="#062820"/></linearGradient>
+    <linearGradient id="g7" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3d2a0a"/><stop offset="100%" stop-color="#2a1a04"/></linearGradient>
+  </defs>
+  <rect width="700" height="200" fill="#0a0a0a"/>
+  <text x="350" y="28" font-family="Arial" font-size="14" fill="#5eead4" text-anchor="middle" font-weight="bold">Self Grow · 大标题图标 v4 · 多彩深色容器版</text>
+
+  <!-- 1. 属性面板 -->
+  <g transform="translate(30 60)">
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="url(#g1)"/>
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="none" stroke="#14b8a6" stroke-width="1" opacity="0.3"/>
+    <circle cx="40" cy="44" r="22" fill="none" stroke="#5eead4" stroke-width="3" stroke-linecap="round" stroke-dasharray="110 28" transform="rotate(135 40 44)"/>
+    <circle cx="40" cy="20" r="2" fill="#5eead4"/><circle cx="56" cy="24" r="2" fill="#a78bfa"/><circle cx="64" cy="36" r="2" fill="#f472b6"/><circle cx="62" cy="52" r="2" fill="#fbbf24"/><circle cx="22" cy="24" r="2" fill="#fb923c"/><circle cx="14" cy="36" r="2" fill="#22c55e"/><circle cx="20" cy="50" r="2" fill="#5eead4"/><circle cx="40" cy="60" r="2" fill="#a78bfa"/>
+    <circle cx="40" cy="44" r="4" fill="#14b8a6"/>
+    <line x1="40" y1="44" x2="56" y2="28" stroke="#fbbf24" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="40" cy="44" r="2" fill="#fbbf24"/>
+    <circle cx="14" cy="14" r="1.5" fill="#5eead4" opacity="0.8"/><circle cx="68" cy="68" r="1" fill="#fbbf24" opacity="0.8"/>
+    <text x="40" y="100" font-family="Microsoft YaHei" font-size="11" fill="#fff" text-anchor="middle">属性面板</text>
+  </g>
+
+  <!-- 2. 目标 -->
+  <g transform="translate(125 60)">
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="url(#g2)"/>
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="none" stroke="#22c55e" stroke-width="1" opacity="0.4"/>
+    <circle cx="40" cy="40" r="22" fill="none" stroke="#5eead4" stroke-width="2.5" opacity="0.5"/>
+    <circle cx="40" cy="40" r="16" fill="none" stroke="#5eead4" stroke-width="2.5" opacity="0.7"/>
+    <circle cx="40" cy="40" r="10" fill="none" stroke="#22c55e" stroke-width="2.5"/>
+    <circle cx="40" cy="40" r="4" fill="#fbbf24"/>
+    <g transform="rotate(-30 40 40)">
+      <line x1="40" y1="40" x2="64" y2="40" stroke="#fbbf24" stroke-width="2.5" stroke-linecap="round"/>
+      <polygon points="64,40 60,37 60,43" fill="#fbbf24"/>
+      <polygon points="40,40 44,37 44,43 48,37 48,43" fill="#a78bfa"/>
+    </g>
+    <circle cx="34" cy="34" r="1.2" fill="#fbbf24"/><circle cx="46" cy="34" r="1" fill="#5eead4"/><circle cx="34" cy="46" r="1" fill="#22c55e"/>
+    <circle cx="14" cy="14" r="1.5" fill="#5eead4" opacity="0.8"/><circle cx="68" cy="68" r="1" fill="#fbbf24" opacity="0.8"/>
+    <text x="40" y="100" font-family="Microsoft YaHei" font-size="11" fill="#fff" text-anchor="middle">目标</text>
+  </g>
+
+  <!-- 3. 本日任务 -->
+  <g transform="translate(220 60)">
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="url(#g3)"/>
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="none" stroke="#f59e0b" stroke-width="1" opacity="0.4"/>
+    <path d="M 22 18 L 56 18 L 60 22 L 60 62 L 22 62 Z" fill="#fef3c7"/>
+    <path d="M 56 18 L 56 22 L 60 22" fill="#fde68a" stroke="#d97706" stroke-width="0.5"/>
+    <rect x="22" y="18" width="6" height="44" fill="#ef4444"/>
+    <circle cx="25" cy="22" r="1" fill="#fff"/><circle cx="25" cy="32" r="1" fill="#fff"/><circle cx="25" cy="42" r="1" fill="#fff"/><circle cx="25" cy="52" r="1" fill="#fff"/><circle cx="25" cy="58" r="1" fill="#fff"/>
+    <rect x="33" y="26" width="6" height="6" rx="1" fill="#22c55e"/>
+    <path d="M 34 29 L 36 31 L 38 27" stroke="#fff" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="42" y1="29" x2="56" y2="29" stroke="#92400e" stroke-width="1" opacity="0.5"/>
+    <rect x="33" y="38" width="6" height="6" rx="1" fill="#22c55e"/>
+    <path d="M 34 41 L 36 43 L 38 39" stroke="#fff" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="42" y1="41" x2="56" y2="41" stroke="#92400e" stroke-width="1" opacity="0.5"/>
+    <rect x="33" y="50" width="6" height="6" rx="1" fill="none" stroke="#92400e" stroke-width="1.2" opacity="0.5"/>
+    <line x1="42" y1="53" x2="54" y2="53" stroke="#92400e" stroke-width="1" opacity="0.7"/>
+    <circle cx="14" cy="14" r="1.5" fill="#fbbf24" opacity="0.8"/><circle cx="68" cy="68" r="1" fill="#5eead4" opacity="0.8"/>
+    <text x="40" y="100" font-family="Microsoft YaHei" font-size="11" fill="#fff" text-anchor="middle">本日任务</text>
+  </g>
+
+  <!-- 4. 本周任务 -->
+  <g transform="translate(315 60)">
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="url(#g4)"/>
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="none" stroke="#a78bfa" stroke-width="1" opacity="0.4"/>
+    <rect x="16" y="20" width="48" height="44" rx="4" fill="#ede9fe"/>
+    <rect x="16" y="20" width="48" height="10" rx="4" fill="#a78bfa"/>
+    <rect x="16" y="26" width="48" height="4" fill="#a78bfa"/>
+    <rect x="24" y="14" width="3" height="10" rx="1" fill="#7c3aed"/>
+    <rect x="53" y="14" width="3" height="10" rx="1" fill="#7c3aed"/>
+    <g font-family="Arial" font-size="5" fill="#5b21b6" text-anchor="middle">
+      <text x="22" y="36">一</text><text x="30" y="36">二</text><text x="38" y="36">三</text><text x="46" y="36">四</text><text x="54" y="36">五</text><text x="62" y="36">六</text><text x="68" y="36" font-size="3.5">日</text>
+    </g>
+    <circle cx="22" cy="44" r="2.5" fill="#22c55e"/><circle cx="30" cy="44" r="2.5" fill="#22c55e"/><circle cx="38" cy="44" r="2.5" fill="#22c55e"/><circle cx="46" cy="44" r="2.5" fill="#22c55e"/><circle cx="54" cy="44" r="2.5" fill="#22c55e"/>
+    <circle cx="62" cy="44" r="4.5" fill="#fbbf24" opacity="0.3"/>
+    <circle cx="62" cy="44" r="3" fill="#fbbf24"/>
+    <text x="62" y="46" font-family="Arial" font-size="3.5" font-weight="bold" fill="#fff" text-anchor="middle">15</text>
+    <rect x="22" y="56" width="32" height="3" rx="1.5" fill="#c4b5fd"/>
+    <rect x="22" y="56" width="32" height="3" rx="1.5" fill="#5eead4"/>
+    <text x="58" y="59" font-family="Arial" font-size="4" fill="#5b21b6" font-weight="bold">5/7</text>
+    <circle cx="14" cy="14" r="1.5" fill="#a78bfa" opacity="0.8"/><circle cx="68" cy="68" r="1" fill="#fbbf24" opacity="0.8"/>
+    <text x="40" y="100" font-family="Microsoft YaHei" font-size="11" fill="#fff" text-anchor="middle">本周任务</text>
+  </g>
+
+  <!-- 5. 历史任务 -->
+  <g transform="translate(410 60)">
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="url(#g5)"/>
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="none" stroke="#94a3b8" stroke-width="1" opacity="0.4"/>
+    <path d="M 16 30 L 20 22 L 60 22 L 64 30 L 64 60 L 16 60 Z" fill="#475569"/>
+    <path d="M 16 30 L 64 30 L 64 33 L 16 33 Z" fill="#64748b"/>
+    <rect x="32" y="38" width="16" height="6" rx="2" fill="#1e293b"/>
+    <rect x="34" y="40" width="12" height="2" rx="1" fill="#475569"/>
+    <g transform="translate(54 50) rotate(15)">
+      <circle cx="0" cy="0" r="9" fill="#22c55e"/>
+      <circle cx="0" cy="0" r="9" fill="none" stroke="#16a34a" stroke-width="1" stroke-dasharray="2 1"/>
+      <path d="M -4 0 L -1 3 L 4 -3" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <line x1="24" y1="50" x2="40" y2="50" stroke="#94a3b8" stroke-width="0.8" opacity="0.5"/>
+    <line x1="24" y1="55" x2="38" y2="55" stroke="#94a3b8" stroke-width="0.8" opacity="0.5"/>
+    <circle cx="14" cy="14" r="1.5" fill="#94a3b8" opacity="0.8"/><circle cx="68" cy="68" r="1" fill="#22c55e" opacity="0.8"/>
+    <text x="40" y="100" font-family="Microsoft YaHei" font-size="11" fill="#fff" text-anchor="middle">历史任务</text>
+  </g>
+
+  <!-- 6. 习惯追踪 -->
+  <g transform="translate(505 60)">
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="url(#g6)"/>
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="none" stroke="#22c55e" stroke-width="1" opacity="0.4"/>
+    <path d="M 40 14 C 36 22 30 26 30 36 C 30 46 34 52 40 56 C 46 52 50 46 50 36 C 50 26 44 22 40 14 Z" fill="#fbbf24"/>
+    <path d="M 40 22 C 38 28 34 32 34 40 C 34 48 36 52 40 54 C 44 52 46 48 46 40 C 46 32 42 28 40 22 Z" fill="#f97316"/>
+    <ellipse cx="40" cy="44" rx="3" ry="5" fill="#fef3c7"/>
+    <circle cx="22" cy="64" r="3" fill="#5eead4"/><path d="M 20 64 L 22 66 L 24 62" stroke="#062820" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="30" cy="64" r="3" fill="#5eead4"/><path d="M 28 64 L 30 66 L 32 62" stroke="#062820" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="38" cy="64" r="3" fill="#5eead4"/><path d="M 36 64 L 38 66 L 40 62" stroke="#062820" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="46" cy="64" r="3" fill="#5eead4"/><path d="M 44 64 L 46 66 L 48 62" stroke="#062820" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="54" cy="64" r="3.5" fill="#fbbf24"/>
+    <circle cx="54" cy="64" r="3.5" fill="none" stroke="#fef3c7" stroke-width="0.8" opacity="0.8"/>
+    <circle cx="22" cy="20" r="1" fill="#fbbf24" opacity="0.8"/><circle cx="56" cy="18" r="1.2" fill="#f97316" opacity="0.7"/><circle cx="58" cy="32" r="0.8" fill="#fbbf24" opacity="0.8"/>
+    <circle cx="14" cy="14" r="1.5" fill="#5eead4" opacity="0.8"/><circle cx="68" cy="68" r="1" fill="#fbbf24" opacity="0.8"/>
+    <text x="40" y="100" font-family="Microsoft YaHei" font-size="11" fill="#fff" text-anchor="middle">习惯追踪</text>
+  </g>
+
+  <!-- 7. 奖励商城 -->
+  <g transform="translate(600 60)">
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="url(#g7)"/>
+    <rect x="0" y="0" width="80" height="80" rx="18" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.4"/>
+    <circle cx="18" cy="58" r="5" fill="#fde047" stroke="#d97706" stroke-width="0.8"/>
+    <text x="18" y="60" font-family="Arial" font-size="5" font-weight="bold" fill="#92400e" text-anchor="middle">$</text>
+    <circle cx="62" cy="58" r="4.5" fill="#fde047" stroke="#d97706" stroke-width="0.8"/>
+    <text x="62" y="60" font-family="Arial" font-size="4.5" font-weight="bold" fill="#92400e" text-anchor="middle">$</text>
+    <circle cx="16" cy="38" r="3.5" fill="#fde047" stroke="#d97706" stroke-width="0.6"/>
+    <text x="16" y="40" font-family="Arial" font-size="3.5" font-weight="bold" fill="#92400e" text-anchor="middle">$</text>
+    <circle cx="64" cy="36" r="4" fill="#fde047" stroke="#d97706" stroke-width="0.7"/>
+    <text x="64" y="38" font-family="Arial" font-size="4" font-weight="bold" fill="#92400e" text-anchor="middle">$</text>
+    <circle cx="40" cy="40" r="16" fill="#fbbf24"/>
+    <circle cx="40" cy="40" r="16" fill="none" stroke="#92400e" stroke-width="1.2"/>
+    <circle cx="40" cy="40" r="13" fill="none" stroke="#fde047" stroke-width="0.8" opacity="0.6"/>
+    <polygon points="40,30 42.5,37 50,37 44,41 46,48 40,44 34,48 36,41 30,37 37.5,37" fill="#fef3c7" stroke="#92400e" stroke-width="0.8" stroke-linejoin="round"/>
+    <ellipse cx="34" cy="33" rx="4" ry="2" fill="#fef3c7" opacity="0.6"/>
+    <g fill="#fef3c7">
+      <polygon points="22,18 24,16 26,18 24,20"/>
+      <polygon points="56,16 58,14 60,16 58,18"/>
+      <polygon points="60,22 62,20 64,22 62,24"/>
+    </g>
+    <circle cx="14" cy="14" r="1.5" fill="#fbbf24" opacity="0.8"/><circle cx="68" cy="68" r="1" fill="#fef3c7" opacity="0.8"/>
+    <text x="40" y="100" font-family="Microsoft YaHei" font-size="11" fill="#fff" text-anchor="middle">奖励商城</text>
+  </g>
+</svg>

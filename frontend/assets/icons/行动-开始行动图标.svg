@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 140" width="100%">
+  <defs>
+    <style>
+      .label { font-family: system-ui, -apple-system, sans-serif; font-size: 9px; font-weight: 500; text-anchor: middle; }
+    </style>
+  </defs>
+  <rect width="540" height="140" fill="#15171c"/>
+  
+  <!-- 1. 开始行动 -->
+  <g transform="translate(20,15)">
+    <rect width="80" height="80" rx="18" fill="#0a2626" stroke="#00d9c0" stroke-width="1.5"/>
+    <circle cx="40" cy="40" r="28" fill="#0f3d3a"/>
+    <path d="M44 16L28 42h12l-4 22 20-26h-12l6-22z" fill="#00d9c0"/>
+    <path d="M42 22L30 42h10l-3 14 14-18h-10l5-16z" fill="#5dffe9"/>
+    <circle cx="22" cy="28" r="2" fill="#5dffe9"/>
+    <circle cx="58" cy="32" r="1.5" fill="#e0fffa"/>
+    <circle cx="26" cy="56" r="1.5" fill="#e0fffa"/>
+    <path d="M18 36c4-4 10-6 14-7M56 24c4 2 7 5 9 9" stroke="#00d9c0" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <text x="40" y="100" class="label" fill="#00d9c0">开始行动</text>
+  </g>
+  
+  <!-- 2. 记录努力 -->
+  <g transform="translate(130,15)">
+    <rect width="80" height="80" rx="18" fill="#2a1e0c" stroke="#f5a623" stroke-width="1.5"/>
+    <circle cx="40" cy="40" r="28" fill="#4a3414"/>
+    <rect x="26" y="22" width="28" height="42" rx="4" fill="#d48a0e"/>
+    <rect x="29" y="25" width="22" height="36" rx="2" fill="#f5c96a"/>
+    <line x1="33" y1="34" x2="47" y2="34" stroke="#a05f08" stroke-width="2" stroke-linecap="round"/>
+    <line x1="33" y1="42" x2="47" y2="42" stroke="#a05f08" stroke-width="2" stroke-linecap="round"/>
+    <line x1="33" y1="50" x2="42" y2="50" stroke="#a05f08" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="55" cy="26" r="7" fill="#f5a623"/>
+    <path d="M52 26l2 2 4-4" fill="none" stroke="#fff8e6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="24" y="52" width="8" height="14" rx="1" fill="#c4740a"/>
+    <rect x="25" y="53" width="6" height="12" rx="1" fill="#f5d28a"/>
+    <text x="40" y="100" class="label" fill="#f5a623">记录努力</text>
+  </g>
+  
+  <!-- 3. 今日统计 -->
+  <g transform="translate(240,15)">
+    <rect width="80" height="80" rx="18" fill="#1f1633" stroke="#8b5cf6" stroke-width="1.5"/>
+    <circle cx="40" cy="40" r="28" fill="#332355"/>
+    <rect x="22" y="52" width="9" height="16" rx="2" fill="#6d3add"/>
+    <rect x="35" y="42" width="9" height="26" rx="2" fill="#8b5cf6"/>
+    <rect x="48" y="30" width="9" height="38" rx="2" fill="#a78bfa"/>
+    <circle cx="26.5" cy="46" r="2" fill="#a78bfa"/>
+    <circle cx="39.5" cy="36" r="2" fill="#ddd6ff"/>
+    <circle cx="52.5" cy="24" r="2" fill="#ddd6ff"/>
+    <path d="M26.5 46l13-10 13-12" fill="none" stroke="#ddd6ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="22" cy="26" r="1.5" fill="#a78bfa"/>
+    <circle cx="62" cy="56" r="1.5" fill="#a78bfa"/>
+    <text x="40" y="100" class="label" fill="#a78bfa">今日统计</text>
+  </g>
+  
+  <!-- 4. 今日分类分布 -->
+  <g transform="translate(350,15)">
+    <rect width="80" height="80" rx="18" fill="#2d1512" stroke="#f97066" stroke-width="1.5"/>
+    <circle cx="40" cy="40" r="28" fill="#4a201b"/>
+    <circle cx="40" cy="40" r="20" fill="none" stroke="#c0392b" stroke-width="6" stroke-dasharray="60 66" transform="rotate(-90 40 40)"/>
+    <circle cx="40" cy="40" r="20" fill="none" stroke="#f97066" stroke-width="6" stroke-dasharray="38 88" stroke-dashoffset="-62" transform="rotate(-90 40 40)"/>
+    <circle cx="40" cy="40" r="20" fill="none" stroke="#ffaaa3" stroke-width="6" stroke-dasharray="22 104" stroke-dashoffset="-102" transform="rotate(-90 40 40)"/>
+    <circle cx="40" cy="40" r="8" fill="#ffddd9"/>
+    <circle cx="40" cy="40" r="3" fill="#fff5f4"/>
+    <circle cx="22" cy="28" r="2" fill="#ffaaa3"/>
+    <circle cx="58" cy="52" r="1.8" fill="#ffddd9"/>
+    <path d="M18 52c3-3 7-5 11-6" stroke="#f97066" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+    <text x="40" y="100" class="label" fill="#f97066">今日分类分布</text>
+  </g>
+  
+  <!-- 5. 最近行动 -->
+  <g transform="translate(460,15)">
+    <rect width="80" height="80" rx="18" fill="#101b2d" stroke="#3b82f6" stroke-width="1.5"/>
+    <circle cx="40" cy="40" r="28" fill="#182d4d"/>
+    <circle cx="40" cy="40" r="18" fill="none" stroke="#3b82f6" stroke-width="4"/>
+    <circle cx="40" cy="40" r="18" fill="none" stroke="#60a5fa" stroke-width="2" stroke-dasharray="20 93" transform="rotate(-90 40 40)"/>
+    <circle cx="40" cy="40" r="4" fill="#dbeafe"/>
+    <line x1="40" y1="40" x2="40" y2="28" stroke="#dbeafe" stroke-width="2" stroke-linecap="round"/>
+    <line x1="40" y1="40" x2="49" y2="45" stroke="#60a5fa" stroke-width="2" stroke-linecap="round"/>
+    <rect x="24" y="58" width="32" height="6" rx="3" fill="#3b82f6"/>
+    <rect x="26" y="60" width="20" height="2" rx="1" fill="#dbeafe"/>
+    <circle cx="22" cy="26" r="2" fill="#60a5fa"/>
+    <circle cx="58" cy="56" r="1.5" fill="#dbeafe"/>
+    <text x="40" y="100" class="label" fill="#60a5fa">最近行动</text>
+  </g>
+</svg>

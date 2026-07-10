@@ -1,0 +1,172 @@
+/* ================================================================
+   Layout — 全局布局、背景、主内容区
+   ================================================================ */
+
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    font-family: var(--font-family);
+    background: #1A1C1E;
+    color: var(--color-text-primary);
+    display: flex;
+    position: relative;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== 背景装饰球体 ===== */
+.bg-orb {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.12;
+    pointer-events: none;
+    z-index: 0;
+}
+.bg-orb--1 {
+    width: 520px; height: 520px;
+    background: var(--color-primary);
+    top: -180px; right: -120px;
+}
+.bg-orb--2 {
+    width: 400px; height: 400px;
+    background: var(--color-accent);
+    bottom: -140px; left: -100px;
+}
+.bg-orb--3 {
+    width: 300px; height: 300px;
+    background: var(--color-primary-light);
+    top: 40%; left: 45%;
+    opacity: 0.06;
+}
+
+/* ===== 主内容区域 ===== */
+.main-content {
+    flex: 1;
+    margin-left: var(--sidebar-width);
+    height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+    z-index: 1;
+    padding: 32px;
+    scroll-behavior: smooth;
+}
+
+/* ===== 页面容器 ===== */
+.page {
+    display: none;
+    max-width: var(--content-max-width);
+    margin: 0 auto;
+    animation: pageEnter 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.page--active {
+    display: block;
+}
+
+@keyframes pageEnter {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ===== 页面标题 ===== */
+.page-header {
+    margin-bottom: 28px;
+}
+.page-header--with-icon {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+.page-header__icon {
+    flex-shrink: 0;
+}
+.page-header__icon svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+.page-header__title {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: #96D8B8;
+}
+.page-header__subtitle {
+    font-size: 13px;
+    color: #A0A8A6;
+    margin-top: 4px;
+}
+
+/* ===== 两列布局 ===== */
+.grid-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+/* ===== 三列布局 ===== */
+.grid-3col {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+}
+
+/* ===== 四列布局 ===== */
+.grid-4col {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+}
+
+/* ===== Section spacing ===== */
+.section {
+    margin-bottom: 28px;
+}
+.section__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.section__title svg {
+    width: 18px;
+    height: 18px;
+    opacity: 0.7;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 1200px) {
+    .grid-3col { grid-template-columns: repeat(2, 1fr); }
+    .grid-4col { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 900px) {
+    .grid-2col { grid-template-columns: 1fr; }
+    .grid-3col { grid-template-columns: 1fr; }
+    .grid-4col { grid-template-columns: repeat(2, 1fr); }
+    .main-content { padding: 20px; }
+}
+@media (max-width: 700px) {
+    :root { --sidebar-width: 0px; }
+    .sidebar { transform: translateX(-100%); }
+    .sidebar--open { transform: translateX(0); }
+    .main-content { margin-left: 0; }
+}
