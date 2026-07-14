@@ -72,13 +72,37 @@ class ToggleCheckinResponse(BaseModel):
 
 
 # ================================================================
+# AI 行动解析对话
+# ================================================================
+class AIChatActionRequest(BaseModel):
+    messages: list  # 对话历史 [{role, content}, ...]
+
+
+class AISubmitActionItem(BaseModel):
+    category_id: str
+    sub_type: str = ""
+    duration: int = 0
+    note: str = ""
+    dimension_exp: float = 0
+    sleep_start: str = ""
+    sleep_end: str = ""
+
+
+class AISubmitActionsRequest(BaseModel):
+    actions: list[AISubmitActionItem]
+
+
+# ================================================================
 # 行动记录
 # ================================================================
 class CreateActionRequest(BaseModel):
     category_id: str
     start_time: str
-    duration: int
+    duration: int = 0
     note: str = ''
+    sub_type: str = ''  # 子类型：health-sport/health-sleep/relation-online/relation-offline/work-daily/work-overtime-weekday/work-overtime-weekend/create-output/create-material/create-publish/finance-study/finance-review
+    sleep_start: str = ''  # 睡觉时间 HH:MM（健康-睡眠模式用）
+    sleep_end: str = ''  # 起床时间 HH:MM（健康-睡眠模式用）
 
 
 class ActionLogResponse(BaseModel):
@@ -205,3 +229,20 @@ class UpdateRewardRequest(BaseModel):
 
 class ManualConfirmRequest(BaseModel):
     condition_text: str
+
+
+# ================================================================
+# 习惯 AI 分析
+# ================================================================
+class HabitAIInsightRequest(BaseModel):
+    date_from: str  # ISO date: YYYY-MM-DD
+    date_to: str  # ISO date: YYYY-MM-DD
+
+
+# ================================================================
+# 习惯 AI 图标设计
+# ================================================================
+class HabitAIIconRequest(BaseModel):
+    name: str
+    intro: str = ""
+    category: str

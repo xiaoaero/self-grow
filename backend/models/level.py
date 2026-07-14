@@ -10,7 +10,7 @@ import math
 
 def exp_for_level(L: int) -> int:
     """计算从 L 级升到 L+1 级所需的经验值"""
-    if L <= 0:
+    if L <= 0 or L >= 200:
         return 0
     return round(5.5632 * (L - 1) ** 2 + 300)
 
@@ -25,6 +25,8 @@ def total_exp_for_level(L: int) -> int:
 
 def level_from_total_exp(total_exp: int) -> int:
     """根据累计总经验值计算当前等级（上限 200 级）"""
+    if total_exp <= 0:
+        return 1
     level = 1
     cumulative = 0
     while level < 200:
@@ -33,4 +35,4 @@ def level_from_total_exp(total_exp: int) -> int:
             break
         cumulative += need
         level += 1
-    return level
+    return min(level, 200)

@@ -20,6 +20,7 @@ const AppData = {
         name: '冒险者',
         level: 1,
         exp: 0,
+        totalExp: 0,
         streak: 0,
         joined: new Date().toISOString().slice(0, 10),
         get expToNext() { return expForLevel(this.level); },
@@ -34,14 +35,14 @@ const AppData = {
 
     // 分类定义（8大属性维度）
     categories: [
-        { id: 'health',    name: '健康',   color: '#FF7B72', expRate: 10 },
-        { id: 'study',     name: '学习',   color: '#58D5C9', expRate: 10 },
-        { id: 'relation',  name: '关系',   color: '#FF91A8', expRate: 8  },
-        { id: 'work',      name: '工作',   color: '#FFCA40', expRate: 12 },
-        { id: 'create',    name: '创作',   color: '#B794F6', expRate: 8  },
-        { id: 'finance',   name: '财务',   color: '#4ADE80', expRate: 6  },
-        { id: 'hobby',     name: '爱好',   color: '#F472B6', expRate: 7  },
-        { id: 'soul',      name: '心灵',   color: '#FBBF24', expRate: 9  },
+        { id: 'health',    name: '健康',   color: '#FF7B72', expRate: 10, globalRate: 1.0  },
+        { id: 'study',     name: '学习',   color: '#58D5C9', expRate: 10, globalRate: 1.0  },
+        { id: 'relation',  name: '关系',   color: '#FF91A8', expRate: 8,  globalRate: 0.5  },
+        { id: 'work',      name: '工作',   color: '#FFCA40', expRate: 12, globalRate: 1.0  },
+        { id: 'create',    name: '创作',   color: '#B794F6', expRate: 8,  globalRate: 0.5  },
+        { id: 'finance',   name: '财务',   color: '#4ADE80', expRate: 6,  globalRate: 0.5  },
+        { id: 'hobby',     name: '爱好',   color: '#F472B6', expRate: 7,  globalRate: 0.75 },
+        { id: 'soul',      name: '魅力',   color: '#FBBF24', expRate: 9,  globalRate: 0.5  },
     ],
 
     // 八维属性（启动时由后端加载覆盖）

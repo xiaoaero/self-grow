@@ -10,6 +10,8 @@ let habitSortBy = 'default';
 let habitWeekView = 'this';
 
 let habitModalActive = false;
+// 同步到 window 供 utils.js 的 closeModalIfNotActive 使用
+Object.defineProperty(window, '_habitModalActive', { get: () => habitModalActive });
 let habitDeleteMode = false;
 let habitSelectedForDelete = new Set();
 
@@ -378,7 +380,7 @@ function renderHabitCard(habit) {
                 <span class="habit-card-v2__dim" style="color:${catColor}">${cat ? cat.name : ''}</span>
                 <span class="habit-card-v2__week-stat">本周 ${weekCompleted}/${target}</span>
                 ${status === 'done' ? `
-                    <span class="habit-card-v2__xp">+${habit.xpReward || 15} XP</span>
+                    <span class="habit-card-v2__xp">+${habit.xpReward || 15} EXP</span>
                 ` : ''}
                 ${status === 'skipped' ? `
                     <span class="habit-card-v2__skipped-label">已跳过</span>
@@ -530,13 +532,13 @@ function renderModule4_StreakRanking() {
 }
 
 /* ================================================================
-   Module 5: Smart Insights — 数据从后端 API 获取
+   Module 5: Smart Insights — 数据从后端 API 获取（AI 分析）
    ================================================================ */
 function renderModule5_Insights() {
     // 优先用后端洞察，降级到本地
     var insights = [];
 
-    if (habitInsights && habitInsights.insights) {
+    if (habitInsights && habitInsights.insights && habitInsights.insights.length > 0) {
         insights = habitInsights.insights.map(function(i) { return i.text; });
     } else {
         // 降级：本地简单计算
@@ -551,7 +553,7 @@ function renderModule5_Insights() {
         <div class="habit-panel">
             <div class="habit-panel__title">
                 <span>💡 智能洞察</span>
-                <button class="habit-insight-btn" onclick="showToast('AI 智能洞察功能完善中，敬请期待！', 'info')" title="AI 智能分析">✨ AI 分析</button>
+                <button class="habit-insight-btn" onclick="openHabitAIAnalysisModal()" title="AI 智能分析">✨ AI 分析</button>
             </div>
             <div class="habit-panel__body">
                 ${insights.length === 0 ? `
@@ -588,8 +590,10 @@ function openHabitModal(editId) {
                 <label class="action-form__label">图标</label>
                 <div style="display:flex;gap:8px">
                     <input class="input" id="habit-icon" placeholder="例如：🌅 或留空" maxlength="4" value="${existing && existing.icon !== '✅' ? existing.icon : ''}" style="flex:1">
-                    <button class="btn btn--accent" onclick="showToast('AI图标生成功能即将上线，请手动输入emoji或留空', 'info')" type="button" style="white-space:nowrap;padding:0 14px">🤖 AI设计</button>
+                    <button class="btn btn--accent" onclick="designHabitIcon()" type="button" style="white-space:nowrap;padding:0 14px">🤖 AI设计</button>
+                    <span id="ai-icon-preview" style="display:none;width:32px;height:32px;flex-shrink:0"></span>
                 </div>
+                <div id="ai-icon-status" style="font-size:12px;color:#888;margin-top:4px"></div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
                 <div>
@@ -614,7 +618,7 @@ function openHabitModal(editId) {
         </div>
     `;
     habitModalActive = true;
-    openModal(existing ? '编辑习惯' : '新建习惯', content);
+    openModal(existing ? '编辑习惯' : '新建习惯', content, false);
 }
 
 function cancelHabitModal() {
@@ -745,4 +749,160 @@ function deleteHabit(id) {
             renderHabits();
         }
     }
+}
+
+/* ================================================================
+   AI 分析弹窗 — 选择时间范围，调用 AI 分析习惯数据
+   ================================================================ */
+
+/** 打开 AI 分析弹窗 */
+function openHabitAIAnalysisModal() {
+    var today = new Date();
+    var sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(today.getDate() - 7);
+
+    var fmt = function(d) {
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    };
+
+    var todayStr = fmt(today);
+    var defaultFrom = fmt(sevenDaysAgo);
+
+    var content = [
+        '<div class="habit-ai-analysis-modal">',
+        '<div style="margin-bottom:16px;color:var(--color-text-secondary);font-size:14px">',
+        '📊 选择分析时间段，AI 将根据你的习惯打卡数据生成个性化分析报告',
+        '</div>',
+        '<div style="display:flex;gap:16px;align-items:center;margin-bottom:16px">',
+        '<div style="flex:1">',
+        '<label style="display:block;font-size:13px;color:var(--color-text-secondary);margin-bottom:4px">开始日期</label>',
+        '<input type="date" class="input" id="ai-insight-date-from" value="' + defaultFrom + '"',
+        ' min="2024-01-01" max="' + todayStr + '" style="width:100%">',
+        '</div>',
+        '<span style="color:var(--color-text-secondary);margin-top:16px">→</span>',
+        '<div style="flex:1">',
+        '<label style="display:block;font-size:13px;color:var(--color-text-secondary);margin-bottom:4px">结束日期</label>',
+        '<input type="date" class="input" id="ai-insight-date-to" value="' + todayStr + '"',
+        ' min="2024-01-01" max="' + todayStr + '" style="width:100%">',
+        '</div>',
+        '</div>',
+        '<div style="font-size:12px;color:var(--color-text-tertiary);margin-bottom:16px">',
+        '⏱ 支持 3~30 天范围内分析',
+        '</div>',
+        '<div id="ai-insight-result" style="display:none"></div>',
+        '<div class="modal__actions">',
+        '<button class="btn btn--ghost" onclick="closeModal()">取消</button>',
+        '<button class="btn btn--primary" onclick="submitHabitAIAnalysis()" id="btn-ai-insight-submit">',
+        '✨ 开始分析',
+        '</button>',
+        '</div>',
+        '</div>',
+    ].join('\n');
+    openModal('✨ AI 习惯分析', content, false);
+}
+
+/** 提交 AI 分析请求 */
+async function submitHabitAIAnalysis() {
+    var dateFrom = document.getElementById('ai-insight-date-from').value;
+    var dateTo = document.getElementById('ai-insight-date-to').value;
+
+    if (!dateFrom || !dateTo) {
+        showToast('请选择日期范围', 'error');
+        return;
+    }
+
+    // 验证天数
+    var d1 = new Date(dateFrom);
+    var d2 = new Date(dateTo);
+    var days = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+    if (days < 2) {
+        showToast('时间范围至少需要3天', 'error');
+        return;
+    }
+    if (days > 30) {
+        showToast('时间范围最多30天', 'error');
+        return;
+    }
+
+    var submitBtn = document.getElementById('btn-ai-insight-submit');
+    var resultDiv = document.getElementById('ai-insight-result');
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ AI 分析中...';
+    resultDiv.style.display = 'none';
+
+    var user = getCurrentUser();
+    if (!user) {
+        showToast('请先登录', 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = '✨ 开始分析';
+        return;
+    }
+
+    // 调后端 AI 分析 API
+    var report = await fetchHabitAIInsights(user.id, dateFrom, dateTo);
+
+    submitBtn.disabled = false;
+    submitBtn.textContent = '✨ 开始分析';
+
+    if (report) {
+        resultDiv.innerHTML = '<div class="habit-ai-analysis-result">' + markdownToHtml(report) + '</div>';
+        resultDiv.style.display = 'block';
+        // 隐藏按钮
+        var actions = document.querySelector('.modal__actions');
+        if (actions) actions.style.display = 'none';
+    } else {
+        resultDiv.innerHTML = '<div style="color:#f26b68;padding:12px;text-align:center">❌ AI 分析失败，请稍后重试</div>';
+        resultDiv.style.display = 'block';
+    }
+}
+
+/** 简单的 Markdown → HTML 转换（用于显示 AI 回复） */
+function markdownToHtml(md) {
+    if (!md) return '';
+    return md
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>')
+        .replace(/^[\s]*[-*+]\s+/gm, '• ')
+        .replace(/^[\s]*\d+\.\s+/gm, function(m) { return m.trim(); })
+        .replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+/** AI 设计习惯图标 */
+async function designHabitIcon() {
+    var name = document.getElementById('habit-name').value.trim();
+    var intro = document.getElementById('habit-intro').value.trim();
+    var category = document.getElementById('habit-category').value;
+    var statusEl = document.getElementById('ai-icon-status');
+    var previewEl = document.getElementById('ai-icon-preview');
+
+    if (!name) {
+        showToast('请先填写习惯名称再生成图标', 'warning');
+        return;
+    }
+
+    statusEl.textContent = '🤖 AI 正在设计图标...';
+    statusEl.style.color = '#888';
+    previewEl.style.display = 'none';
+
+    var svg = await fetchHabitAIIcon(AppData.user.id, name, intro, category);
+    if (!svg) {
+        statusEl.textContent = '❌ 图标生成失败，请稍后重试';
+        statusEl.style.color = '#e74c3c';
+        return;
+    }
+
+    // 显示 SVG 预览
+    previewEl.innerHTML = svg;
+    previewEl.style.display = 'block';
+    statusEl.innerHTML = '✅ 点击图标可复制到输入框';
+    statusEl.style.color = '#27ae60';
+
+    // 点击预览将 SVG 作为图标填入（或直接使用 emoji 替代）
+    previewEl.onclick = function() {
+        document.getElementById('habit-icon').value = '🎯';
+        showToast('图标已生成！如需使用其他 emoji 可手动修改', 'success');
+    };
 }

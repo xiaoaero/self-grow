@@ -24,7 +24,7 @@ function renderStatCard(icon, value, label, trend, trendUp) {
 
 /** Render progress bar */
 function renderProgress(value, max, variant = 'primary', showText = true) {
-    const pct = Math.min(Math.round((value / max) * 100), 100);
+    const pct = max > 0 ? Math.min(Math.round((value / max) * 100), 100) : 0;
     return `
         <div>
             ${showText ? `<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px">

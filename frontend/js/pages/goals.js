@@ -116,7 +116,7 @@ async function loadGoalsFromBackend() {
 function renderGoalCard(goal) {
     const cat = getCategory(goal.category);
     const catColors = GOAL_COLORS[goal.category] || GOAL_COLORS.study;
-    const deadlineDate = new Date(goal.deadline);
+    const deadlineDate = new Date(goal.deadline + 'T23:59:59');
     const now = new Date();
     const daysLeft = Math.ceil((deadlineDate - now) / (1000 * 60 * 60 * 24));
     const urgencyColor = daysLeft < 30 ? '#F26B68' : daysLeft < 60 ? '#F7C242' : '#A0A8A6';
@@ -129,8 +129,8 @@ function renderGoalCard(goal) {
             <div class="goal-card__header">
                 <div class="goal-card__header-left">
                     <span class="goal-card__icon" style="color:${catColors.icon}">
-                        ${goal.categoryImage
-                            ? `<span class="goal-card__ai-img" style="background-image:url('${goal.categoryImage}')"></span>`
+                        ${goal.category_image
+                            ? `<span class="goal-card__ai-img" style="background-image:url('${goal.category_image}')"></span>`
                             : (cat ? attrIcon(cat.id, 20) : '')}
                     </span>
                     <div class="goal-card__header-info">
@@ -189,6 +189,8 @@ function toggleDeleteMode() {
 
 /* ---- Modal ---- */
 let goalModalActive = false;
+// 同步到 window 供 utils.js 的 closeModalIfNotActive 使用
+Object.defineProperty(window, '_goalModalActive', { get: () => goalModalActive });
 
 function openGoalModal(editId) {
     const existing = editId ? goals.find(g => g.id === editId) : null;
@@ -273,7 +275,7 @@ function openGoalModal(editId) {
     // Store existing reference for applyMsCount
     window._goalEditId = editId || 0;
     window._goalExisting = existing;
-    openModal(existing ? '编辑目标' : '新建目标', content);
+    openModal(existing ? '编辑目标' : '新建目标', content, false);
 }
 
 /** Rebuild milestone editor rows when count changes */
@@ -358,6 +360,7 @@ function saveGoal(editId) {
         category,
         deadline,
         reward_exp: rewardExp,
+        category_image: '',  // TODO: 接入图片上传后填入实际值
         milestones,
     };
 
@@ -390,7 +393,7 @@ function saveGoal(editId) {
                 rewardExp, milestones, progress,
                 claimed: false,
                 status: progress >= 100 ? 'completed' : 'active',
-                categoryImage: null,
+                category_image: '',
             });
         }
         closeGoalModal();
@@ -482,6 +485,12 @@ function localClaimGoal(id) {
     goal.claimed = true;
     AppData.user.exp += goal.rewardExp || 0;
     AppData.todayStats.expEarned += goal.rewardExp || 0;
+    // 重新计算等级
+    const oldLevel = AppData.user.level;
+    AppData.user.level = levelFromTotalExp(AppData.user.exp);
+    if (AppData.user.level > oldLevel) {
+        setTimeout(() => showToast(`🎉 升级！Lv.${oldLevel} → Lv.${AppData.user.level}`, 'success'), 500);
+    }
     renderGoals();
     showToast(`目标达成！获得 +${goal.rewardExp || 0} EXP`, 'success');
 }
@@ -491,10 +500,3 @@ function closeGoalModal() {
     goalModalActive = false;
     closeModal();
 }
-
-// Override closeModal for goal, task, habit & reward modal protection (block outside click)
-const _origCloseModal = closeModal;
-closeModal = function() {
-    if (goalModalActive || (typeof taskModalActive !== 'undefined' && taskModalActive) || (typeof habitModalActive !== 'undefined' && habitModalActive) || (typeof rewardModalActive !== 'undefined' && rewardModalActive)) return;
-    _origCloseModal();
-};

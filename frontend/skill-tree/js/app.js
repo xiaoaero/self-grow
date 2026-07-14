@@ -937,51 +937,80 @@ class App {
 
   initUserMode() {
     var treeId = new URLSearchParams(location.search).get('treeId') || 'default';
-    var data = this._loadPublishedTree(treeId);
-    if (data) {
-      this.loadData(data);
-      this.interaction.fitToScreen(this.nodes);
-    } else {
-      showToast('未找到该技能树数据', 'error');
-    }
+    this._loadPublishedTree(treeId);
   }
 
   initPreviewMode() {
     var treeId = new URLSearchParams(location.search).get('treeId') || 'default';
-    var data = this._loadPublishedTree(treeId);
-    if (data) {
-      // 所有节点强制 completed
-      (data.nodes || []).forEach(function(n) {
-        n.progress = 100;
-      });
-      this.loadData(data);
-      this.interaction.fitToScreen(this.nodes);
-    } else {
-      showToast('未找到该技能树数据', 'error');
-    }
+    var self = this;
+    this._loadPublishedTree(treeId);
+    // 在 _loadPublishedTree 的回调中会调用 loadData，
+    // 我们在这里用 setTimeout 等第一次渲染完成后强制设置 progress=100
+    var checkInterval = setInterval(function() {
+      if (self.nodes && self.nodes.length > 0) {
+        self.nodes.forEach(function(n) { n.progress = 100; });
+        self.renderer.renderAll(self.nodes, self.connections);
+        clearInterval(checkInterval);
+      }
+    }, 100);
+    // 5秒后停止检查
+    setTimeout(function() { clearInterval(checkInterval); }, 5000);
   }
 
+  /** 用户模式 / 预览模式：加载已发布的技能树，优先从后端，降级到 localStorage */
   _loadPublishedTree(treeId) {
+    var userId = new URLSearchParams(location.search).get('userId') || '';
+    var learnerKey = treeId + (userId ? '_learner_' + userId : '_learner');
+    var self = this;
+
+    // 异步尝试从后端加载
+    fetchPublishedSkillTree(treeId).then(function(serverTree) {
+      if (serverTree && serverTree.published_data) {
+        var pd = serverTree.published_data;
+        // 合并 learner 进度
+        var learner = pd.learner || {};
+        (pd.nodes || []).forEach(function(n) {
+          var p = learner[n.id];
+          if (p !== undefined) n.progress = p;
+        });
+        // 缓存到 localStorage
+        saveToStorage(treeId + '_published', pd);
+        self.loadData(pd);
+        return;
+      }
+      // 后端无数据，尝试 localStorage
+      self._loadPublishedTreeFromLocal(treeId);
+    }).catch(function() {
+      // 后端不可用，降级到 localStorage
+      self._loadPublishedTreeFromLocal(treeId);
+    });
+  }
+
+  /** 从 localStorage 加载已发布的技能树（降级方案） */
+  _loadPublishedTreeFromLocal(treeId) {
     var userId = new URLSearchParams(location.search).get('userId') || '';
     var learnerKey = treeId + (userId ? '_learner_' + userId : '_learner');
     // 1. 优先读发布版
     var published = loadFromStorage(treeId + '_published');
     if (published) {
-      // 合并 learner 进度
       var learner = loadFromStorage(learnerKey, {});
       (published.nodes || []).forEach(function(n) {
         var p = learner[n.id];
         if (p !== undefined) n.progress = p;
       });
-      return published;
+      this.loadData(published);
+      return;
     }
     // 2. 回退到草稿版
     var draft = loadFromStorage('tree_' + treeId);
-    if (draft) return draft;
-    return null;
+    if (draft) {
+      this.loadData(draft);
+      return;
+    }
+    showToast('未找到该技能树数据', 'error');
   }
 
-  /** 用户模式：持久化学习进度到独立的 learner key */
+  /** 用户模式：持久化学习进度 */
   _saveLearnerProgress() {
     var treeId = new URLSearchParams(location.search).get('treeId');
     if (!treeId) return;
@@ -997,6 +1026,9 @@ class App {
       published.learner = JSON.parse(JSON.stringify(learner));
       saveToStorage(treeId + '_published', published);
     }
+
+    // 异步同步到后端
+    saveLearnerProgressOnServer(treeId, learner);
   }
 
   /* ================================================================
@@ -1004,7 +1036,43 @@ class App {
      ================================================================ */
 
   initDefaultTree() {
-    // 检查 localStorage 中是否有有效数据
+    var self = this;
+
+    // 先尝试从后端加载索引
+    fetchSkillTreeIndex().then(function(serverTrees) {
+      if (serverTrees && serverTrees.length > 0) {
+        // 后端有数据，加载第一棵
+        self.sidebar.trees = serverTrees;
+        self.sidebar._saveIndex();
+        self.sidebar.currentId = serverTrees[0].id;
+
+        // 从后端加载草稿数据
+        fetchSkillTreeDraft(serverTrees[0].id).then(function(draft) {
+          if (draft && draft.data) {
+            self.loadData(draft.data);
+          } else {
+            var data = self.sidebar.getCurrentTreeData();
+            if (data) self.loadData(data);
+          }
+          self.sidebar._renderList();
+          self._updatePublishButtons();
+          self.interaction.fitToScreen(self.nodes);
+        }).catch(function() {
+          // 降级到 localStorage
+          self._initDefaultTreeFromLocal();
+        });
+        return;
+      }
+      // 后端无数据，降级到 localStorage
+      self._initDefaultTreeFromLocal();
+    }).catch(function() {
+      // 后端不可用，降级到 localStorage
+      self._initDefaultTreeFromLocal();
+    });
+  }
+
+  /** 从 localStorage 初始化默认树（降级方案） */
+  _initDefaultTreeFromLocal() {
     const index = loadFromStorage('skill_tree_index', []);
     const validTrees = index.filter(t => {
       const data = loadFromStorage('tree_' + t.id);
@@ -1012,7 +1080,6 @@ class App {
     });
 
     if (validTrees.length > 0) {
-      // 有有效树，加载第一棵
       this.sidebar.trees = validTrees;
       this.sidebar._saveIndex();
       this.sidebar.currentId = validTrees[0].id;

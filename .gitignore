@@ -16,3 +16,6 @@ __pycache__/
 # IDE
 .idea/workspace.xml
 .idea/*.iml
+
+# IDE
+.idea/

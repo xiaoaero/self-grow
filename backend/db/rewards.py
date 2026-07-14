@@ -104,6 +104,55 @@ def delete_reward(reward_id: int) -> bool:
     return True
 
 
+# ================================================================
+# 奖励草稿 CRUD
+# ================================================================
+
+def save_reward_draft(user_id: int, data: dict) -> bool:
+    """保存/覆盖奖励草稿"""
+    unlock_json = json.dumps(data.get("unlock_conditions", []), ensure_ascii=False)
+    claim_json = json.dumps(data.get("claim_conditions", []), ensure_ascii=False)
+    conn = get_conn()
+    conn.execute(
+        """INSERT INTO reward_drafts (user_id, title, desc, icon, category, image,
+           unlock_conditions, claim_conditions, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(user_id) DO UPDATE SET
+           title=excluded.title, desc=excluded.desc, icon=excluded.icon,
+           category=excluded.category, image=excluded.image,
+           unlock_conditions=excluded.unlock_conditions,
+           claim_conditions=excluded.claim_conditions,
+           updated_at=datetime('now')""",
+        (user_id, data.get("title", ""), data.get("desc", ""), data.get("icon", "🎁"),
+         data.get("category", ""), data.get("image", ""), unlock_json, claim_json),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_reward_draft(user_id: int) -> dict | None:
+    """获取用户草稿"""
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM reward_drafts WHERE user_id = ?", (user_id,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    d = dict(row)
+    d["unlock_conditions"] = json.loads(d.get("unlock_conditions", "[]"))
+    d["claim_conditions"] = json.loads(d.get("claim_conditions", "[]"))
+    return d
+
+
+def delete_reward_draft(user_id: int) -> bool:
+    """删除草稿"""
+    conn = get_conn()
+    conn.execute("DELETE FROM reward_drafts WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
 def claim_reward(reward_id: int, user_id: int) -> dict:
     """领取奖励（后端校验条件），返回 exp_earned 或 None"""
     conn = get_conn()
@@ -210,10 +259,6 @@ def evaluate_condition(user_id: int, condition: dict, reward: dict = None) -> bo
         ).fetchone()
         conn.close()
         return row and row["level"] >= threshold
-
-    elif ctype == "total_exp":
-        total = get_total_exp_from_dimensions(user_id)
-        return total >= threshold
 
     elif ctype == "exp_since_create":
         total = get_total_exp_from_dimensions(user_id)

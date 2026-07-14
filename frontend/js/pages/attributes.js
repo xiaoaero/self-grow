@@ -11,7 +11,7 @@ const ATTR_INTROS = {
     create:   { notes: '写作、出内容、做模板、录视频',    description: '衡量你的内容输出和创造能力。写作、出内容、做模板、录视频等创造性活动都属于这个维度。创作是把输入转化为输出的过程，也是建立个人品牌和影响力的关键路径。' },
     finance:  { notes: '记账、理财、副业变现相关',        description: '衡量你的财务管理能力。包括记账习惯、理财规划、副业变现等。财务健康给你选择权和自由度，是支撑其他维度发展的重要资源基础。' },
     hobby:    { notes: '游戏、音乐、旅行、纯放松',        description: '衡量你的生活丰富度和幸福感。游戏、音乐、旅行、各种纯放松活动都属于爱好。爱好不是浪费时间，而是给大脑充电、保持创造力和生活热情的重要方式。' },
-    soul:     { notes: '冥想、复盘、情绪疏导、自我反思',  description: '衡量你的内在觉察和情绪管理能力。冥想、复盘、情绪疏导、自我反思都是心灵修炼。心灵维度决定你面对挫折的韧性、做决策的清晰度，以及与自己和解的能力。' },
+    soul:     { notes: '穿搭、气质、社交表达、个人形象',  description: '衡量你的个人魅力和社交吸引力。穿搭品味、气质修养、谈吐举止、社交表达都是魅力的体现。魅力维度决定了你在社交场合中的影响力、给人留下的第一印象，以及自信从容地展现自我的能力。' },
 };
 
 async function renderAttributes() {
@@ -101,11 +101,11 @@ async function renderAttributes() {
                             <tr class="attr-head-row">
                                 <th class="attr-th attr-th--num">#</th>
                                 <th class="attr-th">🔤 属性</th>
-                                <th class="attr-th">🏆 等级</th>
-                                <th class="attr-th">∑ 本级已获</th>
-                                <th class="attr-th">∑ 累计XP</th>
-                                <th class="attr-th">↑ 升级所需</th>
-                                <th class="attr-th">📊 升级进度</th>
+                                <th class="attr-th attr-th--lv">🏆 等级</th>
+                                <th class="attr-th attr-th--xp">∑ 本级已获</th>
+                                <th class="attr-th attr-th--xp">∑ 累计EXP</th>
+                                <th class="attr-th attr-th--xp">↑ 升级所需</th>
+                                <th class="attr-th attr-th--progress">📊 升级进度</th>
                                 <th class="attr-th">📝 备注</th>
                             </tr>
                         </thead>

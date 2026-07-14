@@ -65,8 +65,9 @@ async def lifespan(app_instance):
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.executors.pool import ThreadPoolExecutor
 
-        scheduler = AsyncIOScheduler()
+        scheduler = AsyncIOScheduler(executors={'default': ThreadPoolExecutor(1)})
         scheduler.add_job(run_daily_refresh, CronTrigger(hour=3, minute=0))
         scheduler.add_job(run_weekly_refresh, CronTrigger(day_of_week='mon', hour=3, minute=5))
         scheduler.start()
@@ -101,7 +102,7 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 from routers import (
     health_router, users_router, habits_router, actions_router,
     goals_router, tasks_router, scheduled_tasks_router,
-    stats_router, rewards_router, ai_router,
+    stats_router, rewards_router, ai_router, skill_tree_router,
 )
 
 app.include_router(health_router)
@@ -114,6 +115,7 @@ app.include_router(scheduled_tasks_router)
 app.include_router(stats_router)
 app.include_router(rewards_router)
 app.include_router(ai_router)
+app.include_router(skill_tree_router)
 
 
 # ================================================================

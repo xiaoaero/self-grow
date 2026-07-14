@@ -227,6 +227,23 @@ def init_db():
         )
     """)
 
+    # 奖励草稿表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS reward_drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE,
+            title TEXT DEFAULT '',
+            desc TEXT DEFAULT '',
+            icon TEXT DEFAULT '🎁',
+            category TEXT DEFAULT '',
+            image TEXT DEFAULT '',
+            unlock_conditions TEXT NOT NULL DEFAULT '[]',
+            claim_conditions TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
     # 插入默认用户
     existing = cursor.execute("SELECT id FROM users").fetchall()
     if not existing:
@@ -243,50 +260,17 @@ def init_db():
         for u in cursor.execute("SELECT id FROM users").fetchall():
             init_default_dimensions(u["id"], conn=conn)
 
-        # 为默认用户插入默认奖励
-        DEFAULT_REWARDS = [
-            {"title": "看一部电影", "desc": "奖励自己看一场想看的电影", "icon": "🎬", "category": "娱乐",
-             "unlock_conditions": [{"type": "total_exp", "threshold": 500}],
-             "claim_conditions": [{"type": "week_rate", "threshold": 100}]},
-            {"title": "游戏时间2小时", "desc": "尽情享受游戏时光", "icon": "🎮", "category": "娱乐",
-             "unlock_conditions": [{"type": "total_exp", "threshold": 1000}],
-             "claim_conditions": [{"type": "habit_streak_any", "threshold": 7}]},
-            {"title": "买一本新书", "desc": "挑选一本心仪已久的书", "icon": "📚", "category": "学习",
-             "unlock_conditions": [{"type": "goals_done", "threshold": 1}],
-             "claim_conditions": [{"type": "tasks_done", "threshold": 10}]},
-            {"title": "一次SPA放松", "desc": "预约一次SPA或按摩", "icon": "💆", "category": "健康",
-             "unlock_conditions": [{"type": "total_exp", "threshold": 1500}],
-             "claim_conditions": [{"type": "habit_streak_any", "threshold": 30}],
-             "unlocked": 1, "claimed": 1, "claimed_at": "2026-06-20"},
-            {"title": "美食大餐", "desc": "去喜欢的餐厅吃一顿", "icon": "🍽️", "category": "生活",
-             "unlock_conditions": [{"type": "total_exp", "threshold": 2000}],
-             "claim_conditions": [{"type": "habit_streak_any", "threshold": 14}, {"type": "week_rate", "threshold": 80}],
-             "unlocked": 1, "claimed": 1, "claimed_at": "2026-06-15"},
-            {"title": "新运动装备", "desc": "购买一件运动装备", "icon": "👟", "category": "购物",
-             "unlock_conditions": [{"type": "total_exp", "threshold": 3000}],
-             "claim_conditions": [{"type": "dim_level", "targetId": "health", "threshold": 5}, {"type": "habit_streak_any", "threshold": 30}]},
-            {"title": "短途旅行", "desc": "周末去周边城市游玩", "icon": "✈️", "category": "旅行",
-             "unlock_conditions": [{"type": "total_exp", "threshold": 5000}, {"type": "goals_done", "threshold": 3}],
-             "claim_conditions": [{"type": "habit_streak_any", "threshold": 60}, {"type": "tasks_done", "threshold": 50}]},
-        ]
-        for u in cursor.execute("SELECT id, total_exp FROM users").fetchall():
-            for rw in DEFAULT_REWARDS:
-                unlock_json = json.dumps(rw["unlock_conditions"], ensure_ascii=False)
-                claim_json = json.dumps(rw["claim_conditions"], ensure_ascii=False)
-                cursor.execute(
-                    """INSERT INTO rewards (user_id, title, desc, icon, category, unlock_conditions, claim_conditions, unlocked, claimed, claimed_at, created_at_exp)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (u["id"], rw["title"], rw["desc"], rw["icon"], rw["category"],
-                     unlock_json, claim_json,
-                     rw.get("unlocked", 0), rw.get("claimed", 0),
-                     rw.get("claimed_at", None), u["total_exp"]),
-                )
+        # 注意：不再为默认用户插入默认奖励，奖励商城从空开始
+        # 用户可自行创建自定义奖励，互相隔离
 
     conn.commit()
     conn.close()
 
     # 数据迁移：检测现有用户的 total_exp 是否已经分配到维度
     migrate_total_exp_to_dimensions()
+
+    # 创建技能树相关表
+    init_skill_trees_tables()
 
 
 def migrate_total_exp_to_dimensions():
@@ -319,5 +303,45 @@ def migrate_total_exp_to_dimensions():
             "UPDATE users SET level = ?, exp = ?, total_exp = ? WHERE id = ?",
             (new_level, new_current, new_total, u["id"]),
         )
+    conn.commit()
+    conn.close()
+
+
+def init_skill_trees_tables():
+    """创建技能树相关表"""
+    from db.connection import get_conn
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS skill_trees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            tree_id TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL DEFAULT '未命名技能树',
+            description TEXT DEFAULT '',
+            data TEXT NOT NULL DEFAULT '{}',
+            published_data TEXT,
+            image TEXT DEFAULT '',
+            remark TEXT DEFAULT '',
+            node_count INTEGER NOT NULL DEFAULT 0,
+            completed_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            published_at TEXT,
+            update_history TEXT NOT NULL DEFAULT '[]',
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_skills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE,
+            skill_ids TEXT NOT NULL DEFAULT '[]',
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
     conn.commit()
     conn.close()

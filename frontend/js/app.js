@@ -87,8 +87,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // Close modal on overlay click
-    document.getElementById('modal-overlay').addEventListener('click', closeModal);
+    // Close modal on overlay click (respect clickOutsideToClose flag)
+    document.getElementById('modal-overlay').addEventListener('click', function(e) {
+        if (e.target === document.getElementById('modal-overlay')) {
+            closeModalIfNotActive();
+        }
+    });
 
     console.log('🌱 个人成长系统 - Self Grow System 已就绪');
     console.log('💡 使用 Ctrl+1~8 快速切换页面');

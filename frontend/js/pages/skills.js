@@ -19,23 +19,111 @@ const SKILL_ICONS = {
 };
 
 /* ================================================================
-   工具函数
+   后端 API 工具函数
+   ================================================================ */
+
+/** 从后端获取技能树索引，降级到 localStorage */
+async function fetchSkillTreeIndexAsync() {
+    const uid = getCurrentUser()?.id;
+    if (uid) {
+        try {
+            const res = await fetch('/api/skill-trees?user_id=' + uid);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.trees && data.trees.length > 0) {
+                    // 缓存到 localStorage
+                    localStorage.setItem('skill_tree_index', JSON.stringify(data.trees));
+                    return data.trees;
+                }
+            }
+        } catch(e) {}
+    }
+    // 降级：从 localStorage 读取
+    return loadSkillTreeIndexLocal();
+}
+
+/** 从后端获取用户已添加的技能列表，降级到 localStorage */
+async function fetchMySkillsAsync() {
+    const uid = getCurrentUser()?.id;
+    if (uid) {
+        try {
+            const res = await fetch('/api/skill-trees/user-skills/list?user_id=' + uid);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.skill_ids) {
+                    localStorage.setItem('my_skills_' + uid, JSON.stringify(data.skill_ids));
+                    return data.skill_ids;
+                }
+            }
+        } catch(e) {}
+    }
+    return loadMySkillsLocal();
+}
+
+/** 保存用户已添加的技能列表到后端 */
+async function saveMySkillsAsync(list) {
+    const uid = getCurrentUser()?.id;
+    if (uid) {
+        localStorage.setItem('my_skills_' + uid, JSON.stringify(list));
+        try {
+            await fetch('/api/skill-trees/user-skills/list?user_id=' + uid, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ skill_ids: list }),
+            });
+        } catch(e) {}
+    }
+}
+
+/** 从后端获取学习进度，降级到 localStorage */
+async function fetchLearnerAsync(treeId) {
+    const uid = getCurrentUser()?.id;
+    if (uid) {
+        try {
+            const res = await fetch('/api/skill-trees/' + treeId + '/published');
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.published_data && data.published_data.learner) {
+                    return data.published_data.learner;
+                }
+            }
+        } catch(e) {}
+    }
+    return loadLearnerLocal(treeId);
+}
+
+/** 从后端获取已发布的技能树，降级到 localStorage */
+async function fetchPublishedTreeAsync(treeId) {
+    try {
+        const res = await fetch('/api/skill-trees/' + treeId + '/published');
+        if (res.ok) {
+            const data = await res.json();
+            if (data && data.published_data) {
+                return data.published_data;
+            }
+        }
+    } catch(e) {}
+    return loadPublishedTreeLocal(treeId);
+}
+
+/* ================================================================
+   localStorage 降级函数（保持原有逻辑不变）
    ================================================================ */
 
 /** 从 localStorage 读取 skill_tree_index */
-function loadSkillTreeIndex() {
+function loadSkillTreeIndexLocal() {
     try {
         const raw = localStorage.getItem('skill_tree_index');
         return raw ? JSON.parse(raw) : [];
     } catch(e) { return []; }
 }
 
-function saveSkillTreeIndex(index) {
+function saveSkillTreeIndexLocal(index) {
     localStorage.setItem('skill_tree_index', JSON.stringify(index));
 }
 
 /** 读取用户已添加的技能列表（localStorage，按用户隔离） */
-function loadMySkills() {
+function loadMySkillsLocal() {
     try {
         const uid = getCurrentUser()?.id || 'guest';
         const raw = localStorage.getItem('my_skills_' + uid);
@@ -43,18 +131,18 @@ function loadMySkills() {
     } catch(e) { return []; }
 }
 
-function saveMySkills(list) {
+function saveMySkillsLocal(list) {
     const uid = getCurrentUser()?.id || 'guest';
     localStorage.setItem('my_skills_' + uid, JSON.stringify(list));
 }
 
 /** 判断某技能是否已被添加 */
 function isSkillAdded(treeId) {
-    return loadMySkills().indexOf(treeId) !== -1;
+    return loadMySkillsLocal().indexOf(treeId) !== -1;
 }
 
-/** 读取 tree_{id}_learner_{userId} 进度（按用户隔离） */
-function loadLearner(treeId) {
+/** 读取 tree_{id}_learner_{userId} 进度（localStorage 降级） */
+function loadLearnerLocal(treeId) {
     try {
         const uid = getCurrentUser()?.id || 'guest';
         const raw = localStorage.getItem(treeId + '_learner_' + uid);
@@ -62,8 +150,8 @@ function loadLearner(treeId) {
     } catch(e) { return {}; }
 }
 
-/** 读取 tree_{id}_published 获取节点名映射 */
-function loadPublishedTree(treeId) {
+/** 读取 tree_{id}_published（localStorage 降级） */
+function loadPublishedTreeLocal(treeId) {
     try {
         const raw = localStorage.getItem(treeId + '_published');
         return raw ? JSON.parse(raw) : null;
@@ -71,12 +159,11 @@ function loadPublishedTree(treeId) {
 }
 
 /** 获取当前在学的第一个节点名称 */
-function getCurrentLearningNode(treeId) {
-    const learner = loadLearner(treeId);
-    // 找 progress === 50 的节点
+function getCurrentLearningNode(treeId, publishedTree) {
+    const learner = publishedTree ? (publishedTree.learner || {}) : {};
     const learningIds = Object.keys(learner).filter(function(id) { return learner[id] === 50; });
     if (learningIds.length > 0) {
-        const tree = loadPublishedTree(treeId);
+        const tree = publishedTree;
         if (tree && tree.nodes) {
             for (var i = 0; i < tree.nodes.length; i++) {
                 if (tree.nodes[i].id === learningIds[0]) {
@@ -99,13 +186,26 @@ function renderSkills(subPage) {
     else renderSkillLib();
 }
 
-function renderSkillMine() {
+async function renderSkillMine() {
     const user = getCurrentUser();
     const isAdmin = user && user.role === 'admin';
 
-    const index = loadSkillTreeIndex();
-    const mySkillIds = loadMySkills();
+    // 异步加载数据
+    const index = await fetchSkillTreeIndexAsync();
+    const mySkillIds = await fetchMySkillsAsync();
     const myTrees = index.filter(t => mySkillIds.indexOf(t.id) !== -1);
+
+    // 并行加载每棵树的发布数据和 learner
+    const treeDataPromises = myTrees.map(async (t) => {
+        const publishedTree = await fetchPublishedTreeAsync(t.id);
+        const learner = publishedTree ? (publishedTree.learner || {}) : {};
+        const nodeCount = t.nodeCount || (publishedTree ? publishedTree.nodes.length : 0);
+        const completedCount = Object.values(learner).filter(function(v) { return v >= 100; }).length;
+        const progressPct = nodeCount > 0 ? Math.round(completedCount / nodeCount * 100) : 0;
+        const learningNode = publishedTree ? getCurrentLearningNode(t.id, publishedTree) : null;
+        return { t, publishedTree, learner, nodeCount, completedCount, progressPct, learningNode };
+    });
+    const treeData = await Promise.all(treeDataPromises);
 
     let listHtml = '';
     if (myTrees.length === 0) {
@@ -119,12 +219,7 @@ function renderSkillMine() {
     } else {
         listHtml = `
             <div class="skill-mine-list">
-                ${myTrees.map(t => {
-                    const learner = loadLearner(t.id);
-                    const nodeCount = t.nodeCount || 0;
-                    const completedCount = Object.values(learner).filter(function(v) { return v >= 100; }).length;
-                    const progressPct = nodeCount > 0 ? Math.round(completedCount / nodeCount * 100) : 0;
-                    const learningNode = getCurrentLearningNode(t.id);
+                ${treeData.map(({ t, nodeCount, completedCount, progressPct, learningNode }) => {
                     const imageSrc = t.image || '';
                     const hasImage = imageSrc !== '';
                     return `
@@ -173,12 +268,12 @@ function renderSkillMine() {
     document.getElementById('page-skill').innerHTML = html;
 }
 
-function renderSkillLib() {
+async function renderSkillLib() {
     const user = getCurrentUser();
     const isAdmin = user && user.role === 'admin';
 
-    // 读取已上线的技能树
-    const index = loadSkillTreeIndex();
+    // 异步加载数据
+    const index = await fetchSkillTreeIndexAsync();
     const publishedTrees = index.filter(t => t.publishedAt);
 
     let listHtml = '';
@@ -283,11 +378,12 @@ function closeSkillDetailModal() {
     if (modal) modal.remove();
 }
 
-function handleSkillAdd(treeId) {
+async function handleSkillAdd(treeId) {
     if (isSkillAdded(treeId)) return;
-    var list = loadMySkills();
+    var list = loadMySkillsLocal();
     list.push(treeId);
-    saveMySkills(list);
+    saveMySkillsLocal(list);
+    await saveMySkillsAsync(list);
     var btn = document.getElementById('btn-skill-add');
     if (btn) {
         btn.textContent = '✅ 已添加';
@@ -349,7 +445,7 @@ function openSkillEditModal(treeId) {
     var old = document.getElementById('skill-edit-modal');
     if (old) old.remove();
 
-    var index = loadSkillTreeIndex();
+    var index = loadSkillTreeIndexLocal();
     var entry = null;
     for (var i = 0; i < index.length; i++) {
         if (index[i].id === treeId) { entry = index[i]; break; }
@@ -484,7 +580,7 @@ function closeSkillEditModal() {
 }
 
 function saveSkillEdit(treeId) {
-    var index = loadSkillTreeIndex();
+    var index = loadSkillTreeIndexLocal();
     var found = false;
     for (var i = 0; i < index.length; i++) {
         if (index[i].id === treeId) {
@@ -502,7 +598,7 @@ function saveSkillEdit(treeId) {
     }
     if (!found) { showToast('技能数据异常', 'error'); return; }
 
-    saveSkillTreeIndex(index);
+    saveSkillTreeIndexLocal(index);
     closeSkillEditModal();
     showToast('✅ 已保存');
     // 重新渲染

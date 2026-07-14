@@ -5,7 +5,7 @@
 
 class AIBridge {
   constructor() {
-    this.serverUrl = 'http://localhost:3001';
+    this.serverUrl = window.API_BASE || 'http://localhost:3001';
     this.messages = [];   // 对话历史
     this.abortController = null;
 
@@ -15,6 +15,9 @@ class AIBridge {
     this.inputEl = document.getElementById('ai-input');
     this.sendBtn = document.getElementById('btn-ai-send');
     this.quickBtns = document.querySelectorAll('.ai-quick-btn');
+
+    // 最大工具调用轮次（防止无限循环）
+    this.maxToolRounds = 5;
 
     this.bindUI();
   }
@@ -50,9 +53,95 @@ class AIBridge {
     this.addMessage('user', text);
     this.setLoading(true);
 
-    // 构建树状态
+    try {
+      await this.sendToAI(0);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        this.addMessage('system', '已取消');
+      } else {
+        this.addMessage('system', `❌ ${err.message}`);
+      }
+    } finally {
+      this.setLoading(false);
+      this.abortController = null;
+    }
+  }
+
+  /**
+   * 递归调用 AI，支持多轮 Tool Use 循环
+   * @param {number} round 当前轮次
+   */
+  async sendToAI(round) {
+    if (round >= this.maxToolRounds) {
+      this.addMessage('system', `⚠️ AI 已达到最大工具调用轮次 (${this.maxToolRounds})`);
+      return;
+    }
+
+    this.abortController = new AbortController();
+
+    const response = await fetch(`${this.serverUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: this.messages.slice(-20), // 只发最近 20 条
+        tree_state: this.buildTreeState()
+      }),
+      signal: this.abortController.signal
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      throw new Error(`服务器错误 ${response.status}: ${err}`);
+    }
+
+    const data = await response.json();
+
+    // 处理工具调用
+    if (data.tool_calls && data.tool_calls.length > 0) {
+      // 执行工具并收集结果
+      const toolResults = await this.executeToolCalls(data.tool_calls);
+
+      // 将工具调用和结果加入对话历史（让 AI 知道发生了什么）
+      for (const tc of data.tool_calls) {
+        this.messages.push({
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: tc.id,
+            type: 'function',
+            function: {
+              name: tc.name,
+              arguments: JSON.stringify(tc.arguments)
+            }
+          }]
+        });
+        // 工具执行结果
+        const result = toolResults.find(r => r.id === tc.id);
+        this.messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: result ? result.content : '执行成功'
+        });
+      }
+
+      // 继续下一轮 AI 推理（AI 根据工具结果决定下一步操作还是回复用户）
+      await this.sendToAI(round + 1);
+    }
+
+    // 处理文本回复（可能在有 tool_calls 时也有 content，也可能纯文本回复）
+    if (data.content) {
+      this.messages.push({ role: 'assistant', content: data.content });
+      this.addMessage('assistant', data.content);
+    }
+  }
+
+  /**
+   * 构建当前树状态用于发送给 AI
+   */
+  buildTreeState() {
     const app = window.__app;
-    const treeState = app ? {
+    if (!app) return null;
+    return {
       name: app.treeName || '未命名知识树',
       nodes: app.nodes.map(n => ({
         id: n.id,
@@ -69,84 +158,43 @@ class AIBridge {
         to: (() => { const n = app.nodes.find(nn => nn.id === c.to); return n ? n.name : ''; })(),
       })),
       selectedNodes: app.getSelectedNodes().map(n => n.name)
-    } : null;
-
-    try {
-      this.abortController = new AbortController();
-      const response = await fetch(`${this.serverUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: this.messages.slice(-10), // 只发最近 10 条
-          tree_state: treeState
-        }),
-        signal: this.abortController.signal
-      });
-
-      if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`服务器错误 ${response.status}: ${err}`);
-      }
-
-      const data = await response.json();
-
-      // 处理工具调用
-      if (data.tool_calls && data.tool_calls.length > 0) {
-        await this.executeToolCalls(data.tool_calls);
-      }
-
-      // 处理文本回复
-      if (data.content) {
-        this.messages.push({ role: 'assistant', content: data.content });
-        this.addMessage('assistant', data.content);
-      }
-
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        this.addMessage('system', '已取消');
-      } else {
-        this.addMessage('system', `❌ ${err.message}`);
-      }
-    } finally {
-      this.setLoading(false);
-      this.abortController = null;
-    }
+    };
   }
 
   /**
    * 执行 AI 返回的工具调用
+   * @returns {Array<{id: string, content: string}>} 工具执行结果列表
    */
   async executeToolCalls(toolCalls) {
     const app = window.__app;
     if (!app) {
       this.addMessage('system', '❌ 应用未初始化');
-      return;
+      return toolCalls.map(tc => ({ id: tc.id, content: '应用未初始化' }));
     }
 
-    let resultMessages = '';
+    const results = [];
 
     for (const tc of toolCalls) {
       const { name, arguments: args } = tc;
+      let resultContent = '';
 
       switch (name) {
         case 'get_tree_state': {
-          // 不需要额外操作，前端已经发了 tree_state
-          resultMessages += `树状态已提供。`;
+          resultContent = '树状态已提供。';
           break;
         }
 
         case 'create_node': {
           app.saveHistory();
-          // 找一个合适的位置
           const parentNode = args.parent_name
             ? app.nodes.find(n => n.name === args.parent_name)
             : null;
 
-          // 计算位置
           let x = 200, y = 200;
           if (parentNode) {
-            x = parentNode.x + 180;
-            y = parentNode.y + (app.connections.filter(c => c.from === parentNode.id).length - 0) * 80 + 40;
+            const parentCenter = app.renderer.getNodeCenter(parentNode);
+            x = parentCenter.cx + 180;
+            y = parentCenter.cy + (app.connections.filter(c => c.from === parentNode.id).length - 0) * 80 + 40;
           } else if (app.nodes.length > 0) {
             x = app.nodes[0].x;
             y = Math.max(...app.nodes.map(n => n.y)) + 100;
@@ -166,7 +214,7 @@ class AIBridge {
             app.renderConnections();
           }
           app.renderAll();
-          resultMessages += `已创建节点"${node.name}"。`;
+          resultContent = `已创建节点"${node.name}"，ID: ${node.id}。`;
           break;
         }
 
@@ -182,9 +230,9 @@ class AIBridge {
             });
             app.renderNode(node);
             app.renderConnections();
-            resultMessages += `已更新节点"${args.name}"。`;
+            resultContent = `已更新节点"${args.name}"。`;
           } else {
-            resultMessages += `未找到节点"${args.name}"。`;
+            resultContent = `未找到节点"${args.name}"。当前节点列表: ${app.nodes.map(n => n.name).join(', ')}`;
           }
           break;
         }
@@ -195,9 +243,9 @@ class AIBridge {
             app.saveHistory();
             app.deleteNode(node.id);
             app.renderConnections();
-            resultMessages += `已删除节点"${args.name}"。`;
+            resultContent = `已删除节点"${args.name}"。`;
           } else {
-            resultMessages += `未找到节点"${args.name}"。`;
+            resultContent = `未找到节点"${args.name}"。当前节点列表: ${app.nodes.map(n => n.name).join(', ')}`;
           }
           break;
         }
@@ -209,9 +257,10 @@ class AIBridge {
             app.saveHistory();
             app.addConnection(fromNode.id, toNode.id);
             app.renderConnections();
-            resultMessages += `已建立连线：${args.from} → ${args.to}。`;
+            resultContent = `已建立连线：${args.from} → ${args.to}。`;
           } else {
-            resultMessages += `未找到节点"${!fromNode ? args.from : args.to}"。`;
+            const missing = !fromNode ? args.from : args.to;
+            resultContent = `未找到节点"${missing}"。当前节点列表: ${app.nodes.map(n => n.name).join(', ')}`;
           }
           break;
         }
@@ -225,9 +274,9 @@ class AIBridge {
               c => !(c.from === fromNode.id && c.to === toNode.id)
             );
             app.renderConnections();
-            resultMessages += `已删除连线：${args.from} → ${args.to}。`;
+            resultContent = `已删除连线：${args.from} → ${args.to}。`;
           } else {
-            resultMessages += `未找到相关节点。`;
+            resultContent = `未找到相关节点。`;
           }
           break;
         }
@@ -241,31 +290,38 @@ class AIBridge {
             const el = app.renderer.nodeEls.get(node.id);
             if (el) el.style.transform = `translate(${node.x}px, ${node.y}px)`;
             app.renderer.updateConnectionPaths(app.connections, app.nodes);
-            resultMessages += `已移动节点"${args.name}"到 (${args.x}, ${args.y})。`;
+            resultContent = `已移动节点"${args.name}"到 (${args.x}, ${args.y})。`;
           } else {
-            resultMessages += `未找到节点"${args.name}"。`;
+            resultContent = `未找到节点"${args.name}"。`;
           }
           break;
         }
 
         case 'replace_tree': {
           app.replaceTree(args.nodes || [], []);
-          resultMessages += `已生成知识树。`;
+          resultContent = `已生成知识树，共 ${(args.nodes || []).length} 个节点。`;
           break;
         }
 
         case 'send_message': {
-          // AI 想要发消息给用户，在返回 data.content 中会包含
+          // AI 想发消息给用户，在 data.content 中会包含
+          resultContent = '消息已展示给用户。';
           break;
         }
+
+        default: {
+          resultContent = `未知工具: ${name}`;
+        }
       }
+
+      results.push({ id: tc.id, content: resultContent });
     }
 
-    // 把执行结果发给后端，让 AI 做下一轮
-    if (resultMessages) {
-      this.messages.push({ role: 'assistant', content: resultMessages });
-      this.addMessage('assistant', resultMessages);
-    }
+    // 将工具执行结果展示给用户
+    const summary = results.map(r => r.content).join('\n');
+    this.addMessage('assistant', `🔧 已执行操作:\n${summary}`);
+
+    return results;
   }
 
   /* ---- UI ---- */

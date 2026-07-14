@@ -96,7 +96,7 @@ python -m http.server 3000    # 运行在 http://localhost:3000
 
 - `AppData.user` — 用户信息（name、level、exp、streak、joined），启动时由后端覆盖
 - `AppData.todayStats` / `AppData.yesterdayStats` — 今日/昨日统计（启动时由后端覆盖）
-- `AppData.categories` — 8 个属性维度定义（健康/学习/关系/工作/创作/财务/爱好/心灵），含颜色和 EXP 倍率
+- `AppData.categories` — 8 个属性维度定义（健康/学习/关系/工作/创作/财务/爱好/魅力），含颜色和 EXP 倍率
 - `AppData.attributes` / `AppData.advancedAttributes` — 雷达图各维度数值（启动时由后端覆盖）
 - `AppData.attributeDetails` — 各维度等级/经验/备注/描述（启动时由后端覆盖）
 - `AppData.habits` — 习惯列表（启动时由后端覆盖）
@@ -153,4 +153,4 @@ python -m http.server 3000    # 运行在 http://localhost:3000
 | 创作 | create | `#B794F6` |
 | 财务 | finance | `#4ADE80` |
 | 爱好 | hobby | `#F472B6` |
-| 心灵 | soul | `#FBBF24` |
+| 魅力 | soul | `#FBBF24` |

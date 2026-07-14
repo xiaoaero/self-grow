@@ -9,6 +9,117 @@ let actionStartHour = 9;
 let actionStartMin = 0;
 let actionRecordMode = 'quick'; // 'quick' | 'describe'
 
+// 新计分规则：子类型和附加状态
+let actionSubType = '';         // 当前选中的子类型
+let actionSleepStart = '';      // 健康-睡眠：睡觉时间 (HH:MM)
+let actionSleepEnd = '';        // 健康-睡眠：起床时间 (HH:MM)
+let actionWorkExtra = '';       // 工作-加班类型：work-overtime-weekday | work-overtime-weekend
+
+// AI 描述记录模式状态
+let actionChatMessages = [];        // [{role: 'user'|'assistant', content: string}]
+let actionChatPendingSubmit = null; // AI 返回的待提交 actions 列表
+let actionChatSummary = '';         // AI 的总结消息
+
+// 计分规则描述（用于快速行动按钮预览）
+const DIMENSION_RULES = {
+    health: {
+        hasSubTypes: true,
+        subTypes: [
+            { id: 'health-sport', label: '🏃 运动', desc: '15 EXP/h', hasDuration: true },
+            { id: 'health-sleep', label: '😴 睡眠', desc: '基础20EXP+规律额外', hasDuration: false, specialInput: 'sleep' },
+        ],
+        calcPreview: function(subType, duration) {
+            if (subType === 'health-sleep') return '20EXP(基础)+15EXP(规律)';
+            return (duration / 60 * 15).toFixed(1) + ' EXP';
+        }
+    },
+    study: {
+        hasSubTypes: false,
+        calcPreview: function(duration) {
+            var blocks = Math.floor(duration / 20);
+            var exp = blocks * 10;
+            var globalExp = Math.floor(exp * 1.0);
+            return exp + ' → 全局' + globalExp + ' EXP';
+        }
+    },
+    relation: {
+        hasSubTypes: true,
+        subTypes: [
+            { id: 'relation-online', label: '💬 线上闲聊', desc: '40 EXP/h，最低30分钟', hasDuration: true },
+            { id: 'relation-offline', label: '🤝 线下见面', desc: '80 EXP/次', hasDuration: false },
+        ],
+        calcPreview: function(subType, duration) {
+            if (subType === 'relation-offline') return '80→全局40 EXP';
+            var blocks = Math.floor(duration / 30);
+            var exp = blocks * 20;
+            var globalExp = Math.floor(exp * 0.5);
+            return exp + ' → 全局' + globalExp + ' EXP';
+        }
+    },
+    work: {
+        hasSubTypes: true,
+        subTypes: [
+            { id: 'work-daily', label: '📋 日常', desc: '10 EXP', hasDuration: false },
+            { id: 'work-overtime', label: '💪 加班', desc: '20~30 EXP', hasDuration: false, subSubTypes: true },
+        ],
+        calcPreview: function(subType, duration) {
+            if (subType === 'work-daily') return '10 EXP';
+            if (subType === 'work-overtime-weekday') return '20 EXP';
+            if (subType === 'work-overtime-weekend') return '30 EXP';
+            return '10 EXP';
+        }
+    },
+    create: {
+        hasSubTypes: true,
+        subTypes: [
+            { id: 'create-output', label: '✍️ 产出', desc: '120 EXP/h', hasDuration: true },
+            { id: 'create-material', label: '📚 素材收集', desc: '40 EXP/h，最低30分钟', hasDuration: true },
+            { id: 'create-publish', label: '🚀 发布', desc: '160 EXP/次', hasDuration: false },
+        ],
+        calcPreview: function(subType, duration) {
+            if (subType === 'create-publish') return '160→全局80 EXP';
+            if (subType === 'create-material') {
+                var blocks = Math.floor(duration / 30);
+                var exp = blocks * 20;
+                var globalExp = Math.floor(exp * 0.5);
+                return exp + ' → 全局' + globalExp + ' EXP';
+            }
+            var exp = duration * 2;
+            var globalExp = Math.floor(exp * 0.5);
+            return exp + ' → 全局' + globalExp + ' EXP';
+        }
+    },
+    finance: {
+        hasSubTypes: true,
+        subTypes: [
+            { id: 'finance-study', label: '📊 学习梳理', desc: '80 EXP/h', hasDuration: true },
+            { id: 'finance-review', label: '📋 月度复盘', desc: '100 EXP/次', hasDuration: false },
+        ],
+        calcPreview: function(subType, duration) {
+            if (subType === 'finance-review') return '100→全局50 EXP';
+            var exp = duration * 4 / 3;
+            var globalExp = Math.floor(exp * 0.5);
+            return Math.round(exp) + ' → 全局' + globalExp + ' EXP';
+        }
+    },
+    hobby: {
+        hasSubTypes: false,
+        calcPreview: function(duration) {
+            var exp = duration * 2 / 3;
+            var globalExp = Math.floor(exp * 0.75);
+            return Math.round(exp) + ' → 全局' + globalExp + ' EXP';
+        }
+    },
+    soul: {
+        hasSubTypes: false,
+        calcPreview: function(duration) {
+            var exp = duration * 5 / 6;
+            var globalExp = Math.floor(exp * 0.5);
+            return Math.round(exp) + ' → 全局' + globalExp + ' EXP';
+        }
+    },
+};
+
 // ================================================================
 // Action page SVG icons — extracted from 行动-*.svg design files
 // ================================================================
@@ -159,60 +270,14 @@ function renderQuickAction() {
                             </div>
                         </div>
 
-                        <!-- Start Time -->
-                        <div>
-                            <div class="action-form__label">开始时间</div>
-                            <div class="qa-time-row">
-                                <input type="number" class="qa-time-input" min="0" max="23" value="${actionStartHour}"
-                                       onchange="actionStartHour=Math.min(23,Math.max(0,parseInt(this.value)||0));renderQuickAction()">
-                                <span class="qa-time-colon">:</span>
-                                <input type="number" class="qa-time-input" min="0" max="59" value="${pad2(actionStartMin)}"
-                                       onchange="actionStartMin=Math.min(59,Math.max(0,parseInt(this.value)||0));renderQuickAction()">
-                                <span class="qa-time-arrow">→</span>
-                                <span class="qa-time-end" id="end-time-display">${endTimeStr}</span>
-                                <span class="qa-time-hint">结束时间</span>
-                            </div>
+                        <!-- Dynamic form area (子类型/时长/备注/按钮) -->
+                        <div id="qa-dynamic-form">
+                            ${renderDynamicForm()}
                         </div>
-
-                        <!-- Duration -->
-                        <div>
-                            <div class="action-form__label">投入时长（分钟）</div>
-                            <div class="qa-duration-row">
-                                <input type="range" min="0" max="100" value="${minToSlider(actionDuration)}" step="1"
-                                       style="flex:1;accent-color:var(--color-primary)"
-                                       id="duration-slider"
-                                       oninput="sliderChange(parseInt(this.value))">
-                                <input type="number" class="qa-duration-input" min="1" max="300" value="${actionDuration}"
-                                       id="duration-num"
-                                       onchange="numChange(Math.max(1,Math.min(300,parseInt(this.value)||5)))">
-                                <span class="qa-duration-unit">分钟</span>
-                            </div>
-                            <div style="text-align:center;font-size:20px;font-weight:700;margin-top:8px;color:var(--color-primary-light)" id="duration-val">${actionDuration}分钟</div>
-                        </div>
-
-                        <!-- Note -->
-                        <div>
-                            <div class="action-form__label">备注（可选）</div>
-                            <textarea class="input" placeholder="记录一些心得..." id="action-note"
-                                      oninput="actionNote=this.value">${actionNote}</textarea>
-                        </div>
-
-                        <!-- Submit -->
-                        <button class="btn btn--primary btn--lg" style="width:100%" onclick="submitAction()">
-                            ⭐ 记录努力 (+${selectedActionCategory ? getCategory(selectedActionCategory).expRate * Math.floor(actionDuration / 15) : '?'} EXP)
-                        </button>
                     </div>
                     ` : `
                     <div class="action-form">
-                        <div class="qa-describe-area">
-                            <textarea class="input qa-describe-input" placeholder="用自然语言描述你的努力...&#10;&#10;例如：今天下午花了2小时学习React，完成了状态管理章节" id="describe-input"></textarea>
-                            <div class="qa-describe-hint">
-                                💡 描述记录模式将接入 AI 助手，自动解析分类、时长和备注信息
-                            </div>
-                        </div>
-                        <button class="btn btn--primary btn--lg" style="width:100%" disabled>
-                            🤖 AI 解析（即将上线）
-                        </button>
+                        ${renderDescribeMode()}
                     </div>
                     `}
                 </div>
@@ -238,7 +303,7 @@ function renderQuickAction() {
                             <span style="color:var(--color-text-secondary)">获得经验</span>
                             <span style="font-weight:700;font-size:18px;color:var(--color-accent-light)">+${AppData.todayStats.expEarned} EXP</span>
                         </div>
-                        ${renderProgress(AppData.todayStats.expEarned, 500, 'accent')}
+                        ${renderTripleProgress(AppData.todayStats.expEarned)}
                     </div>
                 </div>
 
@@ -248,11 +313,12 @@ function renderQuickAction() {
                         今日分类分布
                     </div>
                     <div id="category-dist" style="display:flex;flex-direction:column;gap:10px">
-                        ${cats.slice(0, 6).map(cat => {
+                        ${cats.map(cat => {
                             return `
                                 <div style="display:flex;align-items:center;gap:10px">
                                     <span style="width:24px;text-align:center">${attrIcon(cat.id, 18)}</span>
                                     <span style="width:40px;font-size:12px;color:var(--color-text-secondary)">${cat.name}</span>
+                                    <span style="width:60px;text-align:right;font-size:11px;color:var(--color-accent-light);font-weight:600" class="cat-dist-exp" data-cat="${cat.id}">0 EXP</span>
                                     <div style="flex:1;height:6px;border-radius:999px;background:rgba(255,255,255,0.06);overflow:hidden">
                                         <div class="cat-dist-fill" style="height:100%;width:0%;border-radius:999px;background:${cat.color};transition:width 0.6s ease" data-cat="${cat.id}"></div>
                                     </div>
@@ -291,9 +357,598 @@ function updateEndTime() {
     }
 }
 
+/* ================================================================
+   新计分规则：子类型渲染和辅助函数
+   ================================================================ */
+
+/** 判断是否显示时长/开始时间输入 */
+function shouldShowDuration(catId, subType) {
+    if (!catId) return true;
+    // 固定值的子类型不显示时长
+    var fixedTypes = [
+        'relation-offline', 'work-daily', 'work-overtime',
+        'work-overtime-weekday', 'work-overtime-weekend',
+        'create-publish', 'finance-review',
+    ];
+    if (fixedTypes.indexOf(subType) !== -1) return false;
+    // 健康睡眠特殊处理
+    if (catId === 'health' && subType === 'health-sleep') return false;
+    return true;
+}
+
+/** 渲染子类型选择区域 */
+function renderSubTypeArea(catId) {
+    var rule = DIMENSION_RULES[catId];
+    if (!rule) return '';
+
+    // 没有子类型的维度（学习、爱好、魅力）
+    if (!rule.hasSubTypes) {
+        return '<div style="margin-top:8px;color:var(--color-text-secondary);font-size:13px">' +
+            '预计: ' + rule.calcPreview(actionDuration) +
+            '</div>';
+    }
+
+    // 有子类型，渲染子类型按钮
+    var subTypeHtml = '<div class="action-form__label" style="margin-top:12px">选择类型</div>' +
+        '<div class="qa-subtype-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">';
+
+    rule.subTypes.forEach(function(st) {
+        var isActive = (actionSubType === st.id);
+        // 工作维度特殊处理
+        if (catId === 'work') {
+            if (st.id === 'work-daily' && actionSubType === 'work-daily') isActive = true;
+            if (st.id === 'work-overtime' && (actionSubType === 'work-overtime' || actionSubType === 'work-overtime-weekday' || actionSubType === 'work-overtime-weekend')) isActive = true;
+        }
+        subTypeHtml += '<div class="action-category-item ' + (isActive ? 'action-category-item--selected' : '') + '" ' +
+            'style="padding:8px 14px;font-size:13px;cursor:pointer" ' +
+            'onclick="selectSubType(\'' + catId + '\',\'' + st.id + '\')">' +
+            st.label + ' <span style="color:var(--color-accent-light);font-size:11px;margin-left:4px">' + st.desc + '</span></div>';
+    });
+    subTypeHtml += '</div>';
+
+    // 工作维度：加班子选项
+    if (catId === 'work' && (actionSubType === 'work-overtime' || actionSubType === 'work-overtime-weekday' || actionSubType === 'work-overtime-weekend')) {
+        subTypeHtml += '<div style="margin-top:8px;margin-left:12px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px">';
+        subTypeHtml += '<div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:6px">加班类型</div>';
+        var isWeekday = (actionWorkExtra === 'work-overtime-weekday' || actionSubType === 'work-overtime-weekday');
+        var isWeekend = (actionWorkExtra === 'work-overtime-weekend' || actionSubType === 'work-overtime-weekend');
+        // 默认选择
+        if (!actionWorkExtra && actionSubType === 'work-overtime') {
+            var today = new Date();
+            var dayOfWeek = today.getDay();
+            if (dayOfWeek === 0 || dayOfWeek === 6) {
+                isWeekend = true;
+            } else {
+                isWeekday = true;
+            }
+        }
+        subTypeHtml += '<div style="display:flex;gap:8px">' +
+            '<div class="action-category-item ' + (isWeekday ? 'action-category-item--selected' : '') + '" ' +
+            'style="padding:6px 12px;font-size:12px;cursor:pointer" ' +
+            'onclick="actionWorkExtra=\'work-overtime-weekday\';actionSubType=\'work-overtime-weekday\';updateDynamicForm()">' +
+            '📅 工作日加班 <span style="color:var(--color-accent-light)">+20 EXP</span></div>' +
+            '<div class="action-category-item ' + (isWeekend ? 'action-category-item--selected' : '') + '" ' +
+            'style="padding:6px 12px;font-size:12px;cursor:pointer" ' +
+            'onclick="actionWorkExtra=\'work-overtime-weekend\';actionSubType=\'work-overtime-weekend\';updateDynamicForm()">' +
+            '🎉 休息日加班 <span style="color:var(--color-accent-light)">+30 EXP</span></div></div>';
+        subTypeHtml += '</div>';
+    }
+
+    // 健康睡眠特殊输入
+    if (catId === 'health' && actionSubType === 'health-sleep') {
+        subTypeHtml += '<div style="margin-top:12px;padding:12px;background:rgba(88,213,201,0.06);border-radius:10px;border:1px solid rgba(88,213,201,0.15)">';
+        subTypeHtml += '<div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:8px">🌙 记录睡眠时间</div>';
+        subTypeHtml += '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">';
+        subTypeHtml += '<span style="font-size:13px">😴 睡觉</span>';
+        subTypeHtml += '<input type="time" class="input" style="width:130px;padding:6px 10px" value="' + actionSleepStart + '" ' +
+            'onchange="actionSleepStart=this.value;updateDynamicForm()">';
+        subTypeHtml += '<span style="font-size:13px">→ 起床</span>';
+        subTypeHtml += '<input type="time" class="input" style="width:130px;padding:6px 10px" value="' + actionSleepEnd + '" ' +
+            'onchange="actionSleepEnd=this.value;updateDynamicForm()">';
+        subTypeHtml += '</div>';
+        // 睡眠时长和经验的实时预览
+        if (actionSleepStart && actionSleepEnd) {
+            var sleepInfo = calcSleepPreview(actionSleepStart, actionSleepEnd);
+            subTypeHtml += '<div style="margin-top:8px;font-size:12px;color:var(--color-accent-light)">' + sleepInfo + '</div>';
+        }
+        subTypeHtml += '</div>';
+    }
+
+    // 显示预览
+    subTypeHtml += '<div style="margin-top:8px;color:var(--color-text-secondary);font-size:13px">' +
+        '预计: ' + getActionButtonPreview(catId, actionSubType, actionDuration) +
+        '</div>';
+
+    return subTypeHtml;
+}
+
+/** 选择子类型 */
+function selectSubType(catId, subType) {
+    actionSubType = subType;
+
+    // 工作维度特殊处理
+    if (catId === 'work' && subType === 'work-overtime') {
+        var today = new Date();
+        var dayOfWeek = today.getDay();
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+            actionWorkExtra = 'work-overtime-weekend';
+        } else {
+            actionWorkExtra = 'work-overtime-weekday';
+        }
+    }
+
+    // 健康睡眠重置时间
+    if (catId === 'health' && subType !== 'health-sleep') {
+        actionSleepStart = '';
+        actionSleepEnd = '';
+    }
+
+    // 非固定值子类型恢复默认时长
+    if (catId === 'health' && subType === 'health-sport') {
+        actionDuration = 30;
+    } else if (subType === 'relation-online') {
+        actionDuration = 30;
+    } else if (subType === 'create-output') {
+        actionDuration = 60;
+    } else if (subType === 'create-material') {
+        actionDuration = 30;
+    } else if (subType === 'finance-study') {
+        actionDuration = 60;
+    } else if (subType === 'hobby' || subType === 'soul') {
+        actionDuration = 60;
+    }
+
+    updateDynamicForm();
+}
+
+/** 计算睡眠经验预览 */
+function calcSleepPreview(sleepStart, sleepEnd) {
+    if (!sleepStart || !sleepEnd) return '';
+    var sh = parseInt(sleepStart.split(':')[0]);
+    var sm = parseInt(sleepStart.split(':')[1]);
+    var eh = parseInt(sleepEnd.split(':')[0]);
+    var em = parseInt(sleepEnd.split(':')[1]);
+
+    var startMin = sh * 60 + sm;
+    var endMin = eh * 60 + em;
+    if (endMin <= startMin) endMin += 24 * 60;
+    var durationMin = endMin - startMin;
+
+    if (durationMin < 360 || durationMin > 540) {
+        return '⚠️ 睡眠时长 ' + Math.round(durationMin / 60) + 'h' + (durationMin % 60) + 'm，不在6-9h范围内，无效';
+    }
+
+    var idealBedtime = 23 * 60;
+    var actualBedtime = startMin;
+    if (actualBedtime < 12 * 60) actualBedtime += 24 * 60;
+    var lateMin = Math.max(0, actualBedtime - idealBedtime);
+    var baseExp = Math.max(0, 20 - Math.floor(lateMin / 4));
+
+    var sleepHours = Math.floor(durationMin / 60);
+    var sleepMins = durationMin % 60;
+    return '睡眠' + sleepHours + 'h' + sleepMins + 'm · 基础+' + baseExp + ' EXP' +
+        '（' + sh + ':' + String(sm).padStart(2,'0') + '→' + eh + ':' + String(em).padStart(2,'0') + '）';
+}
+
+/** 获取按钮预览文本 */
+function getActionButtonPreview(catId, subType, duration) {
+    if (!catId) return '(请选择分类)';
+    var rule = DIMENSION_RULES[catId];
+    if (!rule) return '';
+
+    // 健康睡眠特殊处理
+    if (catId === 'health' && subType === 'health-sleep') {
+        if (!actionSleepStart || !actionSleepEnd) return '(请填写睡眠时间)';
+        var sh = parseInt(actionSleepStart.split(':')[0]);
+        var sm = parseInt(actionSleepStart.split(':')[1]);
+        var eh = parseInt(actionSleepEnd.split(':')[0]);
+        var em = parseInt(actionSleepEnd.split(':')[1]);
+        var startMin = sh * 60 + sm;
+        var endMin = eh * 60 + em;
+        if (endMin <= startMin) endMin += 24 * 60;
+        var durMin = endMin - startMin;
+        if (durMin < 360 || durMin > 540) return '(睡眠时长无效，需6-9h)';
+        var idealBedtime = 23 * 60;
+        var actualBedtime = startMin;
+        if (actualBedtime < 12 * 60) actualBedtime += 24 * 60;
+        var lateMin = Math.max(0, actualBedtime - idealBedtime);
+        var baseExp = Math.max(0, 20 - Math.floor(lateMin / 4));
+        return '+约' + baseExp + ' EXP' + (baseExp >= 15 ? ' + 规律?' : '');
+    }
+
+    // 工作维度
+    if (catId === 'work') {
+        if (subType === 'work-overtime-weekday' || actionWorkExtra === 'work-overtime-weekday') return '+20 EXP';
+        if (subType === 'work-overtime-weekend' || actionWorkExtra === 'work-overtime-weekend') return '+30 EXP';
+        if (subType === 'work-daily' || !subType) return '+10 EXP';
+        if (subType === 'work-overtime') return '+20~30 EXP';
+        return '+10 EXP';
+    }
+
+    // 没有子类型或已有子类型
+    if (!subType && rule.hasSubTypes) {
+        // 自动选择第一个有子类型的预览
+        if (rule.subTypes && rule.subTypes.length > 0) {
+            var first = rule.subTypes[0];
+            return rule.calcPreview(first.id, duration);
+        }
+        return '';
+    }
+
+    return rule.calcPreview(subType, duration);
+}
+
+/** 获取提交的 sub_type */
+function getSubmitSubType(catId) {
+    if (!catId) return '';
+
+    // 健康维度：根据是否有睡眠时间判断
+    if (catId === 'health') {
+        if (actionSleepStart && actionSleepEnd) return 'health-sleep';
+        return 'health-sport';
+    }
+
+    // 工作维度
+    if (catId === 'work') {
+        if (actionWorkExtra === 'work-overtime-weekday') return 'work-overtime-weekday';
+        if (actionWorkExtra === 'work-overtime-weekend') return 'work-overtime-weekend';
+        if (actionSubType === 'work-overtime-weekday') return 'work-overtime-weekday';
+        if (actionSubType === 'work-overtime-weekend') return 'work-overtime-weekend';
+        if (actionSubType === 'work-overtime') return 'work-overtime-weekday'; // 默认工作日加班
+        return 'work-daily';
+    }
+
+    // 有子类型
+    if (actionSubType) return actionSubType;
+
+    // 没有子类型的维度
+    return '';
+}
+
+/** 获取提交的 duration（固定值子类型返回0） */
+function getSubmitDuration(catId) {
+    if (!catId) return actionDuration;
+    var subType = getSubmitSubType(catId);
+    var fixedTypes = [
+        'relation-offline', 'work-daily', 'work-overtime-weekday', 'work-overtime-weekend',
+        'create-publish', 'finance-review', 'health-sleep',
+    ];
+    if (fixedTypes.indexOf(subType) !== -1) return 0;
+    return actionDuration;
+}
+
+/** 渲染动态表单区域（子类型/时长/备注/按钮），分类改变时只更新这个区域 */
+function renderDynamicForm() {
+    if (!selectedActionCategory) return '';
+
+    var pad2 = function(n) { return String(n).padStart(2, '0'); };
+    var endH = (actionStartHour + Math.floor((actionStartMin + actionDuration) / 60)) % 24;
+    var endM = (actionStartMin + actionDuration) % 60;
+    var startTimeStr = pad2(actionStartHour) + ':' + pad2(actionStartMin);
+    var endTimeStr = pad2(endH) + ':' + pad2(endM);
+
+    return (renderSubTypeArea(selectedActionCategory) || '') +
+        (shouldShowDuration(selectedActionCategory, actionSubType) ? `
+        <div>
+            <div class="action-form__label">开始时间</div>
+            <div class="qa-time-row">
+                <input type="number" class="qa-time-input" min="0" max="23" value="${actionStartHour}"
+                       onchange="actionStartHour=Math.min(23,Math.max(0,parseInt(this.value)||0));updateDynamicForm()">
+                <span class="qa-time-colon">:</span>
+                <input type="number" class="qa-time-input" min="0" max="59" value="${pad2(actionStartMin)}"
+                       onchange="actionStartMin=Math.min(59,Math.max(0,parseInt(this.value)||0));updateDynamicForm()">
+                <span class="qa-time-arrow">→</span>
+                <span class="qa-time-end" id="end-time-display">${endTimeStr}</span>
+                <span class="qa-time-hint">结束时间</span>
+            </div>
+        </div>
+
+        <!-- Duration -->
+        <div>
+            <div class="action-form__label">投入时长（分钟）</div>
+            <div class="qa-duration-row">
+                <input type="range" min="0" max="100" value="${minToSlider(actionDuration)}" step="1"
+                       style="flex:1;accent-color:var(--color-primary)"
+                       id="duration-slider"
+                       oninput="sliderChange(parseInt(this.value))">
+                <input type="number" class="qa-duration-input" min="1" max="300" value="${actionDuration}"
+                       id="duration-num"
+                       onchange="numChange(Math.max(1,Math.min(300,parseInt(this.value)||5)))">
+                <span class="qa-duration-unit">分钟</span>
+            </div>
+            <div style="text-align:center;font-size:20px;font-weight:700;margin-top:8px;color:var(--color-primary-light)" id="duration-val">${actionDuration}分钟</div>
+        </div>
+        ` : '') + `
+        <div>
+            <div class="action-form__label">备注（可选）</div>
+            <textarea class="input" placeholder="记录一些心得..." id="action-note"
+                      oninput="actionNote=this.value">${actionNote}</textarea>
+        </div>
+
+        <button class="btn btn--primary btn--lg" style="width:100%" onclick="submitAction()">
+            ⭐ 记录努力 ${getActionButtonPreview(selectedActionCategory, actionSubType, actionDuration)}
+        </button>
+    `;
+}
+
+/** 局部更新动态表单区域，不重绘整个页面 */
+function updateDynamicForm() {
+    var container = document.getElementById('qa-dynamic-form');
+    if (container) {
+        container.innerHTML = renderDynamicForm();
+    }
+    // 同步更新结束时间显示（如果 end-time-display 在容器外）
+    var endEl = document.getElementById('end-time-display');
+    if (endEl) {
+        var pad2 = function(n) { return String(n).padStart(2, '0'); };
+        var endH = (actionStartHour + Math.floor((actionStartMin + actionDuration) / 60)) % 24;
+        var endM = (actionStartMin + actionDuration) % 60;
+        endEl.textContent = pad2(endH) + ':' + pad2(endM);
+    }
+}
+
+// ================================================================
+// AI 描述记录模式 — 聊天界面
+// ================================================================
+
+/** 渲染描述记录模式 */
+function renderDescribeMode() {
+    var chatHistoryHtml = actionChatMessages.length === 0
+        ? '<div class="qa-chat-welcome">' +
+            '<div style="font-size:24px;margin-bottom:8px">🤖</div>' +
+            '<div style="font-weight:600;margin-bottom:4px">描述你做了什么</div>' +
+            '<div style="font-size:13px;color:var(--color-text-muted)">用自然语言告诉我你今天做了什么，我来帮你记录！<br>例如：<em>"下午学习了2小时React，晚上跑了30分钟步"</em></div>' +
+          '</div>'
+        : actionChatMessages.map(function(m) {
+            return '<div class="qa-chat-msg qa-chat-msg--' + m.role + '">' +
+                '<div class="qa-chat-msg__avatar">' + (m.role === 'user' ? '👤' : '🤖') + '</div>' +
+                '<div class="qa-chat-msg__bubble">' + escapeHtml(m.content) + '</div>' +
+                '</div>';
+          }).join('');
+
+    var previewHtml = '';
+    if (actionChatPendingSubmit) {
+        previewHtml = renderEditablePreview();
+    }
+
+    var inputRowDisplay = actionChatPendingSubmit ? 'none' : 'flex';
+    var actionBtnsDisplay = actionChatPendingSubmit ? 'flex' : 'none';
+    var actionCount = actionChatPendingSubmit ? actionChatPendingSubmit.length : 0;
+
+    return '<div class="qa-chat-history" id="chat-history">' +
+        chatHistoryHtml +
+        previewHtml +
+        '</div>' +
+        '<div class="qa-chat-input-row" id="chat-input-row" style="display:' + inputRowDisplay + '">' +
+        '<textarea class="input qa-chat-input" placeholder="描述你做了什么..." id="chat-input" ' +
+        'onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();sendChatMessage()}"></textarea>' +
+        '<button class="btn btn--primary" onclick="sendChatMessage()" id="chat-send-btn">发送</button>' +
+        '</div>' +
+        '<div id="chat-actions" style="display:' + actionBtnsDisplay + ';gap:10px;margin-top:12px">' +
+        '<button class="btn" style="flex:1" onclick="resetChat()">重新描述</button>' +
+        '<button class="btn btn--primary" style="flex:2" onclick="confirmAISubmit()">' +
+        '✅ 确认提交' + (actionCount > 0 ? ' (' + actionCount + '条)' : '') +
+        '</button>' +
+        '</div>';
+}
+
+/** 渲染可编辑的预览卡片 */
+function renderEditablePreview() {
+    if (!actionChatPendingSubmit || actionChatPendingSubmit.length === 0) return '';
+
+    var items = actionChatPendingSubmit.map(function(a, i) {
+        var cat = getCategory(a.category_id);
+        var catName = cat ? cat.name : a.category_id;
+        var globalRate = cat ? cat.globalRate : 1.0;
+        var globalExp = Math.floor(a.dimension_exp * globalRate);
+
+        var catOptions = AppData.categories.map(function(c) {
+            var selected = c.id === a.category_id ? 'selected' : '';
+            return '<option value="' + c.id + '" ' + selected + '>' + c.name + '</option>';
+        }).join('');
+
+        var subTypeHtml = '';
+        if (a.sub_type) {
+            subTypeHtml = '<span class="qa-preview-subtype" style="color:var(--color-text-muted);font-size:11px">' +
+                escapeHtml(a.sub_type) + '</span>';
+        }
+
+        return '<div class="qa-preview-item" data-index="' + i + '">' +
+            '<div class="qa-preview-item__header">' +
+            '<select class="qa-preview-category" data-index="' + i + '" ' +
+            'onchange="editPreviewItem(' + i + ', \'category_id\', this.value)">' +
+            catOptions +
+            '</select>' +
+            '<span class="qa-preview-item__exp">' +
+            '<span class="qa-preview-exp-val">' + Math.round(a.dimension_exp) + '</span> 维度EXP ' +
+            '→ <span class="qa-preview-global">' + globalExp + '</span> 全局EXP' +
+            '</span>' +
+            '</div>' +
+            '<textarea class="input qa-preview-note" data-index="' + i + '" ' +
+            'onchange="editPreviewItem(' + i + ', \'note\', this.value)">' + escapeHtml(a.note || '') + '</textarea>' +
+            '<div class="qa-preview-item__footer" style="display:flex;gap:12px;align-items:center;margin-top:6px">' +
+            '<label style="font-size:13px;color:var(--color-text-secondary)">时长：' +
+            '<input type="number" class="qa-preview-duration" value="' + (a.duration || 0) + '" min="0" max="600" ' +
+            'data-index="' + i + '" ' +
+            'onchange="editPreviewItem(' + i + ', \'duration\', parseInt(this.value)||0)" ' +
+            'style="width:60px;padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:inherit;text-align:center"> 分钟' +
+            '</label>' +
+            subTypeHtml +
+            '</div>' +
+            '</div>';
+    }).join('');
+
+    var summaryText = actionChatSummary
+        ? escapeHtml(actionChatSummary)
+        : '📋 已识别到以下记录，请确认或修改';
+
+    return '<div class="qa-preview-panel" style="margin-top:12px">' +
+        '<div class="qa-preview-panel__title" style="font-size:14px;font-weight:600;margin-bottom:10px;color:var(--color-accent-light)">' +
+        summaryText +
+        '</div>' +
+        '<div class="qa-preview-list" style="display:flex;flex-direction:column;gap:8px">' + items + '</div>' +
+        '</div>';
+}
+
+/** 编辑预览项 */
+function editPreviewItem(index, field, value) {
+    if (!actionChatPendingSubmit) return;
+    actionChatPendingSubmit[index][field] = value;
+    // 更新 EXP 显示
+    var item = actionChatPendingSubmit[index];
+    var cat = getCategory(item.category_id);
+    if (cat) {
+        var globalExp = Math.floor((item.dimension_exp || 0) * cat.globalRate);
+        var expEl = document.querySelector('.qa-preview-item[data-index="' + index + '"] .qa-preview-global');
+        if (expEl) expEl.textContent = globalExp;
+    }
+}
+
+/** 发送聊天消息 */
+async function sendChatMessage() {
+    var input = document.getElementById('chat-input');
+    var text = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    actionChatMessages.push({ role: 'user', content: text });
+    renderChatHistory();
+    scrollChatToBottom();
+
+    var sendBtn = document.getElementById('chat-send-btn');
+    sendBtn.disabled = true;
+    sendBtn.textContent = '思考中...';
+
+    var curUser = getCurrentUser();
+    if (!curUser) { showToast('请先登录', 'error'); return; }
+
+    var result = await fetchAIActionChat(curUser.id, actionChatMessages);
+
+    if (result && result.content) {
+        // AI 纯文本回复（反问或确认）
+        actionChatMessages.push({ role: 'assistant', content: result.content });
+    } else if (result && result.tool_calls) {
+        // 检查是否有 submit_actions
+        var submitCall = result.tool_calls.find(function(tc) { return tc.name === 'submit_actions'; });
+        if (submitCall) {
+            actionChatPendingSubmit = submitCall.arguments.actions;
+            actionChatSummary = submitCall.arguments.summary || '';
+            // 如果 AI 同时也发了 send_message，加入对话
+            var msgCall = result.tool_calls.find(function(tc) { return tc.name === 'send_message'; });
+            if (msgCall) {
+                actionChatMessages.push({ role: 'assistant', content: msgCall.arguments.content });
+            }
+        } else {
+            // send_message 反问
+            var msgCall2 = result.tool_calls.find(function(tc) { return tc.name === 'send_message'; });
+            if (msgCall2) {
+                actionChatMessages.push({ role: 'assistant', content: msgCall2.arguments.content });
+            }
+        }
+    } else {
+        showToast('AI 服务暂时不可用，请稍后重试', 'error');
+    }
+
+    renderChatHistory();
+    sendBtn.disabled = false;
+    sendBtn.textContent = '发送';
+    scrollChatToBottom();
+}
+
+/** 确认提交 */
+async function confirmAISubmit() {
+    if (!actionChatPendingSubmit || actionChatPendingSubmit.length === 0) return;
+
+    var curUser = getCurrentUser();
+    if (!curUser) { showToast('请先登录', 'error'); return; }
+
+    // 从 DOM 中收集编辑后的值
+    var actions = actionChatPendingSubmit.map(function(a) {
+        return {
+            category_id: a.category_id,
+            sub_type: a.sub_type || '',
+            duration: a.duration || 0,
+            note: a.note || '',
+            dimension_exp: a.dimension_exp || 0,
+            sleep_start: a.sleep_start || '',
+            sleep_end: a.sleep_end || '',
+        };
+    });
+
+    var result = await submitAIActions(curUser.id, actions);
+    if (result && result.records) {
+        AppData.todayStats = result.today_stats;
+        AppData.user.exp = result.exp_result.exp;
+        AppData.user.level = result.exp_result.level;
+        AppData.user.totalExp = result.exp_result.totalExp;
+
+        showToast('🎉 成功记录 ' + result.records.length + ' 条行动！', 'success');
+
+        // 重置对话
+        actionChatMessages = [];
+        actionChatPendingSubmit = null;
+        actionChatSummary = '';
+        renderQuickAction();
+    } else {
+        showToast('提交失败，请重试', 'error');
+    }
+}
+
+/** 重置对话 */
+function resetChat() {
+    actionChatMessages = [];
+    actionChatPendingSubmit = null;
+    actionChatSummary = '';
+    renderChatHistory();
+}
+
+/** 渲染聊天历史 */
+function renderChatHistory() {
+    var container = document.getElementById('chat-history');
+    if (!container) return;
+    // 重新渲染整个描述模式区域
+    var actionForm = container.closest('.action-form');
+    if (actionForm) {
+        actionForm.innerHTML = renderDescribeMode();
+    }
+}
+
+/** 滚动到底部 */
+function scrollChatToBottom() {
+    var history = document.getElementById('chat-history');
+    if (history) {
+        history.scrollTop = history.scrollHeight;
+    }
+}
+
 function selectCategory(catId) {
     selectedActionCategory = catId;
-    renderQuickAction();
+    // 重置子类型状态
+    actionSubType = '';
+    actionSleepStart = '';
+    actionSleepEnd = '';
+    actionWorkExtra = '';
+
+    // 工作维度：按日期默认
+    if (catId === 'work') {
+        var today = new Date();
+        var dayOfWeek = today.getDay();
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+            actionSubType = 'work-overtime';
+            actionWorkExtra = 'work-overtime-weekend';
+        } else {
+            actionSubType = 'work-daily';
+        }
+    }
+
+    // 更新分类按钮的选中样式
+    var allCats = document.querySelectorAll('.action-category-item');
+    allCats.forEach(function(el) { el.classList.remove('action-category-item--selected'); });
+    var activeEl = document.getElementById('cat-' + catId);
+    if (activeEl) activeEl.classList.add('action-category-item--selected');
+
+    // 局部更新动态表单
+    updateDynamicForm();
 }
 
 function submitAction() {
@@ -303,71 +958,151 @@ function submitAction() {
     }
     const cat = getCategory(selectedActionCategory);
 
-    // Build start time ISO
+    // 检查子类型选择
+    const rule = DIMENSION_RULES[selectedActionCategory];
+    if (rule && rule.hasSubTypes) {
+        // 健康维度需要判断睡眠/运动
+        if (selectedActionCategory === 'health') {
+            if (!actionSleepStart && !actionSleepEnd) {
+                // 运动模式，不需要额外检查
+            } else if (!actionSleepStart || !actionSleepEnd) {
+                showToast('请填写完整的睡眠时间（睡觉和起床时间）', 'error');
+                return;
+            }
+        } else if (!actionSubType && !actionWorkExtra) {
+            showToast('请选择具体类型', 'error');
+            return;
+        }
+    }
+
+    const subType = getSubmitSubType(selectedActionCategory);
+    const submitDuration = getSubmitDuration(selectedActionCategory);
+
+    // 构建开始时间
     const now = new Date();
     const startTime = new Date(now);
     startTime.setHours(actionStartHour, actionStartMin, 0, 0);
-    const startIso = startTime.toISOString().replace('Z', '');
+    const pad2 = n => String(n).padStart(2, '0');
+    const startTimeStr = pad2(actionStartHour) + ':' + pad2(actionStartMin);
+    const endH = (actionStartHour + Math.floor((actionStartMin + submitDuration) / 60)) % 24;
+    const endM = (actionStartMin + submitDuration) % 60;
+    const endTimeStr = pad2(endH) + ':' + pad2(endM);
 
-    // 向后端提交
-    var curUser = getCurrentUser();
-    if (curUser) {
-        submitActionToBackend(curUser.id, {
-            category_id: selectedActionCategory,
-            start_time: startIso,
-            duration: actionDuration,
-            note: actionNote || '',
-        }).then(result => {
-            if (result) {
-                // 更新本地状态
-                AppData.todayStats.focusMinutes = result.today_stats.focusMinutes;
-                AppData.todayStats.tasksDone = result.today_stats.tasksDone;
-                AppData.todayStats.habitsChecked = result.today_stats.habitsChecked;
-                AppData.todayStats.expEarned = result.today_stats.expEarned;
-                AppData.user.exp = result.exp_result.exp;
-                AppData.user.level = result.exp_result.level;
-                AppData.user.totalExp = result.exp_result.totalExp;
-
-                actionNote = '';
-                showToast(`记录成功！${cat.name} ${actionDuration}分钟 · +${result.exp_earned} EXP`, 'success');
-
-                // 显示升级通知
-                if (result.exp_result.leveledUp) {
-                    setTimeout(() => {
-                        showToast(`🎉 升级！Lv.${result.exp_result.oldLevel} → Lv.${result.exp_result.level}`, 'success');
-                    }, 500);
-                }
-
-                // 重置开始时间
-                const newNow = new Date();
-                actionStartHour = newNow.getHours();
-                actionStartMin = newNow.getMinutes();
-
-                renderQuickAction();
-
-                // 重新评估奖励解锁状态
-                const curUserId = AppData.user?.id;
-                if (curUserId) reevaluateRewardsOnBackend(curUserId);
-            } else {
-                showToast('后端暂不可用，请稍后重试', 'error');
-            }
-        }).catch(() => {
-            showToast('后端暂不可用，请稍后重试', 'error');
-        });
-    } else {
-        showToast('请先登录', 'error');
+    // 获取子类型名称
+    var subTypeName = '';
+    if (rule && rule.subTypes) {
+        var found = rule.subTypes.find(function(st) { return st.id === subType; });
+        if (found) subTypeName = found.label;
     }
+
+    // 计算 EXP 预览
+    var expPreview = getActionButtonPreview(selectedActionCategory, subType, submitDuration);
+
+    // 确认弹窗内容
+    var confirmHtml = `
+        <div style="display:flex;flex-direction:column;gap:14px;padding:8px 0">
+            <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:rgba(255,255,255,0.03);border-radius:12px">
+                <span style="font-size:32px">${attrIcon(cat.id, 40)}</span>
+                <div>
+                    <div style="font-size:16px;font-weight:700">${cat.name}${subTypeName ? ' · ' + subTypeName : ''}</div>
+                    <div style="font-size:12px;color:var(--color-text-secondary);margin-top:2px">${startTimeStr} → ${endTimeStr}${submitDuration > 0 ? ' · ' + submitDuration + '分钟' : ''}</div>
+                </div>
+            </div>
+            ${actionNote ? `
+            <div style="padding:10px 14px;background:rgba(255,255,255,0.03);border-radius:8px;font-size:13px;color:var(--color-text-secondary)">
+                📝 ${escapeHtml(actionNote)}
+            </div>
+            ` : ''}
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px">
+                <span style="font-size:14px;color:var(--color-text-secondary)">预计获得</span>
+                <span style="font-size:22px;font-weight:800;color:var(--color-accent-light)">${expPreview}</span>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:4px">
+                <button class="btn" style="flex:1;padding:12px;border-radius:10px;font-size:15px" onclick="closeModal()">取消</button>
+                <button class="btn btn--primary" style="flex:2;padding:12px;border-radius:10px;font-size:15px;font-weight:700" onclick="confirmSubmitAction()">✅ 确认记录</button>
+            </div>
+        </div>
+    `;
+
+    // 保存 payload 到全局，供 confirmSubmitAction 使用
+    const startIso = startTime.toISOString().replace('Z', '');
+    window._pendingActionPayload = {
+        category_id: selectedActionCategory,
+        start_time: startIso,
+        duration: submitDuration,
+        note: actionNote || '',
+        sub_type: subType,
+    };
+    if (actionSleepStart && actionSleepEnd) {
+        window._pendingActionPayload.sleep_start = actionSleepStart;
+        window._pendingActionPayload.sleep_end = actionSleepEnd;
+    }
+
+    openModal('📋 确认记录', confirmHtml, false);
+}
+
+/** 确认提交行动记录 */
+function confirmSubmitAction() {
+    closeModal();
+    var payload = window._pendingActionPayload;
+    if (!payload) return;
+    window._pendingActionPayload = null;
+
+    var cat = getCategory(payload.category_id);
+    var curUser = getCurrentUser();
+    if (!curUser) {
+        showToast('请先登录', 'error');
+        return;
+    }
+
+    submitActionToBackend(curUser.id, payload).then(function(result) {
+        if (result) {
+            AppData.todayStats.focusMinutes = result.today_stats.focusMinutes;
+            AppData.todayStats.tasksDone = result.today_stats.tasksDone;
+            AppData.todayStats.habitsChecked = result.today_stats.habitsChecked;
+            AppData.todayStats.expEarned = result.today_stats.expEarned;
+            AppData.user.exp = result.exp_result.exp;
+            AppData.user.level = result.exp_result.level;
+            AppData.user.totalExp = result.exp_result.totalExp;
+
+            actionNote = '';
+            var expMsg = result.exp_earned + ' EXP';
+            if (result.dimension_exp) {
+                expMsg = result.dimension_exp + '→全局' + result.exp_earned + ' EXP';
+            }
+            showToast('记录成功！' + cat.name + ' · +' + expMsg, 'success');
+
+            if (result.exp_result.leveledUp) {
+                setTimeout(function() {
+                    showToast('🎉 升级！Lv.' + result.exp_result.oldLevel + ' → Lv.' + result.exp_result.level, 'success');
+                }, 500);
+            }
+
+            var newNow = new Date();
+            actionStartHour = newNow.getHours();
+            actionStartMin = newNow.getMinutes();
+            actionSleepStart = '';
+            actionSleepEnd = '';
+
+            renderQuickAction();
+
+            var curUserId = AppData.user && AppData.user.id;
+            if (curUserId) reevaluateRewardsOnBackend(curUserId);
+        } else {
+            showToast('后端暂不可用，请稍后重试', 'error');
+        }
+    }).catch(function() {
+        showToast('后端暂不可用，请稍后重试', 'error');
+    });
 }
 
 /* ---- 行动历史卡片（开始行动页面右侧） ---- */
 function renderActionHistoryCard() {
     // 尝试从后端获取最近行动，降级到本地
     return '<div class="card qa-history-card" id="recent-actions-card">' +
-        '<div class="ac-module-header">' +
-            '<span class="ac-module-header__title">' +
-                '<span class="ac-module-header__icon">' + ACTION_ICONS.recent_actions + '</span>' +
-                '最近行动' +
-            '</span>' +
+        '<div class="section__title">' +
+            '<span class="section__title-icon">' + ACTION_ICONS.recent_actions + '</span>' +
+            '最近行动' +
         '</div>' +
         '<div class="qa-history-list" id="recent-actions-list">' +
             '<div style="text-align:center;padding:20px;color:var(--color-text-secondary)">加载中...</div>' +
@@ -378,7 +1113,75 @@ function renderActionHistoryCard() {
     '</div>';
 }
 
-/** 加载最近行动到历史卡片（异步调用） */
+/** 三层叠加进度条：每轮200EXP，三轮共600EXP封顶 */
+function renderTripleProgress(expEarned) {
+    var ROUND_MAX = 200;
+    var MAX_TOTAL = 600;
+    var total = Math.min(expEarned, MAX_TOTAL);
+    var isMaxed = expEarned >= MAX_TOTAL;
+
+    // 计算每一层的宽度（%）
+    var layer1 = Math.min(total / ROUND_MAX, 1) * 100;
+    var layer2 = total > ROUND_MAX
+        ? Math.min((total - ROUND_MAX) / ROUND_MAX, 1) * 100
+        : 0;
+    var layer3 = total > ROUND_MAX * 2
+        ? Math.min((total - ROUND_MAX * 2) / ROUND_MAX, 1) * 100
+        : 0;
+
+    // 当前轮次信息（用于文字显示）
+    var currentRound, currentExp, pct, roundColor;
+    if (total <= ROUND_MAX) {
+        currentRound = 1;
+        currentExp = total;
+        pct = Math.round(layer1);
+        roundColor = '#A8DDD1';
+    } else if (total <= ROUND_MAX * 2) {
+        currentRound = 2;
+        currentExp = total - ROUND_MAX;
+        pct = Math.round(layer2);
+        roundColor = '#B2C9EC';
+    } else {
+        currentRound = 3;
+        currentExp = total - ROUND_MAX * 2;
+        pct = Math.round(layer3);
+        roundColor = '#C9BBE8';
+    }
+
+    var roundLabel = isMaxed
+        ? '🏆 今日满贯'
+        : ['🥉 第一轮', '🥈 第二轮', '🥇 第三轮'][currentRound - 1];
+
+    // 满贯时三层全100%，否则按实际宽度显示
+    var w1 = isMaxed ? 100 : layer1;
+    var w2 = isMaxed ? 100 : layer2;
+    var w3 = isMaxed ? 100 : layer3;
+
+    // 下层宽度取 max(自身宽度, 上层宽度)，保证下层不会被上层"缩短"
+    var baseW1 = Math.max(w1, w2 > 0 ? 100 : 0, w3 > 0 ? 100 : 0);
+    var baseW2 = Math.max(w2, w3 > 0 ? 100 : 0);
+
+    return `
+        <div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px">
+                <span style="color:var(--color-text-muted)">${roundLabel}</span>
+                <span style="font-weight:600;color:${isMaxed ? '#C9BBE8' : roundColor}">${isMaxed ? '100%' : pct + '%'}</span>
+            </div>
+            <div style="position:relative;height:10px;border-radius:4px;background:rgba(42,51,50,0.6);overflow:hidden">
+                <!-- 第一层：薄荷 #86C9B8 -->
+                <div style="position:absolute;top:0;left:0;height:100%;width:${baseW1}%;border-radius:4px;background:rgba(134,201,184,0.95);transition:width 0.6s ease;z-index:1"></div>
+                <!-- 第二层：蓝色 #729CD9 -->
+                <div style="position:absolute;top:0;left:0;height:100%;width:${baseW2}%;border-radius:4px;background:rgba(114,156,217,0.95);transition:width 0.6s ease;z-index:2"></div>
+                <!-- 第三层：紫色 #A893D4 -->
+                <div style="position:absolute;top:0;left:0;height:100%;width:${w3}%;border-radius:4px;background:rgba(168,147,212,0.95);transition:width 0.6s ease;z-index:3"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--color-text-muted)">
+                <span>${isMaxed ? '600/600 EXP' : currentExp + '/200 EXP'}</span>
+                <span>${isMaxed ? '🎉 今日经验已拿满！' : '距下一轮 ' + (200 - currentExp) + ' EXP'}</span>
+            </div>
+        </div>
+    `;
+}
 async function loadRecentActions() {
     const listEl = document.getElementById('recent-actions-list');
     if (!listEl) return;
@@ -439,6 +1242,7 @@ function renderRecentActionsList(container, records) {
 async function loadCategoryDistribution() {
     const fills = document.querySelectorAll('.cat-dist-fill');
     const pcts = document.querySelectorAll('.cat-dist-pct');
+    const exps = document.querySelectorAll('.cat-dist-exp');
     if (!fills.length) return;
 
     const curUser = getCurrentUser();
@@ -447,20 +1251,33 @@ async function loadCategoryDistribution() {
     const result = await fetchActionTodayStats(curUser.id);
     if (!result || !result.category_dist) return;
 
-    const catMap = {};
-    result.category_dist.forEach(cd => {
-        catMap[cd.category_id] = cd.pct || 0;
+    // 计算每个维度的全局经验贡献
+    var catGlobalExp = {};
+    var totalGlobalExp = 0;
+    result.category_dist.forEach(function(cd) {
+        var cat = getCategory(cd.category_id);
+        var globalRate = cat ? cat.globalRate : 1.0;
+        var globalExp = Math.floor(cd.exp * globalRate);
+        catGlobalExp[cd.category_id] = globalExp;
+        totalGlobalExp += globalExp;
     });
 
-    fills.forEach(el => {
-        const catId = el.dataset.cat;
-        const pct = catMap[catId] || 0;
+    fills.forEach(function(el) {
+        var catId = el.dataset.cat;
+        var globalExp = catGlobalExp[catId] || 0;
+        var pct = totalGlobalExp > 0 ? Math.round((globalExp / totalGlobalExp) * 100) : 0;
         el.style.width = pct + '%';
     });
-    pcts.forEach(el => {
-        const catId = el.dataset.cat;
-        const pct = catMap[catId] || 0;
+    pcts.forEach(function(el) {
+        var catId = el.dataset.cat;
+        var globalExp = catGlobalExp[catId] || 0;
+        var pct = totalGlobalExp > 0 ? Math.round((globalExp / totalGlobalExp) * 100) : 0;
         el.textContent = pct + '%';
+    });
+    exps.forEach(function(el) {
+        var catId = el.dataset.cat;
+        var globalExp = catGlobalExp[catId] || 0;
+        el.textContent = '+' + globalExp + ' EXP';
     });
 }
 
@@ -626,13 +1443,13 @@ function renderActionHistoryTable(result, cats, pad2, fmtDate, fmtTime) {
                 <table class="ac-task-table">
                     <thead>
                         <tr class="ac-task-head-row">
-                            <th class="ac-task-th">日期</th>
+                            <th class="ac-task-th ac-task-th--date">日期</th>
                             <th class="ac-task-th">分类</th>
-                            <th class="ac-task-th">开始</th>
-                            <th class="ac-task-th">结束</th>
-                            <th class="ac-task-th">时长</th>
+                            <th class="ac-task-th ac-task-th--num">开始</th>
+                            <th class="ac-task-th ac-task-th--num">结束</th>
+                            <th class="ac-task-th ac-task-th--num">时长</th>
                             <th class="ac-task-th">备注</th>
-                            <th class="ac-task-th">奖励XP</th>
+                            <th class="ac-task-th ac-task-th--xp">奖励EXP</th>
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>
@@ -702,7 +1519,7 @@ function renderActionCenter() {
                             <option value="create">创作</option>
                             <option value="finance">财务</option>
                             <option value="hobby">爱好</option>
-                            <option value="soul">心灵</option>
+                            <option value="soul">魅力</option>
                         </select>
                         <button class="ac-icon-btn" onclick="closeActivityModal()" title="关闭">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -856,10 +1673,10 @@ function renderModule2_ActivityFeed(activities) {
             <div class="ac-activity-item ${i < filtered.length - 1 ? 'ac-activity-item--divider' : ''}">
                 <div class="ac-activity-item__left">
                     <span class="ac-activity-item__icon">${attrIcon(feedCat, 20)}</span>
-                    <span class="ac-activity-item__cat">${a.categoryName}</span>
+                    <span class="ac-activity-item__cat">${a.category_name || ''}</span>
                 </div>
                 <div class="ac-activity-item__mid">
-                    <span class="ac-activity-item__xp">XP +${feedXp}</span>
+                    <span class="ac-activity-item__xp">EXP +${feedXp}</span>
                     <span class="ac-activity-item__desc">${a.description}</span>
                 </div>
                 <span class="ac-activity-item__time">${a.timestamp}</span>
@@ -876,7 +1693,7 @@ function renderModule2_ActivityFeed(activities) {
         { value: 'create', label: '创作' },
         { value: 'finance', label: '财务' },
         { value: 'hobby', label: '爱好' },
-        { value: 'soul', label: '心灵' },
+        { value: 'soul', label: '魅力' },
     ];
 
     return `
@@ -917,7 +1734,7 @@ function renderActivityModal(activities) {
         { value: 'create', label: '创作' },
         { value: 'finance', label: '财务' },
         { value: 'hobby', label: '爱好' },
-        { value: 'soul', label: '心灵' },
+        { value: 'soul', label: '魅力' },
     ];
 
     return `
@@ -940,11 +1757,11 @@ function renderActivityModal(activities) {
                         : filtered.map((a, i) => `
                             <div class="ac-activity-item ${i < filtered.length - 1 ? 'ac-activity-item--divider' : ''}">
                                 <div class="ac-activity-item__left">
-                                    <span class="ac-activity-item__icon">${attrIcon(a.category, 20)}</span>
-                                    <span class="ac-activity-item__cat">${a.categoryName}</span>
+                                    <span class="ac-activity-item__icon">${attrIcon(a.category || a.category_id || '', 20)}</span>
+                                    <span class="ac-activity-item__cat">${a.category_name || ''}</span>
                                 </div>
                                 <div class="ac-activity-item__mid">
-                                    <span class="ac-activity-item__xp">XP +${a.xp}</span>
+                                    <span class="ac-activity-item__xp">EXP +${a.exp_earned || a.xp || 0}</span>
                                     <span class="ac-activity-item__desc">${a.description}</span>
                                 </div>
                                 <span class="ac-activity-item__time">${a.timestamp}</span>
@@ -999,10 +1816,10 @@ function renderActivityModalBody(body, activities) {
             <div class="ac-activity-item ${i < filtered.length - 1 ? 'ac-activity-item--divider' : ''}">
                 <div class="ac-activity-item__left">
                     <span class="ac-activity-item__icon">${attrIcon(feedCat, 20)}</span>
-                    <span class="ac-activity-item__cat">${a.categoryName}</span>
+                    <span class="ac-activity-item__cat">${a.category_name || ''}</span>
                 </div>
                 <div class="ac-activity-item__mid">
-                    <span class="ac-activity-item__xp">XP +${feedXp}</span>
+                    <span class="ac-activity-item__xp">EXP +${feedXp}</span>
                     <span class="ac-activity-item__desc">${a.description}</span>
                 </div>
                 <span class="ac-activity-item__time">${a.timestamp}</span>
@@ -1108,8 +1925,8 @@ function renderModule4_GoalTracker() {
         ? `<div class="empty-state"><div class="empty-state__title">暂无目标</div><div class="empty-state__desc">前往目标页面创建你的第一个目标</div></div>`
         : filtered.map(g => {
             const cat = getCategory(g.category);
-            const catColor = (GOAL_COLORS[g.category] || GOAL_COLORS.study).icon;
-            const deadlineDate = new Date(g.deadline);
+            const catColor = cat ? cat.color : '#888';
+            const deadlineDate = new Date(g.deadline + 'T23:59:59');
             const now = new Date();
             const daysLeft = Math.ceil((deadlineDate - now) / (1000 * 60 * 60 * 24));
             const urgencyColor = daysLeft < 30 ? '#F26B68' : daysLeft < 60 ? '#F7C242' : '#A0A8A6';
@@ -1118,8 +1935,8 @@ function renderModule4_GoalTracker() {
             const nextMs = g.milestones ? g.milestones.find(m => !m.done) : null;
             const nextMsText = nextMs ? nextMs.note : '全部完成 🎉';
 
-            const imgHtml = g.categoryImage
-                ? `<div class="ac-goal-item__img" style="background-image:url('${g.categoryImage}')"></div>`
+            const imgHtml = g.category_image
+                ? `<div class="ac-goal-item__img" style="background-image:url('${g.category_image}')"></div>`
                 : `<div class="ac-goal-item__img ac-goal-item__img--placeholder" style="color:${catColor}">${cat ? attrIcon(cat.id, 28) : '🎯'}</div>`;
 
             return `
@@ -1271,7 +2088,7 @@ function renderModule5_WeeklyTasks(tasks) {
                             <th class="ac-task-th">进度</th>
                             <th class="ac-task-th">状态</th>
                             <th class="ac-task-th">截止日期</th>
-                            <th class="ac-task-th">奖励XP</th>
+                            <th class="ac-task-th">奖励EXP</th>
                             <th class="ac-task-th">目标</th>
                         </tr>
                     </thead>

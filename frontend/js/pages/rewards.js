@@ -6,6 +6,8 @@ let rewards = [];
 let rewardFilter = 'all';
 let rewardStateFilter = 'all';
 let rewardModalActive = false;
+// 同步到 window 供 utils.js 的 closeModalIfNotActive 使用
+Object.defineProperty(window, '_rewardModalActive', { get: () => rewardModalActive });
 let rewardHistoryExpanded = null;
 let rewardEditMode = false;
 let rewardDeleteMode = false;
@@ -15,7 +17,6 @@ let rewardSelectedForDelete = new Set();
 const CONDITION_TYPES = [
     { value: 'level',           label: '等级达到',      needsTarget: false },
     { value: 'dim_level',       label: '维度等级达到',   needsTarget: true,  targetType: 'dimension' },
-    { value: 'total_exp',       label: '累计经验值达到',  needsTarget: false },
     { value: 'exp_since_create',label: '创建后获得经验',  needsTarget: false },
     { value: 'habit_streak',    label: '习惯连续打卡',   needsTarget: true,  targetType: 'habit' },
     { value: 'habit_streak_any',label: '任意习惯连续打卡',needsTarget: false },
@@ -34,7 +35,7 @@ const DIMENSION_OPTIONS = [
     { key: 'create',   name: '创作' },
     { key: 'finance',  name: '财务' },
     { key: 'hobby',    name: '爱好' },
-    { key: 'soul',     name: '心灵' },
+    { key: 'soul',     name: '魅力' },
 ];
 
 /* ---- 条件描述（从前端数据结构生成可读文本） ---- */
@@ -42,7 +43,6 @@ function describeCondition(cond) {
     switch (cond.type) {
         case 'level':           return `等级达到 Lv${cond.threshold}`;
         case 'dim_level':       return `${dimNameByKey(cond.targetId)}维度达到 Lv${cond.threshold}`;
-        case 'total_exp':       return `累计获得 ${cond.threshold} EXP`;
         case 'exp_since_create':return `创建后获得 ${cond.threshold} EXP`;
         case 'habit_streak':    return `「${habitNameById(cond.targetId)}」连续打卡 ${cond.threshold} 天`;
         case 'habit_streak_any':return `任意习惯连续打卡 ${cond.threshold} 天`;
@@ -199,7 +199,6 @@ function checkConditionLocally(cond, reward) {
         const dim = (AppData.profile?.dimensions || []).find(d => d.key === targetId);
         return dim && dim.level >= threshold;
     }
-    if (ctype === 'total_exp') return (AppData.user?.totalExp || 0) >= threshold;
     if (ctype === 'exp_since_create') {
         const base = reward.created_at_exp || 0;
         return (AppData.user?.totalExp || 0) - base >= threshold;
@@ -486,29 +485,72 @@ function getCondTypeInfo(value) {
    奖励编辑弹窗（结构化条件输入）
    ================================================================ */
 
-function openRewardModal(editId) {
+/* ---- 可选图标列表 ---- */
+const REWARD_ICONS = ['🎁','🎮','📚','🎬','🍕','🎂','👟','🎧','💻','🎨','🏆','💎','🌟','🎯','🎵','📖','🎪','🎫','✈️','🏖️','🍜','☕','🖼️','🧩'];
+
+async function openRewardModal(editId) {
     const existing = editId ? rewards.find(r => r.id === editId) : null;
     const existingImage = existing && existing.image ? existing.image : '';
-    const unlockConds = existing && existing.unlock_conditions ? existing.unlock_conditions : [null];
-    const claimConds = existing && existing.claim_conditions ? existing.claim_conditions : [null];
+    const existingIcon = existing ? (existing.icon || '🎁') : '🎁';
+    let unlockConds, claimConds, draftTitle, draftDesc, draftCategory, draftIcon, draftImage;
+
+    if (existing) {
+        unlockConds = existing.unlock_conditions ? existing.unlock_conditions : [null];
+        claimConds = existing.claim_conditions ? existing.claim_conditions : [null];
+    } else {
+        // 尝试恢复草稿
+        const userId = AppData.user?.id;
+        const draft = userId ? await fetchRewardDraftOnBackend(userId) : null;
+        if (draft && draft.title) {
+            draftTitle = draft.title || '';
+            draftDesc = draft.desc || '';
+            draftCategory = draft.category || '';
+            draftIcon = draft.icon || '🎁';
+            draftImage = draft.image || '';
+            unlockConds = draft.unlock_conditions && draft.unlock_conditions.length ? draft.unlock_conditions : [null];
+            claimConds = draft.claim_conditions && draft.claim_conditions.length ? draft.claim_conditions : [null];
+        } else {
+            unlockConds = [null];
+            claimConds = [null];
+        }
+    }
+
+    const iconVal = existing ? escapeHtml(existingIcon) : (draftIcon ? escapeHtml(draftIcon) : '🎁');
 
     const content = `
         <div style="display:flex;flex-direction:column;gap:16px">
             <div>
                 <label class="action-form__label">奖励名称</label>
-                <input class="input" id="reward-title" placeholder="例如：看一部电影" value="${existing ? escapeHtml(existing.title) : ''}">
+                <input class="input" id="reward-title" placeholder="例如：看一部电影" value="${existing ? escapeHtml(existing.title) : draftTitle ? escapeHtml(draftTitle) : ''}">
             </div>
             <div>
                 <label class="action-form__label">描述</label>
-                <textarea class="input" id="reward-desc" placeholder="描述这个奖励..." style="height:60px;resize:none">${existing ? escapeHtml(existing.desc || '') : ''}</textarea>
+                <textarea class="input" id="reward-desc" placeholder="描述这个奖励..." style="height:60px;resize:none">${existing ? escapeHtml(existing.desc || '') : draftDesc ? escapeHtml(draftDesc) : ''}</textarea>
             </div>
             <div>
                 <label class="action-form__label">分类</label>
-                <input class="input" id="reward-category" placeholder="例如：娱乐、学习、生活" value="${existing ? escapeHtml(existing.category || '') : ''}">
+                <input class="input" id="reward-category" placeholder="例如：娱乐、学习、生活" value="${existing ? escapeHtml(existing.category || '') : draftCategory ? escapeHtml(draftCategory) : ''}">
             </div>
             <div>
-                <label class="action-form__label">图标 (emoji)</label>
-                <input class="input" id="reward-icon" placeholder="🎁" value="${existing ? escapeHtml(existing.icon || '🎁') : '🎁'}">
+                <label class="action-form__label">展示图片</label>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <input class="input" id="reward-image" placeholder="图片URL（留空则使用下方图标）" value="${existing ? existingImage : draftImage || ''}" style="flex:1">
+                    <label class="btn btn--ghost" style="cursor:pointer;white-space:nowrap;padding:0 14px;line-height:36px">
+                        📁 上传
+                        <input type="file" accept="image/*" onchange="handleRewardImageUpload(event)" style="display:none">
+                    </label>
+                </div>
+                <div style="margin-top:8px">
+                    <div style="font-size:11px;color:#6b7280;margin-bottom:6px">无图片时默认显示图标：</div>
+                    <div id="reward-icon-picker" style="display:flex;flex-wrap:wrap;gap:4px">
+                        ${REWARD_ICONS.map(ic => `
+                            <span class="reward-icon-option ${ic === iconVal ? 'reward-icon-option--active' : ''}"
+                                  onclick="selectRewardIcon('${ic}')"
+                                  style="font-size:22px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;border:2px solid ${ic === iconVal ? 'var(--color-accent)' : 'transparent'};background:${ic === iconVal ? 'rgba(212,154,62,0.15)' : 'rgba(255,255,255,0.04)'}">${ic}</span>
+                        `).join('')}
+                    </div>
+                    <input type="hidden" id="reward-icon" value="${iconVal}">
+                </div>
             </div>
             <div>
                 <label class="action-form__label">解锁条件</label>
@@ -517,17 +559,6 @@ function openRewardModal(editId) {
                 </div>
                 <button class="btn btn--ghost" onclick="addConditionRow('unlock')" type="button" style="font-size:12px;margin-top:6px">+ 添加解锁条件</button>
                 <div style="font-size:11px;color:#6b7280;margin-top:4px">最多3个解锁条件，全部满足后奖励才解锁</div>
-            </div>
-            <div>
-                <label class="action-form__label">展示图片</label>
-                <div style="display:flex;gap:8px;align-items:center">
-                    <input class="input" id="reward-image" placeholder="图片URL" value="${existingImage}" style="flex:1">
-                    <label class="btn btn--ghost" style="cursor:pointer;white-space:nowrap;padding:0 14px;line-height:36px">
-                        📁 上传
-                        <input type="file" accept="image/*" onchange="handleRewardImageUpload(event)" style="display:none">
-                    </label>
-                </div>
-                ${existingImage ? `<div style="margin-top:8px"><img src="${existingImage}" style="max-width:200px;max-height:120px;border-radius:8px;border:1px solid #3f3f46" onerror="this.style.display='none'"></div>` : ''}
             </div>
             <div>
                 <label class="action-form__label">领取条件</label>
@@ -540,16 +571,28 @@ function openRewardModal(editId) {
         </div>
         <div class="modal__actions">
             <button class="btn btn--ghost" onclick="cancelRewardModal()">取消</button>
+            <button class="btn btn--ghost" onclick="saveDraftReward()">暂存</button>
             <button class="btn btn--primary" onclick="saveReward(${editId || 0})">${editId ? '保存' : '创建'}</button>
         </div>
     `;
     rewardModalActive = true;
-    openModal(existing ? '编辑奖励' : '自定义奖励', content);
+    openModal(existing ? '编辑奖励' : '自定义奖励', content, false);
+}
+
+/* ---- 选择图标 ---- */
+function selectRewardIcon(icon) {
+    document.getElementById('reward-icon').value = icon;
+    document.querySelectorAll('.reward-icon-option').forEach(el => {
+        const isActive = el.textContent.trim() === icon;
+        el.classList.toggle('reward-icon-option--active', isActive);
+        el.style.borderColor = isActive ? 'var(--color-accent)' : 'transparent';
+        el.style.background = isActive ? 'rgba(212,154,62,0.15)' : 'rgba(255,255,255,0.04)';
+    });
 }
 
 /* ---- 渲染单行条件输入 ---- */
 function renderConditionFormRow(cond, index, listType) {
-    const typeValue = cond ? cond.type : 'total_exp';
+    const typeValue = cond ? cond.type : 'level';
     const typeInfo = getCondTypeInfo(typeValue);
     const threshold = cond ? (cond.threshold || '') : '';
     const targetId = cond ? (cond.targetId || '') : '';
@@ -597,7 +640,7 @@ function renderConditionFormRow(cond, index, listType) {
 
     return `
         <div class="reward-condition-row" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <select class="input cond-type-select" style="width:auto;min-width:140px" data-list="${listType}" data-index="${index}" onchange="onCondTypeChange(this, ${index}, '${listType}')">
+            <select class="input cond-type-select" style="width:auto;min-width:180px" data-list="${listType}" data-index="${index}" onchange="onCondTypeChange(this, ${index}, '${listType}')">
                 ${CONDITION_TYPES.map(t => `
                     <option value="${t.value}" ${typeValue === t.value ? 'selected' : ''}>${t.label}</option>
                 `).join('')}
@@ -704,6 +747,29 @@ function cancelRewardModal() {
     closeModal();
 }
 
+/* ---- 暂存 ---- */
+async function saveDraftReward() {
+    const title = document.getElementById('reward-title').value.trim();
+    const desc = document.getElementById('reward-desc').value.trim();
+    const category = document.getElementById('reward-category').value.trim();
+    const icon = document.getElementById('reward-icon').value.trim() || '🎁';
+    const image = document.getElementById('reward-image').value.trim();
+    const unlockConditions = collectConditions('reward-unlock-list');
+    const claimConditions = collectConditions('reward-claim-list');
+    const userId = AppData.user?.id;
+    if (!userId) return;
+
+    const data = { title, desc, icon, category, image, unlock_conditions: unlockConditions, claim_conditions: claimConditions };
+    const result = await saveRewardDraftOnBackend(userId, data);
+    if (result) {
+        rewardModalActive = false;
+        closeModal();
+        showToast('📝 草稿已保存', 'success');
+    } else {
+        showToast('保存草稿失败', 'error');
+    }
+}
+
 /* ---- 保存 ---- */
 async function saveReward(editId) {
     const title = document.getElementById('reward-title').value.trim();
@@ -738,6 +804,9 @@ async function saveReward(editId) {
         const result = await createRewardOnBackend(userId, data);
         if (!result) { showToast('创建失败', 'error'); return; }
     }
+
+    // 创建/保存成功后清除草稿
+    await deleteRewardDraftOnBackend(userId);
 
     rewardModalActive = false;
     closeModal();

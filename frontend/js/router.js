@@ -10,6 +10,9 @@ let currentSkillSubPage = 'mine';
 /** 已加载的页面 JS 模块名集合 */
 const loadedPages = new Set();
 
+/** 渲染版本号，用于防止快速切换页面时旧渲染覆盖新页面 */
+navigateTo._version = 0;
+
 /** 页面名 → JS 文件路径 映射 */
 const PAGE_JS_MAP = {
     dashboard: 'js/pages/dashboard.js',
@@ -48,6 +51,7 @@ function navigateTo(pageName, subPage) {
     // If same page AND same subpage, skip
     if (currentPage === pageName && subPage && currentSubPage === subPage) return;
     if (currentPage === pageName && pageName === 'tasks' && subPage && currentTasksSubPage === subPage) return;
+    if (currentPage === pageName && pageName === 'skill' && subPage && currentSkillSubPage === subPage) return;
     // If clicking parent "行动" while already on it, toggle subnav visibility only
     if (currentPage === pageName && pageName === 'action' && !subPage) {
         const subnavAction = document.getElementById('subnav-action');
@@ -136,8 +140,14 @@ function navigateTo(pageName, subPage) {
         target.classList.add('page--active');
         currentPage = pageName;
 
+        // 渲染版本号守卫：防止快速切换页面时旧渲染覆盖新页面
+        const renderVersion = ++navigateTo._version;
+
         // 动态加载并渲染
-        loadPageJS(pageName).then(() => {
+        loadPageJS(pageName).then(async () => {
+            // 如果用户已切换到其他页面，跳过渲染
+            if (renderVersion !== navigateTo._version) return;
+
             const renderers = {
                 dashboard: typeof renderDashboard !== 'undefined' ? renderDashboard : null,
                 action: typeof renderAction !== 'undefined' ? () => renderAction(currentSubPage) : null,
@@ -152,7 +162,7 @@ function navigateTo(pageName, subPage) {
 
             const renderFn = renderers[pageName];
             if (renderFn) {
-                renderFn();
+                await renderFn();
             }
         }).catch(() => {
             // 加载失败时显示提示

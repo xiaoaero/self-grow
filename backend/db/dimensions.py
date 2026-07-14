@@ -1,7 +1,7 @@
 """
 Self Grow — 维度经验 CRUD
 
-八维属性（健康/学习/关系/工作/创作/财务/爱好/心灵）的经验管理。
+八维属性（健康/学习/关系/工作/创作/财务/爱好/魅力）的经验管理。
 """
 
 from db.connection import get_conn
@@ -42,8 +42,8 @@ def upsert_dimension(user_id: int, dimension_key: str, xp_add: int = 0):
     xp = row["xp"] + xp_add
     xp_to_next = row["xp_to_next"]
 
-    # 检查是否升级（复用等级公式，维度上限 120 级）
-    while xp >= xp_to_next and level < 120:
+    # 检查是否升级（复用等级公式，维度上限 140 级）
+    while xp >= xp_to_next and level < 140:
         xp -= xp_to_next
         level += 1
         xp_to_next = exp_for_level(level)

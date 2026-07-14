@@ -16,21 +16,59 @@ function showToast(message, type = 'info') {
 }
 
 /** Open modal */
-function openModal(title, contentHtml) {
+function openModal(title, contentHtml, clickOutsideToClose = true) {
     const overlay = document.getElementById('modal-overlay');
     const modal = document.getElementById('modal');
     modal.innerHTML = `
-        <div class="modal__title">${title}</div>
+        <div class="modal__title">
+            <span>${title}</span>
+            <button class="modal__close-btn" onclick="closeModal()" title="关闭">✕</button>
+        </div>
         <div>${contentHtml}</div>
     `;
     overlay.classList.add('modal-overlay--visible');
     modal.classList.add('modal--visible');
+    // 记录当前弹窗是否允许外部点击关闭
+    overlay.dataset.clickOutsideToClose = clickOutsideToClose ? 'true' : 'false';
+    // 用 addEventListener 管理点击外部关闭，彻底避免 onclick property 的兼容问题
+    // 先移除旧的监听器（防止重复绑定）
+    if (overlay._clickOutsideHandler) {
+        overlay.removeEventListener('click', overlay._clickOutsideHandler);
+        overlay._clickOutsideHandler = null;
+    }
+    if (clickOutsideToClose) {
+        var handler = function(e) {
+            // 确保点击的是 overlay 本身（不是 modal 内部）
+            if (e.target === overlay) {
+                closeModalIfNotActive();
+            }
+        };
+        overlay._clickOutsideHandler = handler;
+        overlay.addEventListener('click', handler);
+    }
 }
 
 /** Close modal */
 function closeModal() {
-    document.getElementById('modal-overlay').classList.remove('modal-overlay--visible');
+    var overlay = document.getElementById('modal-overlay');
+    overlay.classList.remove('modal-overlay--visible');
     document.getElementById('modal').classList.remove('modal--visible');
+    // 清理 clickOutsideHandler，避免下次 openModal 时残留
+    if (overlay._clickOutsideHandler) {
+        overlay.removeEventListener('click', overlay._clickOutsideHandler);
+        overlay._clickOutsideHandler = null;
+    }
+}
+
+/** Close modal with protection for data-entry modals (goals, tasks, habits, rewards)
+ *  Prevent accidental data loss when clicking outside. */
+function closeModalIfNotActive() {
+    const overlay = document.getElementById('modal-overlay');
+    // If clickOutsideToClose is explicitly false, don't close
+    if (overlay && overlay.dataset.clickOutsideToClose === 'false') return;
+    // If any data-entry modal is active, don't close
+    if (window._goalModalActive || window._taskModalActive || window._habitModalActive || window._rewardModalActive) return;
+    closeModal();
 }
 
 /** Format minutes to readable */
@@ -49,7 +87,7 @@ function formatDate(dateStr) {
 
 /** Get trend percentage */
 function getTrend(current, previous) {
-    if (previous === 0) return 100;
+    if (previous === 0) return current === 0 ? 0 : 100;
     return Math.round(((current - previous) / previous) * 100);
 }
 
@@ -87,6 +125,7 @@ const HEADER_ICONS = {
 
 /** Escape HTML to prevent XSS */
 function escapeHtml(str) {
+    if (str == null) return '';
     const div = document.createElement('div');
     div.appendChild(document.createTextNode(str));
     return div.innerHTML;
@@ -114,8 +153,22 @@ const MAX_LEVEL = 200;
 
 /** 单级升级门槛公式：从Lv.L升到Lv.L+1所需累计EXP */
 function expForLevel(L) {
-    if (L <= 0) return 0;
+    if (L <= 0 || L >= 200) return 0;
     return Math.round(5.5632 * Math.pow(L - 1, 2) + 300);
+}
+
+/** 根据累计总经验计算等级（上限200） */
+function levelFromTotalExp(totalExp) {
+    if (totalExp <= 0) return 1;
+    let level = 1;
+    let cumulative = 0;
+    while (level < 200) {
+        const need = expForLevel(level);
+        if (cumulative + need > totalExp) break;
+        cumulative += need;
+        level++;
+    }
+    return Math.min(level, 200);
 }
 
 /** 段位定义（每20级一段，共10段） */
@@ -313,6 +366,48 @@ async function fetchHabitInsights(userId) {
     }
 }
 
+/** 从后端加载 AI 习惯分析报告 */
+async function fetchHabitAIInsights(userId, dateFrom, dateTo) {
+    try {
+        const resp = await fetch(`${API_BASE}/api/habits/ai-insights?user_id=${userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date_from: dateFrom, date_to: dateTo }),
+        });
+        if (!resp.ok) {
+            const err = await resp.text();
+            console.warn('AI 习惯分析失败:', err);
+            return null;
+        }
+        const data = await resp.json();
+        return data.report || null;
+    } catch (e) {
+        console.warn('后端不可用，AI 习惯分析返回 null:', e);
+        return null;
+    }
+}
+
+/** AI 生成习惯图标 */
+async function fetchHabitAIIcon(userId, name, intro, category) {
+    try {
+        const resp = await fetch(`${API_BASE}/api/habits/ai-icon?user_id=${userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, intro, category }),
+        });
+        if (!resp.ok) {
+            const err = await resp.text();
+            console.warn('AI 图标设计失败:', err);
+            return null;
+        }
+        const data = await resp.json();
+        return data.svg || null;
+    } catch (e) {
+        console.warn('后端不可用，AI 图标设计返回 null:', e);
+        return null;
+    }
+}
+
 /** 从后端加载上周习惯数据 */
 async function fetchLastWeekHabits(userId) {
     try {
@@ -404,6 +499,38 @@ async function submitActionToBackend(userId, data) {
         return await resp.json();
     } catch (e) {
         console.warn('提交行动失败:', e);
+        return null;
+    }
+}
+
+/** 发送 AI 行动解析对话消息 */
+async function fetchAIActionChat(userId, messages) {
+    try {
+        const resp = await fetch(`${API_BASE}/api/actions/ai-chat?user_id=${userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages }),
+        });
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        console.warn('AI 行动解析请求失败:', e);
+        return null;
+    }
+}
+
+/** 批量提交 AI 解析后的行动记录 */
+async function submitAIActions(userId, actions) {
+    try {
+        const resp = await fetch(`${API_BASE}/api/actions/ai-submit?user_id=${userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actions }),
+        });
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        console.warn('批量提交 AI 行动失败:', e);
         return null;
     }
 }
@@ -880,6 +1007,49 @@ async function uploadRewardImageOnBackend(rewardId, file) {
         return await resp.json();
     } catch (e) {
         console.warn('上传奖励图片失败:', e);
+        return null;
+    }
+}
+
+/** 保存奖励草稿 */
+async function saveRewardDraftOnBackend(userId, data) {
+    try {
+        const resp = await fetch(`${API_BASE}/api/rewards/draft?user_id=${userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        console.warn('保存奖励草稿失败:', e);
+        return null;
+    }
+}
+
+/** 获取奖励草稿 */
+async function fetchRewardDraftOnBackend(userId) {
+    try {
+        const resp = await fetch(`${API_BASE}/api/rewards/draft?user_id=${userId}`);
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        return data.draft || null;
+    } catch (e) {
+        console.warn('获取奖励草稿失败:', e);
+        return null;
+    }
+}
+
+/** 删除奖励草稿 */
+async function deleteRewardDraftOnBackend(userId) {
+    try {
+        const resp = await fetch(`${API_BASE}/api/rewards/draft?user_id=${userId}`, {
+            method: 'DELETE',
+        });
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        console.warn('删除奖励草稿失败:', e);
         return null;
     }
 }

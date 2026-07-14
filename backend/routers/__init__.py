@@ -14,3 +14,4 @@ from .scheduled_tasks import router as scheduled_tasks_router
 from .stats import router as stats_router
 from .rewards import router as rewards_router
 from .ai import router as ai_router
+from .skill_tree import router as skill_tree_router

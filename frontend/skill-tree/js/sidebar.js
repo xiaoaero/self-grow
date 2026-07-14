@@ -14,9 +14,36 @@ class SkillTreeManager {
     this.trees = [];
     this.currentId = null;
 
-    this._loadIndex();
+    // 异步初始化：先尝试从后端加载，失败则从 localStorage 加载
+    this._initIndex();
     this._renderList();
     this._bindEvents();
+  }
+
+  /* ---- 异步初始化 ---- */
+
+  async _initIndex() {
+    const serverTrees = await fetchSkillTreeIndex();
+    if (serverTrees && serverTrees.length > 0) {
+      // 后端有数据，以后端为准
+      this.trees = serverTrees;
+      this.trees.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      // 同步到 localStorage 作为缓存
+      saveToStorage('skill_tree_index', this.trees);
+      this._renderList();
+
+      // 如果有 currentId 且后端有对应树，自动加载
+      if (this.currentId && this.trees.find(t => t.id === this.currentId)) {
+        this.switchToTree(this.currentId);
+      } else if (this.trees.length > 0 && !this.currentId) {
+        this.currentId = this.trees[0].id;
+        this.switchToTree(this.currentId);
+      }
+    } else {
+      // 后端不可用或无数据，从 localStorage 加载
+      this._loadIndex();
+      this._renderList();
+    }
   }
 
   /* ---- 索引管理 ---- */
@@ -57,11 +84,14 @@ class SkillTreeManager {
     this.trees.push(entry);
     this._saveIndex();
 
-    saveToStorage(this._getStorageKey(id), {
-      name,
-      description,
-      nodes: [],
-      connections: []
+    const data = { name, description, nodes: [], connections: [] };
+    saveToStorage(this._getStorageKey(id), data);
+
+    // 异步同步到后端
+    createSkillTreeOnServer(id, name, description);
+    saveSkillTreeDraft(id, {
+      name, description, data,
+      node_count: 0, completed_count: 0, image: '', remark: '',
     });
 
     return id;
@@ -81,6 +111,9 @@ class SkillTreeManager {
     } catch (e) {
       console.warn('Failed to remove tree data:', e);
     }
+
+    // 异步删除后端数据
+    deleteSkillTreeOnServer(treeId);
 
     return true;
   }
@@ -121,6 +154,17 @@ class SkillTreeManager {
       entry.completedCount = this.app.nodes.filter(n => n.progress === 100).length;
       this._saveIndex();
     }
+
+    // 异步同步到后端
+    saveSkillTreeDraft(this.currentId, {
+      name: this.app.treeName,
+      description: this.app.treeDescription,
+      data: data,
+      node_count: this.app.nodes.length,
+      completed_count: this.app.nodes.filter(n => n.progress === 100).length,
+      image: entry && entry.image ? entry.image : '',
+      remark: entry && entry.remark ? entry.remark : '',
+    });
   }
 
   getCurrentEntry() {
@@ -180,7 +224,7 @@ class SkillTreeManager {
       publishedAt: new Date().toISOString()
     };
 
-    // 保存发布版
+    // 保存发布版到 localStorage
     saveToStorage(publishedKey, publishedData);
 
     // 更新索引中的发布状态和更新历史
@@ -198,7 +242,12 @@ class SkillTreeManager {
     }
 
     this._renderList();
-    showToast(isUpdate ? '🔄 已更新上线版本' : '🚀 已上线：' + (entry ? entry.name : ''), 'success');
+
+    // 异步同步到后端
+    publishSkillTreeOnServer(treeId, publishedData, draftData.nodes.length,
+      draftData.nodes.filter(n => n.progress === 100).length);
+
+    showToast(entry && entry.publishedAt ? '🔄 已更新上线版本' : '🚀 已上线：' + (entry ? entry.name : ''), 'success');
   }
 
   /** 检查是否已发布 */

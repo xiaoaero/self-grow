@@ -11,6 +11,8 @@ var tasksLoaded = false;
 let taskFilterCategory = 'all';
 let taskDeleteMode = false;
 let taskModalActive = false;
+// 同步到 window 供 utils.js 的 closeModalIfNotActive 使用
+Object.defineProperty(window, '_taskModalActive', { get: () => taskModalActive });
 
 /** Category → color mapping (same as GOAL_COLORS) */
 const TASK_COLORS = {
@@ -313,6 +315,12 @@ function localClaimTaskExp(task) {
     AppData.user.exp += task.exp;
     AppData.todayStats.tasksDone++;
     AppData.todayStats.expEarned += task.exp;
+    // 重新计算等级
+    const oldLevel = AppData.user.level;
+    AppData.user.level = levelFromTotalExp(AppData.user.exp);
+    if (AppData.user.level > oldLevel) {
+        setTimeout(() => showToast(`🎉 升级！Lv.${oldLevel} → Lv.${AppData.user.level}`, 'success'), 500);
+    }
     renderTodayTasks();
     showToast(`任务完成！+${task.exp} EXP`, 'success');
 }
@@ -798,7 +806,7 @@ function openTaskModal() {
     `;
 
     taskModalActive = true;
-    openModal('新建任务', content);
+    openModal('新建任务', content, false);
 }
 
 function renderWeekdayPicker() {
@@ -962,9 +970,6 @@ function closeTaskModal() {
     closeModal();
 }
 
-// closeModal protection for task modal is handled in goals.js
-// (taskModalActive check is merged there)
-
 /* ================================================================
    定时任务模板管理（本日任务底部）
    ================================================================ */
@@ -1116,7 +1121,7 @@ function editTemplate(id) {
     `;
 
     taskModalActive = true;
-    openModal('编辑定时任务模板', content);
+    openModal('编辑定时任务模板', content, false);
 }
 
 function presetEditWeekdays(preset) {
@@ -1291,7 +1296,7 @@ function editWeeklyTemplate(id) {
     `;
 
     taskModalActive = true;
-    openModal('编辑每周任务模板', content);
+    openModal('编辑每周任务模板', content, false);
 }
 
 function saveEditWeeklyTemplate(id) {

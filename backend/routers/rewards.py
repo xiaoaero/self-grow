@@ -7,7 +7,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 
-from db.rewards import get_reward, create_reward, update_reward, delete_reward, claim_reward, manual_confirm_condition, evaluate_all_rewards, evaluate_reward
+from db.rewards import get_reward, create_reward, update_reward, delete_reward, claim_reward, manual_confirm_condition, evaluate_all_rewards, evaluate_reward, save_reward_draft, get_reward_draft, delete_reward_draft
 from schemas.api import CreateRewardRequest, UpdateRewardRequest, ManualConfirmRequest
 from routers.deps import get_current_user
 from config import UPLOAD_DIR
@@ -116,3 +116,28 @@ async def upload_reward_image(reward_id: int, file: UploadFile = File(...)):
     url = f"/uploads/rewards/{filename}"
     update_reward(reward_id, image=url)
     return {"url": url}
+
+
+# ================================================================
+# 奖励草稿 API
+# ================================================================
+
+@router.get("/api/rewards/draft")
+async def get_draft(user=Depends(get_current_user)):
+    """获取草稿"""
+    draft = get_reward_draft(user["id"])
+    return {"draft": draft}
+
+
+@router.post("/api/rewards/draft")
+async def save_draft(req: CreateRewardRequest, user=Depends(get_current_user)):
+    """保存草稿"""
+    save_reward_draft(user["id"], req.dict())
+    return {"saved": True}
+
+
+@router.delete("/api/rewards/draft")
+async def delete_draft(user=Depends(get_current_user)):
+    """删除草稿"""
+    delete_reward_draft(user["id"])
+    return {"deleted": True}

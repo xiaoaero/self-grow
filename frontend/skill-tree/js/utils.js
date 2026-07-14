@@ -81,6 +81,156 @@ function loadFromStorage(key, fallback = null) {
 }
 
 /**
+ * 获取当前用户 ID（从 URL 参数或 localStorage）
+ */
+function getCurrentUserId() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('userId')) return params.get('userId');
+  try {
+    const user = JSON.parse(localStorage.getItem('currentUser'));
+    return user ? user.id : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 从后端 API 加载技能树索引
+ */
+async function fetchSkillTreeIndex() {
+  const userId = getCurrentUserId();
+  if (!userId) return null;
+  try {
+    const res = await fetch('/api/skill-trees?user_id=' + userId);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.trees || [];
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 从后端 API 创建技能树
+ */
+async function createSkillTreeOnServer(treeId, name, description) {
+  const userId = getCurrentUserId();
+  if (!userId) return false;
+  try {
+    const res = await fetch('/api/skill-trees?user_id=' + userId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tree_id: treeId, name: name, description: description }),
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 从后端 API 保存技能树草稿
+ */
+async function saveSkillTreeDraft(treeId, data) {
+  const userId = getCurrentUserId();
+  if (!userId) return false;
+  try {
+    const res = await fetch('/api/skill-trees/' + treeId + '?user_id=' + userId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 从后端 API 发布技能树
+ */
+async function publishSkillTreeOnServer(treeId, publishedData, nodeCount, completedCount) {
+  const userId = getCurrentUserId();
+  if (!userId) return false;
+  try {
+    const res = await fetch('/api/skill-trees/' + treeId + '/publish?user_id=' + userId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        published_data: publishedData,
+        node_count: nodeCount,
+        completed_count: completedCount,
+      }),
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 从后端 API 获取已发布的技能树
+ */
+async function fetchPublishedSkillTree(treeId) {
+  try {
+    const res = await fetch('/api/skill-trees/' + treeId + '/published');
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 从后端 API 获取单个技能树草稿
+ */
+async function fetchSkillTreeDraft(treeId) {
+  const userId = getCurrentUserId();
+  if (!userId) return null;
+  try {
+    const res = await fetch('/api/skill-trees/' + treeId + '?user_id=' + userId);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 从后端 API 保存学习进度
+ */
+async function saveLearnerProgressOnServer(treeId, learner) {
+  const userId = getCurrentUserId();
+  if (!userId) return false;
+  try {
+    const res = await fetch('/api/skill-trees/' + treeId + '/learner?user_id=' + userId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ learner: learner }),
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * 从后端 API 删除技能树
+ */
+async function deleteSkillTreeOnServer(treeId) {
+  const userId = getCurrentUserId();
+  if (!userId) return false;
+  try {
+    const res = await fetch('/api/skill-trees/' + treeId + '?user_id=' + userId, {
+      method: 'DELETE',
+    });
+    return res.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
  * 计算贝塞尔曲线路径
  * @param {number} x1 - 起点x
  * @param {number} y1 - 起点y

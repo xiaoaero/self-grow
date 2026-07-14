@@ -8,15 +8,16 @@ from datetime import datetime, timedelta
 from db.actions import create_action_log, get_action_logs, get_today_action_stats, get_activity_feed
 from db.users import get_user_stats
 from models.constants import get_category, calculate_exp
-from schemas.api import CreateActionRequest
+from schemas.api import CreateActionRequest, AIChatActionRequest, AISubmitActionsRequest
 from routers.deps import get_current_user
+from services.ai_action_service import call_action_ai
 
 router = APIRouter()
 
 
 @router.post("/api/actions")
 async def create_action(req: CreateActionRequest, user=Depends(get_current_user)):
-    """提交行动记录 — 后端计算 EXP、更新等级和今日统计"""
+    """提交行动记录 — 按新规则计算 EXP、更新等级和今日统计"""
     user_id = user["id"]
 
     # 校验分类
@@ -30,24 +31,42 @@ async def create_action(req: CreateActionRequest, user=Depends(get_current_user)
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="无效的 start_time 格式，需要 ISO 8601")
 
-    end_dt = start_dt + timedelta(minutes=req.duration)
-    end_time = end_dt.isoformat()
-
-    # 计算 EXP
-    exp_earned = calculate_exp(req.category_id, req.duration)
-
-    # 插入行动记录
-    new_id = create_action_log(
-        user_id, req.category_id, req.start_time, end_time,
-        req.duration, req.note or "", exp_earned,
+    # 使用新规则计算经验
+    from models.constants import calculate_exp as calc_exp_new
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    exp_result = calc_exp_new(
+        req.category_id, req.duration,
+        sub_type=req.sub_type or None,
+        sleep_start=req.sleep_start or None,
+        sleep_end=req.sleep_end or None,
+        today=today_str,
     )
 
-    # 使用服务层统一处理 EXP 奖励
+    dimension_exp = exp_result["dimension_exp"]
+    global_exp = exp_result["global_exp"]
+    sub_type = exp_result["sub_type"]
+
+    # 计算 end_time（睡眠模式没有duration，但也要记录end_time）
+    if req.duration > 0:
+        end_dt = start_dt + timedelta(minutes=req.duration)
+    else:
+        end_dt = start_dt
+    end_time = end_dt.isoformat()
+
+    # 插入行动记录（保存维度经验值）
+    new_id = create_action_log(
+        user_id, req.category_id, req.start_time, end_time,
+        req.duration, req.note or "", round(dimension_exp),
+    )
+
+    # 使用服务层统一处理 EXP 奖励（传入维度经验，由服务层折算全局经验）
     from services.exp_service import award_exp_and_recalc
-    result = award_exp_and_recalc(
-        user_id, req.category_id, exp_earned,
-        extra_focus_minutes=req.duration,
-        extra_tasks_done=1,
+    focus_minutes = req.duration if req.duration > 0 else 0
+    service_result = award_exp_and_recalc(
+        user_id, req.category_id, dimension_exp,
+        extra_focus_minutes=focus_minutes,
+        extra_tasks_done=0,  # 行动记录不算完成任务
+        is_global_exp=False,  # 传入的是维度经验，需要内置折算
     )
 
     return {
@@ -58,9 +77,13 @@ async def create_action(req: CreateActionRequest, user=Depends(get_current_user)
         "end_time": end_time,
         "duration": req.duration,
         "note": req.note or "",
-        "exp_earned": exp_earned,
-        "exp_result": result["exp_result"],
-        "today_stats": result["today_stats"],
+        "exp_earned": int(global_exp),
+        "dimension_exp": dimension_exp,
+        "sub_type": sub_type,
+        "sleep_valid": exp_result.get("sleep_valid", False),
+        "routine_extra": exp_result.get("routine_extra", 0),
+        "exp_result": service_result["exp_result"],
+        "today_stats": service_result["today_stats"],
     }
 
 
@@ -110,3 +133,97 @@ async def activity_feed(user=Depends(get_current_user)):
     user_id = user["id"]
     activities = get_activity_feed(user_id)
     return {"activities": activities}
+
+
+# ================================================================
+# AI 行动解析对话
+# ================================================================
+
+
+@router.post("/api/actions/ai-chat")
+async def ai_chat_action(req: AIChatActionRequest):
+    """AI 行动解析对话：支持多轮交互，AI 可反问用户"""
+    result = await call_action_ai(req.messages)
+    if "tool_calls" in result:
+        return {"tool_calls": result["tool_calls"]}
+    return {"content": result.get("content", "")}
+
+
+@router.post("/api/actions/ai-submit")
+async def ai_submit_actions(req: AISubmitActionsRequest, user=Depends(get_current_user)):
+    """
+    批量提交 AI 解析后的行动记录。
+    后端用 calculate_exp() 二次校验 EXP，确保与手动记录一致。
+    """
+    user_id = user["id"]
+    from datetime import timedelta
+    from services.exp_service import award_exp_and_recalc
+
+    results = []
+    total_global_exp = 0
+    last_service_result = None
+
+    for action in req.actions:
+        cat = get_category(action.category_id)
+        if not cat:
+            continue
+
+        now = datetime.now()
+        start_time = now.isoformat()
+        today_str = now.strftime('%Y-%m-%d')
+
+        # 后端二次计算经验（确保与手动记录一致）
+        exp_result = calculate_exp(
+            action.category_id, action.duration,
+            sub_type=action.sub_type or None,
+            sleep_start=action.sleep_start or None,
+            sleep_end=action.sleep_end or None,
+            today=today_str,
+        )
+
+        dimension_exp = exp_result["dimension_exp"]
+        global_exp = exp_result["global_exp"]
+        sub_type = exp_result["sub_type"]
+        total_global_exp += global_exp
+
+        # 计算 end_time
+        end_dt = now
+        if action.duration > 0:
+            end_dt = now + timedelta(minutes=action.duration)
+        end_time = end_dt.isoformat()
+
+        # 插入记录
+        new_id = create_action_log(
+            user_id, action.category_id, start_time, end_time,
+            action.duration, action.note or "", round(dimension_exp),
+        )
+
+        # 更新经验
+        last_service_result = award_exp_and_recalc(
+            user_id, action.category_id, dimension_exp,
+            extra_focus_minutes=action.duration if action.duration > 0 else 0,
+            extra_tasks_done=0,  # 行动记录不算完成任务
+            is_global_exp=False,
+        )
+
+        results.append({
+            "id": new_id,
+            "category_id": action.category_id,
+            "category_name": cat["name"],
+            "note": action.note,
+            "duration": action.duration,
+            "sub_type": sub_type,
+            "exp_earned": int(global_exp),
+            "dimension_exp": dimension_exp,
+        })
+
+    # 取最后一个的 today_stats 和 exp_result（已累加所有记录）
+    merged_stats = last_service_result["today_stats"] if last_service_result else {}
+    merged_exp = last_service_result["exp_result"] if last_service_result else {}
+
+    return {
+        "records": results,
+        "total_global_exp": total_global_exp,
+        "today_stats": merged_stats,
+        "exp_result": merged_exp,
+    }

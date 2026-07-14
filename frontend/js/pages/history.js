@@ -225,7 +225,7 @@ function drawProfileRadarChart() {
                     callbacks: {
                         label: (ctx) => {
                             const d = dims[ctx.dataIndex];
-                            return d.name + ' Lv' + d.level + ': ' + (d.totalXp || d.xp).toLocaleString() + ' XP';
+                            return d.name + ' Lv' + d.level + ': ' + (d.totalXp || d.xp).toLocaleString() + ' EXP';
                         },
                     },
                 },
@@ -273,7 +273,7 @@ async function renderHistory() {
         <!-- Module 1: Top Stats Cards -->
         <div class="profile-stats-grid">
             ${renderProfileStatCard(HIST_ICONS.days, p.effortDays, '努力天数')}
-            ${renderProfileStatCard(HIST_ICONS.xp, (p.totalXP || 0).toLocaleString(), '累计获得XP')}
+            ${renderProfileStatCard(HIST_ICONS.xp, (p.totalXP || 0).toLocaleString(), '累计获得EXP')}
             ${renderProfileStatCard(HIST_ICONS.checkins, p.habitCheckins || 0, '习惯打卡次数')}
             ${renderProfileStatCard(HIST_ICONS.tasks, p.tasksCompleted || 0, '完成任务数')}
             ${renderProfileStatCard(HIST_ICONS.goals, p.goalsAchieved || 0, '达成目标')}
@@ -319,7 +319,7 @@ async function renderHistory() {
                     const nextLv = d.level >= 120 ? d.level : d.level + 1;
                     const tooltip = d.level >= 120
                         ? `已达最高等级 Lv${d.level}`
-                        : `升级进度 ${pct}% · 还需 ${remaining} XP 升至 Lv${nextLv}`;
+                        : `升级进度 ${pct}% · 还需 ${remaining} EXP 升至 Lv${nextLv}`;
                     return `
                         <div class="profile-bar" title="${tooltip}">
                             <div class="profile-bar__header">
@@ -331,7 +331,7 @@ async function renderHistory() {
                                 <div class="profile-bar__track-bg" style="background:${d.color}22"></div>
                                 <div class="profile-bar__fill" style="width:${pct}%; background:${d.color}"></div>
                             </div>
-                            <span class="profile-bar__xp">${(d.totalXp || d.xp).toLocaleString()} XP</span>
+                            <span class="profile-bar__xp">${d.xp.toLocaleString()} EXP</span>
                         </div>
                     `;
                 }).join('')}
@@ -451,7 +451,7 @@ async function drawTrendChart(days) {
                     ticks: {
                         color: 'rgba(255,255,255,0.3)',
                         font: { size: 10 },
-                        callback: (v) => v + ' XP',
+                        callback: (v) => v + ' EXP',
                     },
                     grid: {
                         color: 'rgba(255,255,255,0.06)',
@@ -466,7 +466,7 @@ async function drawTrendChart(days) {
                             const idx = ctx[0].dataIndex;
                             return data[idx].date;
                         },
-                        label: (ctx) => ctx.raw + ' XP',
+                        label: (ctx) => ctx.raw + ' EXP',
                     },
                 },
             },

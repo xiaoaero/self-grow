@@ -1,7 +1,7 @@
 """
 Self Grow — 习惯 API 路由
 
-包含习惯 CRUD、打卡切换、统计卡片、智能洞察、上周数据。
+包含习惯 CRUD、打卡切换、统计卡片、AI 智能洞察、上周数据。
 """
 
 from fastapi import APIRouter, HTTPException, Depends
@@ -10,8 +10,9 @@ from datetime import date as date_func, timedelta
 from db.habits import get_habits, get_habit, create_habit, update_habit, delete_habits
 from db.habits import get_checkins_in_range, get_all_checkins_in_range, upsert_checkin, delete_checkin, calculate_streak
 from db.users import get_user
-from schemas.api import CreateHabitRequest, UpdateHabitRequest, DeleteHabitsRequest
+from schemas.api import CreateHabitRequest, UpdateHabitRequest, DeleteHabitsRequest, HabitAIInsightRequest, HabitAIIconRequest
 from routers.deps import get_current_user
+from services.ai_habit_service import call_ai_for_habits, call_ai_for_icon
 
 router = APIRouter()
 
@@ -284,14 +285,13 @@ async def habit_stats(user=Depends(get_current_user)):
 
 @router.get("/api/habits/insights")
 async def habit_insights(user=Depends(get_current_user)):
-    """4条智能洞察"""
+    """简单版习惯洞察（降级方案），AI 洞察请使用 POST /api/habits/ai-insights"""
     user_id = user["id"]
     habits = get_habits(user_id)
     active_habits = [h for h in habits if h["active"]]
 
     today = date_func.today()
     today_str = today.isoformat()
-
     monday = today - timedelta(days=today.weekday())
     sunday = monday + timedelta(days=6)
     checkins = get_all_checkins_in_range(user_id, monday.isoformat(), sunday.isoformat())
@@ -299,92 +299,72 @@ async def habit_insights(user=Depends(get_current_user)):
     for c in checkins:
         cid = c["habit_id"]
         if cid not in checkin_map:
-            checkin_map[cid] = set()
+            checkin_map[cid] = {}
         if c["status"] == "done":
-            checkin_map[cid].add(c["date"])
+            checkin_map[cid][c["date"]] = 1
 
     insights = []
 
-    # Insight 1: 成就预警
+    # 今日剩余
+    pending = 0
+    first_pending = None
+    for h in active_habits:
+        if today_str not in checkin_map.get(h["id"], {}):
+            pending += 1
+            if first_pending is None:
+                first_pending = h["name"]
+    if pending > 0:
+        insights.append({
+            "text": f"⏳ 今日还有 {pending} 个习惯待完成，先开始 {first_pending or ''} 吧"
+        })
+
+    # 最长连续
     best_streak = 0
-    best_streak_habit = None
+    best_habit = None
     for h in active_habits:
         s = calculate_streak(h["id"])
         if s > best_streak:
             best_streak = s
-            best_streak_habit = h
-
-    if best_streak_habit and best_streak >= 20:
-        next_milestone = 50 if best_streak >= 30 else 30
+            best_habit = h
+    if best_habit and best_streak >= 7:
         insights.append({
-            "type": "achievement",
-            "habitName": best_streak_habit["name"],
-            "streak": best_streak,
-            "text": f"🏅 {best_streak_habit['name']} 已达 {best_streak} 天连续！距银牌（{next_milestone}天）还差 {next_milestone - best_streak} 天",
-        })
-
-    # Insight 2: 薄弱警告
-    weak_habit = None
-    weak_count = 0
-    for h in active_habits:
-        target = h["weekly_target"] or 7
-        done_count = len([d for d in checkin_map.get(h["id"], set()) if d <= today_str])
-        if done_count < target * 0.5:
-            if weak_habit is None or done_count < weak_count:
-                weak_habit = h
-                weak_count = done_count
-
-    if weak_habit:
-        target = weak_habit["weekly_target"] or 7
-        insights.append({
-            "type": "weakness",
-            "habitName": weak_habit["name"],
-            "doneCount": weak_count,
-            "text": f"⚠️ {weak_habit['name']} 本周仅完成 {weak_count}/{target} 次，建议固定时段完成",
-        })
-
-    # Insight 3: 维度对比
-    dim_done = {}
-    dim_total = {}
-    for h in active_habits:
-        cat = h["category"]
-        target = h["weekly_target"] or 7
-        done_count = len([d for d in checkin_map.get(h["id"], set()) if d <= today_str])
-        dim_done[cat] = dim_done.get(cat, 0) + done_count
-        dim_total[cat] = dim_total.get(cat, 0) + target
-
-    dim_rates = [(k, dim_done[k] / dim_total[k] * 100) for k in dim_done if dim_total[k] > 0]
-    dim_rates.sort(key=lambda x: -x[1])
-
-    if len(dim_rates) >= 2:
-        insights.append({
-            "type": "dimension",
-            "topDim": dim_rates[0][0],
-            "topRate": round(dim_rates[0][1]),
-            "secondDim": dim_rates[1][0],
-            "secondRate": round(dim_rates[1][1]),
-            "text": f"📊 {dim_rates[0][0]} 完成率 ({round(dim_rates[0][1])}%) 领先于 {dim_rates[1][0]} ({round(dim_rates[1][1])}%)",
-        })
-
-    # Insight 4: 今日剩余
-    pending_count = 0
-    first_pending = None
-    for h in active_habits:
-        c = checkin_map.get(h["id"], set())
-        if today_str not in c:
-            pending_count += 1
-            if first_pending is None:
-                first_pending = h["name"]
-
-    if pending_count > 0:
-        insights.append({
-            "type": "remaining",
-            "pendingCount": pending_count,
-            "firstPending": first_pending or "",
-            "text": f"⏳ 今日还有 {pending_count} 个习惯待完成，先开始 {first_pending or ''} 吧",
+            "text": f"🔥 {best_habit['name']} 已连续打卡 {best_streak} 天，继续保持！"
         })
 
     return {"insights": insights}
+
+
+@router.post("/api/habits/ai-insights")
+async def habit_ai_insights(req: HabitAIInsightRequest, user=Depends(get_current_user)):
+    """AI 分析习惯数据，返回个性化分析报告"""
+    user_id = user["id"]
+
+    # 验证日期范围
+    try:
+        d_from = date_func.fromisoformat(req.date_from)
+        d_to = date_func.fromisoformat(req.date_to)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式无效，请使用 YYYY-MM-DD")
+
+    days = (d_to - d_from).days
+    if days < 2:
+        raise HTTPException(status_code=400, detail="时间范围至少需要3天")
+    if days > 30:
+        raise HTTPException(status_code=400, detail="时间范围最多30天")
+    if d_to > date_func.today():
+        raise HTTPException(status_code=400, detail="结束日期不能超过今天")
+
+    report = await call_ai_for_habits(user_id, req.date_from, req.date_to)
+    return {"report": report}
+
+
+@router.post("/api/habits/ai-icon")
+async def habit_ai_icon(req: HabitAIIconRequest, user=Depends(get_current_user)):
+    """AI 根据习惯信息生成 SVG 图标"""
+    if not req.name.strip():
+        raise HTTPException(status_code=400, detail="习惯名称不能为空")
+    svg = await call_ai_for_icon(req.name, req.intro, req.category)
+    return {"svg": svg}
 
 
 @router.get("/api/habits/last-week")
