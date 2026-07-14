@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from config import PORT, log, UPLOAD_DIR
+from config import PORT, log, UPLOAD_DIR, FRONTEND_DIR
 from db.init import init_db
 from db.users import get_all_users
 from db.batch import archive_incomplete_tasks, refresh_daily_tasks, refresh_weekly_tasks, settle_habit_exp_for_user, snapshot_daily_stats
@@ -116,6 +116,44 @@ app.include_router(stats_router)
 app.include_router(rewards_router)
 app.include_router(ai_router)
 app.include_router(skill_tree_router)
+
+
+# ================================================================
+# API 配置端点（供前端动态获取 API_BASE）
+# ================================================================
+
+from fastapi.responses import Response, FileResponse
+
+@app.get("/api/config.js")
+async def serve_api_config():
+    """返回 JavaScript 配置，让前端知道 API_BASE 地址"""
+    content = f"window.__SELF_GROW_API_BASE__ = 'http://127.0.0.1:{PORT}';"
+    return Response(content=content, media_type="application/javascript")
+
+
+# ================================================================
+# 打包模式：后端直接 serve 前端静态文件
+# ================================================================
+
+if FRONTEND_DIR and os.path.isdir(FRONTEND_DIR):
+    # 前端静态文件
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend_static")
+
+    # 登录页
+    @app.get("/")
+    async def serve_login():
+        login_path = os.path.join(os.path.dirname(FRONTEND_DIR), "login.html")
+        if os.path.exists(login_path):
+            return FileResponse(login_path)
+        return {"message": "Self Grow API running"}
+
+    # 主应用页
+    @app.get("/app")
+    async def serve_app():
+        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+
+    from fastapi.responses import FileResponse
+    log.info(f"打包模式：前端文件从 {FRONTEND_DIR} 提供")
 
 
 # ================================================================

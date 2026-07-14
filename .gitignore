@@ -19,3 +19,12 @@ __pycache__/
 
 # IDE
 .idea/
+
+# PyInstaller build output
+backend/build/
+backend/dist/
+backend/*.spec.bak
+
+# Electron build output
+desktop/dist/
+desktop/node_modules/

@@ -254,7 +254,7 @@ function renderSidebarFooter() {
    用户登录工具
    ================================================================ */
 
-const API_BASE = 'http://localhost:3001';
+const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
 
 /** 获取当前登录用户信息（从 localStorage） */
 function getCurrentUser() {

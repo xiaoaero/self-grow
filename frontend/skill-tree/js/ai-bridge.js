@@ -5,7 +5,7 @@
 
 class AIBridge {
   constructor() {
-    this.serverUrl = window.API_BASE || 'http://localhost:3001';
+    this.serverUrl = window.__SELF_GROW_API_BASE__ || window.API_BASE || 'http://localhost:3001';
     this.messages = [];   // 对话历史
     this.abortController = null;
 

@@ -1,0 +1,53 @@
+{
+  "name": "self-grow",
+  "version": "1.0.0",
+  "description": "Self Grow 个人成长系统",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "build:dir": "electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.selfgrow.app",
+    "productName": "Self Grow",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist/self-grow-backend",
+        "to": "backend"
+      },
+      {
+        "from": "../frontend",
+        "to": "frontend",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../login.html",
+        "to": "login.html"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Self Grow"
+    }
+  }
+}

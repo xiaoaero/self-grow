@@ -11,7 +11,9 @@
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/pages.css">
     <!-- Chart.js for radar/bubble charts -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="vendor/chart.umd.min.js"></script>
+    <!-- API 配置：由后端 /api/config.js 动态注入 API_BASE（开发模式下静默失败，使用默认值） -->
+    <script src="http://localhost:3001/api/config.js" onerror="/* 开发模式：config.js 不可用时使用默认 API_BASE */"></script>
 </head>
 <body>
     <!-- SVG Gradients for attribute icons -->
