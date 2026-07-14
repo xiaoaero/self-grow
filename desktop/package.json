@@ -2,11 +2,13 @@
   "name": "self-grow",
   "version": "1.0.0",
   "description": "Self Grow 个人成长系统",
+  "author": "Self Grow",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win",
-    "build:dir": "electron-builder --win --dir"
+    "build:dir": "electron-builder --win --dir",
+    "build:zip": "electron-builder --win --dir && node make-portable.js"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -40,7 +42,8 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "sign": false
     },
     "nsis": {
       "oneClick": false,
