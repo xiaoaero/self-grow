@@ -136,10 +136,11 @@ async def serve_api_config():
 # ================================================================
 
 if FRONTEND_DIR and os.path.isdir(FRONTEND_DIR):
-    # 前端静态文件
-    app.mount("/static", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend_static")
+    # 前端静态文件挂载在 /frontend/ 路径下
+    # 这样 login.html 中的 frontend/css/... 和 frontend/index.html 跳转都能正常工作
+    app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend_static")
 
-    # 登录页
+    # 登录页（根路径）
     @app.get("/")
     async def serve_login():
         login_path = os.path.join(os.path.dirname(FRONTEND_DIR), "login.html")
@@ -147,12 +148,6 @@ if FRONTEND_DIR and os.path.isdir(FRONTEND_DIR):
             return FileResponse(login_path)
         return {"message": "Self Grow API running"}
 
-    # 主应用页
-    @app.get("/app")
-    async def serve_app():
-        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
-
-    from fastapi.responses import FileResponse
     log.info(f"打包模式：前端文件从 {FRONTEND_DIR} 提供")
 
 

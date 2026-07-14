@@ -13,7 +13,19 @@
     <!-- Chart.js for radar/bubble charts -->
     <script src="vendor/chart.umd.min.js"></script>
     <!-- API 配置：由后端 /api/config.js 动态注入 API_BASE（开发模式下静默失败，使用默认值） -->
-    <script src="http://localhost:3001/api/config.js" onerror="/* 开发模式：config.js 不可用时使用默认 API_BASE */"></script>
+    <!-- API 配置：由后端 /api/config.js 动态注入 API_BASE -->
+    <!-- 打包/Electron 模式：同源请求 /api/config.js -->
+    <!-- 开发模式：跨域请求 http://localhost:3001/api/config.js，onerror 时使用默认值 -->
+    <script src="/api/config.js" onerror=""></script>
+    <script>
+    if (!window.__SELF_GROW_API_BASE__) {
+        // 开发模式 fallback：尝试从后端端口加载
+        var s = document.createElement('script');
+        s.src = 'http://localhost:3001/api/config.js';
+        s.onerror = function() {}; // 静默失败，使用 utils.js 中的默认值
+        document.head.appendChild(s);
+    }
+    </script>
 </head>
 <body>
     <!-- SVG Gradients for attribute icons -->
