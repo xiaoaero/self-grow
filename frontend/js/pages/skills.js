@@ -210,10 +210,67 @@ async function renderSkillMine() {
     let listHtml = '';
     if (myTrees.length === 0) {
         listHtml = `
-            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 0;color:#666680;gap:12px">
-                <div style="font-size:48px">📚</div>
-                <p style="font-size:15px">还没有添加任何技能</p>
-                <p style="font-size:12px;color:#4a4a5a">前往技能库选择你想学习的技能</p>
+            <div class="skill-empty">
+                <svg class="skill-empty__visual" viewBox="0 0 240 200" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <radialGradient id="skill-mine-glow" cx="50%" cy="55%">
+                            <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.12"/>
+                            <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0"/>
+                        </radialGradient>
+                    </defs>
+                    <circle cx="120" cy="110" r="90" fill="url(#skill-mine-glow)"/>
+                    <g transform="translate(120, 130)">
+                        <ellipse cx="0" cy="42" rx="82" ry="4" fill="#000" opacity="0.4"/>
+                        <path d="M -72 28 L -67 -32 L 67 -32 L 72 28 Z" fill="#15171c" stroke="#475569" stroke-width="1.5" stroke-linejoin="round"/>
+                        <path d="M -62 -28 Q -26 -24 0 -24 Q 26 -24 62 -28 L 62 22 Q 26 18 0 18 Q -26 18 -62 22 Z" fill="#0f172a" stroke="#475569" stroke-width="1.5" stroke-linejoin="round"/>
+                        <line x1="0" y1="-24" x2="0" y2="18" stroke="#334155" stroke-width="1"/>
+                        <line x1="-46" y1="-12" x2="-10" y2="-10" stroke="#475569" stroke-width="1.5" stroke-dasharray="3 3" stroke-linecap="round"/>
+                        <line x1="-46" y1="2" x2="-15" y2="4" stroke="#475569" stroke-width="1.5" stroke-dasharray="3 3" stroke-linecap="round"/>
+                        <line x1="10" y1="-10" x2="46" y2="-12" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round"/>
+                        <line x1="15" y1="4" x2="46" y2="2" stroke="#475569" stroke-width="1.5" stroke-dasharray="3 3" stroke-linecap="round"/>
+                        <circle cx="-30" cy="-12" r="1.5" fill="#2dd4bf"/>
+                    </g>
+                    <g transform="translate(120, 96)">
+                        <path d="M 0 0 L 0 -42" stroke="#2dd4bf" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M 0 -18 Q -14 -22 -20 -36 Q -7 -32 0 -22 Z" fill="#2dd4bf" opacity="0.85"/>
+                        <path d="M 0 -28 Q 14 -32 20 -46 Q 7 -42 0 -32 Z" fill="#5eead4" opacity="0.85"/>
+                        <circle cx="0" cy="-42" r="2.5" fill="#5eead4"/>
+                        <circle cx="0" cy="-42" r="5.5" fill="none" stroke="#5eead4" stroke-width="0.8" opacity="0.4"/>
+                    </g>
+                    <g transform="translate(50, 56)">
+                        <circle cx="0" cy="0" r="15" fill="#1e2028" stroke="#475569" stroke-width="1" stroke-dasharray="2 2"/>
+                        <g fill="none" stroke="#5eead4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+                            <path d="M -6 -4 L -6 5 Q -3 4 0 4 L 0 -4 Q -3 -5 -6 -4 Z"/>
+                            <path d="M 6 -4 L 6 5 Q 3 4 0 4 L 0 -4 Q 3 -5 6 -4 Z"/>
+                        </g>
+                    </g>
+                    <g transform="translate(190, 56)">
+                        <circle cx="0" cy="0" r="15" fill="#1e2028" stroke="#475569" stroke-width="1" stroke-dasharray="2 2"/>
+                        <g fill="none" stroke="#5eead4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+                            <circle cx="0" cy="0" r="6"/>
+                            <circle cx="0" cy="0" r="3"/>
+                            <circle cx="0" cy="0" r="1" fill="#2dd4bf" stroke="none"/>
+                        </g>
+                    </g>
+                    <g transform="translate(50, 168)">
+                        <circle cx="0" cy="0" r="15" fill="#1e2028" stroke="#475569" stroke-width="1" stroke-dasharray="2 2"/>
+                        <g fill="none" stroke="#5eead4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+                            <circle cx="0" cy="-2" r="5"/>
+                            <path d="M -3 3 L -1 9 L 0 7 L 1 9 L 3 3"/>
+                        </g>
+                    </g>
+                    <g transform="translate(190, 168)">
+                        <circle cx="0" cy="0" r="15" fill="#1e2028" stroke="#475569" stroke-width="1" stroke-dasharray="2 2"/>
+                        <line x1="-5" y1="0" x2="5" y2="0" stroke="#5eead4" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
+                        <line x1="0" y1="-5" x2="0" y2="5" stroke="#5eead4" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
+                    </g>
+                </svg>
+                <h3 class="skill-empty__title">还没有添加任何技能</h3>
+                <p class="skill-empty__desc">前往技能库选择你想学习的技能，<br>开启你的成长之旅</p>
+                <button class="skill-empty__btn" onclick="navigateTo('skill', 'lib')">
+                    前往技能库
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </button>
             </div>
         `;
     } else {
@@ -279,10 +336,59 @@ async function renderSkillLib() {
     let listHtml = '';
     if (publishedTrees.length === 0) {
         listHtml = `
-            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 0;color:#666680;gap:12px">
-                <div style="font-size:48px">🌐</div>
-                <p style="font-size:15px">暂无已上线的技能树</p>
-                <p style="font-size:12px;color:#4a4a5a">等待管理员创建并上线技能树</p>
+            <div class="skill-empty">
+                <svg class="skill-empty__visual" viewBox="0 0 240 200" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <radialGradient id="skill-lib-glow" cx="50%" cy="55%">
+                            <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.1"/>
+                            <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0"/>
+                        </radialGradient>
+                    </defs>
+                    <circle cx="120" cy="115" r="90" fill="url(#skill-lib-glow)"/>
+                    <g transform="translate(120, 45)">
+                        <path d="M -18 -22 L 18 -22 L 18 -18 L 5 0 L 18 18 L 18 22 L -18 22 L -18 18 L -5 0 L -18 -18 Z" fill="none" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M -14 -19 L 14 -19 L 4 -3 L -4 -3 Z" fill="#2dd4bf" opacity="0.7"/>
+                        <path d="M -10 19 L 10 19 L 6 5 L -6 5 Z" fill="#2dd4bf" opacity="0.7"/>
+                        <circle cx="0" cy="0" r="1" fill="#5eead4"/>
+                        <line x1="-20" y1="-22" x2="20" y2="-22" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round"/>
+                        <line x1="-20" y1="22" x2="20" y2="22" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round"/>
+                        <circle cx="0" cy="6" r="0.8" fill="#5eead4" opacity="0.6"/>
+                        <circle cx="0" cy="10" r="0.6" fill="#5eead4" opacity="0.4"/>
+                    </g>
+                    <g fill="none" stroke="#2dd4bf" stroke-width="1" stroke-dasharray="2 3" stroke-linecap="round" opacity="0.4">
+                        <line x1="106" y1="68" x2="78" y2="118"/>
+                        <line x1="134" y1="68" x2="162" y2="118"/>
+                    </g>
+                    <g fill="#1e2028" stroke="#475569" stroke-width="1.3" stroke-dasharray="3 3">
+                        <circle cx="70" cy="125" r="7"/>
+                        <circle cx="170" cy="125" r="7"/>
+                    </g>
+                    <g transform="translate(120, 145)">
+                        <circle cx="0" cy="0" r="16" fill="none" stroke="#2dd4bf" stroke-width="0.8" opacity="0.3"/>
+                        <circle cx="0" cy="0" r="11" fill="none" stroke="#2dd4bf" stroke-width="0.8" opacity="0.5"/>
+                        <circle cx="0" cy="0" r="7" fill="#1e2028" stroke="#2dd4bf" stroke-width="1.5" stroke-dasharray="3 3"/>
+                        <circle cx="0" cy="0" r="2.5" fill="#2dd4bf"/>
+                    </g>
+                    <g fill="none" stroke="#475569" stroke-width="1.2" stroke-dasharray="3 3" stroke-linecap="round">
+                        <line x1="76" y1="128" x2="115" y2="143"/>
+                        <line x1="164" y1="128" x2="125" y2="143"/>
+                    </g>
+                    <g fill="none" stroke="#475569" stroke-width="1.2" stroke-dasharray="3 3" stroke-linecap="round">
+                        <line x1="115" y1="151" x2="92" y2="172"/>
+                        <line x1="125" y1="151" x2="148" y2="172"/>
+                    </g>
+                    <g fill="#1e2028" stroke="#475569" stroke-width="1.3" stroke-dasharray="3 3">
+                        <circle cx="88" cy="178" r="5"/>
+                        <circle cx="152" cy="178" r="5"/>
+                    </g>
+                    <circle cx="120" cy="74" r="3" fill="none" stroke="#2dd4bf" stroke-width="1" stroke-dasharray="2 2"/>
+                </svg>
+                <h3 class="skill-empty__title">暂无已上线的技能树</h3>
+                <p class="skill-empty__desc">等待管理员创建并上线技能树，<br>届时可在此处选择学习</p>
+                <button class="skill-empty__btn skill-empty__btn--ghost" onclick="renderSkillLib()">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                    刷新
+                </button>
             </div>
         `;
     } else {

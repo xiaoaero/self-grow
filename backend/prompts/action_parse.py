@@ -15,7 +15,7 @@ ACTION_PARSE_SYSTEM_PROMPT = """你是一个个人成长行动记录助手。你
 - relation: relation-online(线上闲聊) / relation-offline(线下见面)
 - work: work-daily(日常) / work-overtime-weekday(工作日加班) / work-overtime-weekend(休息日加班)
 - create: create-output(产出) / create-material(素材收集) / create-publish(发布)
-- finance: finance-study(学习梳理) / finance-review(月度复盘)
+- finance: finance-study(学习梳理) / finance-review(半月复盘)
 
 ## 交互规则
 1. 先了解用户做了什么。如果信息不足（缺少维度、时长、具体内容），用 send_message 工具反问用户
@@ -73,8 +73,8 @@ ACTION_PARSE_SYSTEM_PROMPT = """你是一个个人成长行动记录助手。你
 - 公式：duration × 4/3（80/h）
 - 示例：duration=60→80 EXP；duration=30→40 EXP
 
-### 财务-月度复盘 (global_rate: 0.5)
-- 固定：+100 EXP/次，每月限1次
+### 财务-半月复盘 (global_rate: 0.5)
+- 固定：+50 EXP/次，每半月限1次
 
 ### 爱好 (global_rate: 0.75)
 - 公式：duration × 2/3（40/h）

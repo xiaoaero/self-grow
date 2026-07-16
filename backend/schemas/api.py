@@ -114,6 +114,16 @@ class ActionLogResponse(BaseModel):
     duration: int
     note: str
     exp_earned: int
+    sub_type: str = ''
+    sleep_start: str = ''
+    sleep_end: str = ''
+
+
+class RoutineStatusResponse(BaseModel):
+    streak: int = 0
+    has_protection: bool = False
+    last_date: str = ''
+    next_bonus: int = 0
 
 
 # ================================================================

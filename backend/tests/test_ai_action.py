@@ -308,11 +308,11 @@ def test_exp_health_sleep():
     assert result["sleep_valid"] is True
     assert result["dimension_exp"] >= 20  # 基础20EXP
 
-    # 23:08→07:00，延后8分钟，基础18 + 符合规律+15 = 33
+    # 23:08→07:00，延后8分钟，基础18 + 无规律加成（默认streak=0） = 18
     result = calculate_exp("health", 0, sub_type="health-sleep",
                            sleep_start="23:08", sleep_end="07:00")
     assert result["sleep_valid"] is True
-    assert abs(result["dimension_exp"] - 33) < 0.01  # (20 - 8/4) + 15 = 33
+    assert abs(result["dimension_exp"] - 18) < 0.01  # (20 - 8/4) + 0 = 18
 
     # 00:20→07:00，延后80分钟，基础0 + 睡觉时间00:20超出规律范围(23:00~00:00)，无规律加成
     result = calculate_exp("health", 0, sub_type="health-sleep",
@@ -384,9 +384,9 @@ def test_exp_finance():
     result = calculate_exp("finance", 60, sub_type="finance-study")
     assert abs(result["dimension_exp"] - 80) < 0.01  # 60*4/3
 
-    # 月度复盘
+    # 半月复盘
     result = calculate_exp("finance", 0, sub_type="finance-review")
-    assert result["dimension_exp"] == 100
+    assert result["dimension_exp"] == 50
 
 
 def test_exp_hobby():

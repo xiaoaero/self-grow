@@ -109,6 +109,9 @@ def init_db():
             duration INTEGER NOT NULL,
             note TEXT DEFAULT '',
             exp_earned INTEGER NOT NULL,
+            sub_type TEXT DEFAULT '',
+            sleep_start TEXT DEFAULT '',
+            sleep_end TEXT DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
@@ -116,6 +119,17 @@ def init_db():
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_action_logs_user_date
         ON action_logs(user_id, start_time)
+    """)
+
+    # 规律作息连续天数表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS routine_streak (
+            user_id INTEGER NOT NULL PRIMARY KEY,
+            streak INTEGER NOT NULL DEFAULT 0,
+            has_protection INTEGER NOT NULL DEFAULT 0,
+            last_date TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
     """)
 
     # 用户维度经验表（八维属性）
@@ -268,6 +282,21 @@ def init_db():
 
     # 数据迁移：检测现有用户的 total_exp 是否已经分配到维度
     migrate_total_exp_to_dimensions()
+
+    # 迁移：action_logs 增加 sub_type / sleep_start / sleep_end（幂等）
+    # migrate_total_exp_to_dimensions() 可能关闭了 conn，需要重新获取
+    conn = get_conn()
+    for col, col_type in [
+        ("sub_type", "TEXT DEFAULT ''"),
+        ("sleep_start", "TEXT DEFAULT ''"),
+        ("sleep_end", "TEXT DEFAULT ''"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE action_logs ADD COLUMN {col} {col_type}")
+        except Exception:
+            pass  # 列已存在，跳过
+    conn.commit()
+    conn.close()
 
     # 创建技能树相关表
     init_skill_trees_tables()

@@ -560,6 +560,18 @@ async function fetchActionTodayStats(userId) {
     }
 }
 
+/** 检查当前半月是否已记录财务复盘 */
+async function fetchFinanceReviewStatus() {
+    try {
+        const resp = await fetch(`${API_BASE}/api/actions/finance-review-status`);
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        console.warn('获取财务复盘状态失败:', e);
+        return null;
+    }
+}
+
 /** 从后端获取动态播报 */
 async function fetchActivityFeed(userId) {
     try {

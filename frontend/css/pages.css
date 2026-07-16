@@ -4443,6 +4443,63 @@
 }
 
 /* ===== Skills ===== */
+
+/* -- Skill Empty State -- */
+.skill-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 48px 24px 60px;
+}
+.skill-empty__visual {
+    width: 220px;
+    height: 200px;
+    margin-bottom: 24px;
+}
+.skill-empty__title {
+    color: var(--color-text-secondary, #e2e8f0);
+    font-size: 15px;
+    font-weight: 500;
+    margin-bottom: 8px;
+}
+.skill-empty__desc {
+    color: var(--color-text-muted, #64748b);
+    font-size: 13px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    max-width: 280px;
+}
+.skill-empty__btn {
+    padding: 9px 18px;
+    background: rgba(45, 212, 191, 0.1);
+    color: #2dd4bf;
+    border: 1px solid rgba(45, 212, 191, 0.3);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.skill-empty__btn:hover {
+    background: rgba(45, 212, 191, 0.15);
+    border-color: rgba(45, 212, 191, 0.5);
+}
+.skill-empty__btn--ghost {
+    background: transparent;
+    color: var(--color-text-muted, #94a3b8);
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.08));
+}
+.skill-empty__btn--ghost:hover {
+    background: var(--glass-bg, rgba(255, 255, 255, 0.04));
+    color: var(--color-text-secondary, #e2e8f0);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
 .skill-lib-list {
     display: flex;
     flex-direction: column;

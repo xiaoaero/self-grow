@@ -29,13 +29,13 @@ const DIMENSION_RULES = {
             { id: 'health-sleep', label: '😴 睡眠', desc: '基础20EXP+规律额外', hasDuration: false, specialInput: 'sleep' },
         ],
         calcPreview: function(subType, duration) {
-            if (subType === 'health-sleep') return '20EXP(基础)+15EXP(规律)';
+            if (subType === 'health-sleep') return '20EXP(基础)+15EXP(规律≥6天)';
             return (duration / 60 * 15).toFixed(1) + ' EXP';
         }
     },
     study: {
         hasSubTypes: false,
-        calcPreview: function(duration) {
+        calcPreview: function(subType, duration) {
             var blocks = Math.floor(duration / 20);
             var exp = blocks * 10;
             var globalExp = Math.floor(exp * 1.0);
@@ -93,10 +93,10 @@ const DIMENSION_RULES = {
         hasSubTypes: true,
         subTypes: [
             { id: 'finance-study', label: '📊 学习梳理', desc: '80 EXP/h', hasDuration: true },
-            { id: 'finance-review', label: '📋 月度复盘', desc: '100 EXP/次', hasDuration: false },
+            { id: 'finance-review', label: '📋 半月复盘', desc: '50 EXP/次', hasDuration: false },
         ],
         calcPreview: function(subType, duration) {
-            if (subType === 'finance-review') return '100→全局50 EXP';
+            if (subType === 'finance-review') return '50→全局25 EXP';
             var exp = duration * 4 / 3;
             var globalExp = Math.floor(exp * 0.5);
             return Math.round(exp) + ' → 全局' + globalExp + ' EXP';
@@ -104,7 +104,7 @@ const DIMENSION_RULES = {
     },
     hobby: {
         hasSubTypes: false,
-        calcPreview: function(duration) {
+        calcPreview: function(subType, duration) {
             var exp = duration * 2 / 3;
             var globalExp = Math.floor(exp * 0.75);
             return Math.round(exp) + ' → 全局' + globalExp + ' EXP';
@@ -112,7 +112,7 @@ const DIMENSION_RULES = {
     },
     soul: {
         hasSubTypes: false,
-        calcPreview: function(duration) {
+        calcPreview: function(subType, duration) {
             var exp = duration * 5 / 6;
             var globalExp = Math.floor(exp * 0.5);
             return Math.round(exp) + ' → 全局' + globalExp + ' EXP';
@@ -186,6 +186,7 @@ function sliderChange(sliderVal) {
     document.getElementById('duration-val').textContent = actionDuration + '分钟';
     document.getElementById('duration-num').value = actionDuration;
     updateEndTime();
+    updateExpPreview();
 }
 
 function numChange(minutes) {
@@ -193,6 +194,7 @@ function numChange(minutes) {
     document.getElementById('duration-val').textContent = actionDuration + '分钟';
     document.getElementById('duration-slider').value = minToSlider(minutes);
     updateEndTime();
+    updateExpPreview();
 }
 let actionCenterGoalFilter = 'all';
 let activityModalOpen = false;
@@ -357,6 +359,22 @@ function updateEndTime() {
     }
 }
 
+/** 实时更新 EXP 预览文本（拖拽条/数字输入变化时调用） */
+function updateExpPreview() {
+    if (!selectedActionCategory) return;
+    var preview = getActionButtonPreview(selectedActionCategory, actionSubType, actionDuration);
+    // 更新提交按钮上的预览
+    var btn = document.getElementById('submit-action-btn');
+    if (btn) {
+        btn.textContent = '⭐ 记录努力 ' + preview;
+    }
+    // 更新子类型区域的预计文本
+    var previewEl = document.getElementById('exp-preview-text');
+    if (previewEl) {
+        previewEl.textContent = '预计: ' + preview;
+    }
+}
+
 /* ================================================================
    新计分规则：子类型渲染和辅助函数
    ================================================================ */
@@ -384,7 +402,7 @@ function renderSubTypeArea(catId) {
     // 没有子类型的维度（学习、爱好、魅力）
     if (!rule.hasSubTypes) {
         return '<div style="margin-top:8px;color:var(--color-text-secondary);font-size:13px">' +
-            '预计: ' + rule.calcPreview(actionDuration) +
+            '预计: ' + rule.calcPreview('', actionDuration) +
             '</div>';
     }
 
@@ -438,6 +456,9 @@ function renderSubTypeArea(catId) {
     if (catId === 'health' && actionSubType === 'health-sleep') {
         subTypeHtml += '<div style="margin-top:12px;padding:12px;background:rgba(88,213,201,0.06);border-radius:10px;border:1px solid rgba(88,213,201,0.15)">';
         subTypeHtml += '<div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:8px">🌙 记录睡眠时间</div>';
+        // 今日睡眠已记录提示（异步检查）
+        subTypeHtml += '<div id="sleep-today-check" style="margin-bottom:8px"></div>';
+        subTypeHtml += '<div id="sleep-input-area" style="">';
         subTypeHtml += '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">';
         subTypeHtml += '<span style="font-size:13px">😴 睡觉</span>';
         subTypeHtml += '<input type="time" class="input" style="width:130px;padding:6px 10px" value="' + actionSleepStart + '" ' +
@@ -451,11 +472,22 @@ function renderSubTypeArea(catId) {
             var sleepInfo = calcSleepPreview(actionSleepStart, actionSleepEnd);
             subTypeHtml += '<div style="margin-top:8px;font-size:12px;color:var(--color-accent-light)">' + sleepInfo + '</div>';
         }
+        // 规律作息状态
+        subTypeHtml += '<div id="routine-status-display" style="margin-top:6px;font-size:12px;color:var(--color-text-muted)">加载规律状态...</div>';
+        subTypeHtml += '</div>'; // sleep-input-area
         subTypeHtml += '</div>';
+        // 异步检查今日是否已有睡眠记录
+        checkSleepRecordedToday();
+    }
+
+    // 财务复盘半月限制提示
+    if (catId === 'finance' && actionSubType === 'finance-review') {
+        subTypeHtml += '<div id="finance-review-check" style="margin-top:8px"></div>';
+        checkFinanceReviewThisHalf();
     }
 
     // 显示预览
-    subTypeHtml += '<div style="margin-top:8px;color:var(--color-text-secondary);font-size:13px">' +
+    subTypeHtml += '<div id="exp-preview-text" style="margin-top:8px;color:var(--color-text-secondary);font-size:13px">' +
         '预计: ' + getActionButtonPreview(catId, actionSubType, actionDuration) +
         '</div>';
 
@@ -467,13 +499,18 @@ function selectSubType(catId, subType) {
     actionSubType = subType;
 
     // 工作维度特殊处理
-    if (catId === 'work' && subType === 'work-overtime') {
-        var today = new Date();
-        var dayOfWeek = today.getDay();
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-            actionWorkExtra = 'work-overtime-weekend';
+    if (catId === 'work') {
+        if (subType === 'work-overtime') {
+            var today = new Date();
+            var dayOfWeek = today.getDay();
+            if (dayOfWeek === 0 || dayOfWeek === 6) {
+                actionWorkExtra = 'work-overtime-weekend';
+            } else {
+                actionWorkExtra = 'work-overtime-weekday';
+            }
         } else {
-            actionWorkExtra = 'work-overtime-weekday';
+            // 切换到日常时清空加班标记，防止 getSubmitSubType 误判
+            actionWorkExtra = '';
         }
     }
 
@@ -501,6 +538,22 @@ function selectSubType(catId, subType) {
     updateDynamicForm();
 }
 
+/** 计算睡眠时长文字描述，如 "7h30m" */
+function calcSleepDuration(sleepStart, sleepEnd) {
+    if (!sleepStart || !sleepEnd) return '';
+    var sh = parseInt(sleepStart.split(':')[0]);
+    var sm = parseInt(sleepStart.split(':')[1]);
+    var eh = parseInt(sleepEnd.split(':')[0]);
+    var em = parseInt(sleepEnd.split(':')[1]);
+    var startMin = sh * 60 + sm;
+    var endMin = eh * 60 + em;
+    if (endMin <= startMin) endMin += 24 * 60;
+    var durMin = endMin - startMin;
+    var hours = Math.floor(durMin / 60);
+    var mins = durMin % 60;
+    return hours + 'h' + (mins > 0 ? mins + 'm' : '');
+}
+
 /** 计算睡眠经验预览 */
 function calcSleepPreview(sleepStart, sleepEnd) {
     if (!sleepStart || !sleepEnd) return '';
@@ -526,7 +579,17 @@ function calcSleepPreview(sleepStart, sleepEnd) {
 
     var sleepHours = Math.floor(durationMin / 60);
     var sleepMins = durationMin % 60;
-    return '睡眠' + sleepHours + 'h' + sleepMins + 'm · 基础+' + baseExp + ' EXP' +
+    // 检查是否符合规律
+    var isRoutine = false;
+    var sleepMin2 = sh * 60 + sm;
+    if (sleepMin2 < 12 * 60) sleepMin2 += 24 * 60;
+    var wakeMin2 = eh * 60 + em;
+    var sleepOk = sleepMin2 >= 22 * 60 && sleepMin2 <= 24 * 60;
+    var wakeOk = wakeMin2 >= 390 && wakeMin2 <= 510;
+    isRoutine = sleepOk && wakeOk;
+    var routineText = isRoutine ? ' + 规律加成(连续≥6天+15)' : '';
+
+    return '睡眠' + sleepHours + 'h' + sleepMins + 'm · 基础+' + baseExp + ' EXP' + routineText +
         '（' + sh + ':' + String(sm).padStart(2,'0') + '→' + eh + ':' + String(em).padStart(2,'0') + '）';
 }
 
@@ -553,7 +616,12 @@ function getActionButtonPreview(catId, subType, duration) {
         if (actualBedtime < 12 * 60) actualBedtime += 24 * 60;
         var lateMin = Math.max(0, actualBedtime - idealBedtime);
         var baseExp = Math.max(0, 20 - Math.floor(lateMin / 4));
-        return '+约' + baseExp + ' EXP' + (baseExp >= 15 ? ' + 规律?' : '');
+        // 检查是否符合规律
+        var sleepMin2 = sh * 60 + sm;
+        if (sleepMin2 < 12 * 60) sleepMin2 += 24 * 60;
+        var wakeMin2 = eh * 60 + em;
+        var isRoutineSleep = (sleepMin2 >= 22 * 60 && sleepMin2 <= 24 * 60 && wakeMin2 >= 390 && wakeMin2 <= 510);
+        return '+约' + baseExp + ' EXP' + (isRoutineSleep ? ' +规律' : '');
     }
 
     // 工作维度
@@ -665,7 +733,7 @@ function renderDynamicForm() {
                       oninput="actionNote=this.value">${actionNote}</textarea>
         </div>
 
-        <button class="btn btn--primary btn--lg" style="width:100%" onclick="submitAction()">
+        <button class="btn btn--primary btn--lg" style="width:100%" id="submit-action-btn" onclick="submitAction()">
             ⭐ 记录努力 ${getActionButtonPreview(selectedActionCategory, actionSubType, actionDuration)}
         </button>
     `;
@@ -684,6 +752,81 @@ function updateDynamicForm() {
         var endH = (actionStartHour + Math.floor((actionStartMin + actionDuration) / 60)) % 24;
         var endM = (actionStartMin + actionDuration) % 60;
         endEl.textContent = pad2(endH) + ':' + pad2(endM);
+    }
+    // 睡眠子类型时异步加载规律状态
+    if (selectedActionCategory === 'health' && actionSubType === 'health-sleep') {
+        loadRoutineStatus();
+    }
+}
+
+/** 异步加载规律作息状态 */
+async function loadRoutineStatus() {
+    try {
+        var curUser = getCurrentUser();
+        if (!curUser) return;
+        var res = await fetch(API_BASE + '/api/actions/routine-status?user_id=' + curUser.id);
+        if (!res.ok) return;
+        var data = await res.json();
+        var el = document.getElementById('routine-status-display');
+        if (!el) return;
+        if (data.streak > 0) {
+            var protectionText = data.has_protection ? ' 🛡️有保护' : '';
+            el.innerHTML = '🔥 连续规律' + data.streak + '天' + protectionText +
+                ' · 明日可获+' + data.next_bonus + '规律EXP';
+        } else {
+            el.innerHTML = '💡 23:00前入睡+7:00~8:00起床可获得规律加成';
+        }
+    } catch(e) {}
+}
+
+/** 异步检查今日是否已有睡眠记录，如果有则禁用输入 */
+async function checkSleepRecordedToday() {
+    try {
+        var curUser = getCurrentUser();
+        if (!curUser) return;
+        // 通过今日统计接口查询最近行动中是否有 health-sleep
+        var res = await fetch(API_BASE + '/api/actions/today-stats?user_id=' + curUser.id);
+        if (!res.ok) return;
+        var data = await res.json();
+        var recent = data.recent_actions || [];
+        var sleepRecord = recent.find(function(r) {
+            return r.sub_type === 'health-sleep' || (r.category_id === 'health' && r.sleep_start);
+        });
+        var checkEl = document.getElementById('sleep-today-check');
+        var inputArea = document.getElementById('sleep-input-area');
+        if (!checkEl || !inputArea) return;
+        if (sleepRecord) {
+            var sleepTime = sleepRecord.sleep_start || '--';
+            var wakeTime = sleepRecord.sleep_end || '--';
+            checkEl.innerHTML = '<div style="padding:10px 12px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:8px;font-size:13px;color:#fbbf24">😴 今日已记录睡眠（' + sleepTime + ' → ' + wakeTime + '），每天只能记录一次</div>';
+            inputArea.style.display = 'none';
+            // 标记全局状态，阻止提交
+            window._sleepRecordedToday = true;
+        } else {
+            checkEl.innerHTML = '';
+            inputArea.style.display = '';
+            window._sleepRecordedToday = false;
+        }
+    } catch(e) {
+        window._sleepRecordedToday = false;
+    }
+}
+
+/** 异步检查当前半月是否已有财务复盘记录，如果有则禁用提交 */
+async function checkFinanceReviewThisHalf() {
+    try {
+        var result = await fetchFinanceReviewStatus();
+        var checkEl = document.getElementById('finance-review-check');
+        if (!checkEl) return;
+        if (result && result.has_review_this_half) {
+            checkEl.innerHTML = '<div style="padding:10px 12px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:8px;font-size:13px;color:#fbbf24">📋 当前半月已记录复盘，每个半月只能记录一次</div>';
+            window._financeReviewRecordedThisHalf = true;
+        } else {
+            checkEl.innerHTML = '';
+            window._financeReviewRecordedThisHalf = false;
+        }
+    } catch(e) {
+        window._financeReviewRecordedThisHalf = false;
     }
 }
 
@@ -978,6 +1121,18 @@ function submitAction() {
     const subType = getSubmitSubType(selectedActionCategory);
     const submitDuration = getSubmitDuration(selectedActionCategory);
 
+    // 前端拦截：今日已记录睡眠
+    if (subType === 'health-sleep' && window._sleepRecordedToday) {
+        showToast('今日已记录睡眠，每天只能记录一次', 'error');
+        return;
+    }
+
+    // 前端拦截：当前半月已记录财务复盘
+    if (subType === 'finance-review' && window._financeReviewRecordedThisHalf) {
+        showToast('当前半月已记录复盘，每个半月只能记录一次', 'error');
+        return;
+    }
+
     // 构建开始时间
     const now = new Date();
     const startTime = new Date(now);
@@ -999,13 +1154,19 @@ function submitAction() {
     var expPreview = getActionButtonPreview(selectedActionCategory, subType, submitDuration);
 
     // 确认弹窗内容
+    var timeDisplay = '';
+    if (subType === 'health-sleep' && actionSleepStart && actionSleepEnd) {
+        timeDisplay = '😴 ' + actionSleepStart + ' → ' + actionSleepEnd + ' · 睡眠' + calcSleepDuration(actionSleepStart, actionSleepEnd);
+    } else {
+        timeDisplay = startTimeStr + ' → ' + endTimeStr + (submitDuration > 0 ? ' · ' + submitDuration + '分钟' : '');
+    }
     var confirmHtml = `
         <div style="display:flex;flex-direction:column;gap:14px;padding:8px 0">
             <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:rgba(255,255,255,0.03);border-radius:12px">
                 <span style="font-size:32px">${attrIcon(cat.id, 40)}</span>
                 <div>
                     <div style="font-size:16px;font-weight:700">${cat.name}${subTypeName ? ' · ' + subTypeName : ''}</div>
-                    <div style="font-size:12px;color:var(--color-text-secondary);margin-top:2px">${startTimeStr} → ${endTimeStr}${submitDuration > 0 ? ' · ' + submitDuration + '分钟' : ''}</div>
+                    <div style="font-size:12px;color:var(--color-text-secondary);margin-top:2px">${timeDisplay}</div>
                 </div>
             </div>
             ${actionNote ? `
@@ -1025,17 +1186,37 @@ function submitAction() {
     `;
 
     // 保存 payload 到全局，供 confirmSubmitAction 使用
-    const startIso = startTime.toISOString().replace('Z', '');
-    window._pendingActionPayload = {
-        category_id: selectedActionCategory,
-        start_time: startIso,
-        duration: submitDuration,
-        note: actionNote || '',
-        sub_type: subType,
-    };
-    if (actionSleepStart && actionSleepEnd) {
-        window._pendingActionPayload.sleep_start = actionSleepStart;
-        window._pendingActionPayload.sleep_end = actionSleepEnd;
+    if (subType === 'health-sleep' && actionSleepStart && actionSleepEnd) {
+        // 睡眠模式：start_time = 实际睡觉时间，duration = 实际睡眠分钟数
+        var sParts = actionSleepStart.split(':').map(Number);
+        var eParts = actionSleepEnd.split(':').map(Number);
+        var sleepStartDate = new Date();
+        sleepStartDate.setHours(sParts[0], sParts[1], 0, 0);
+        // 睡觉时间在0-12点视为前一天晚上的
+        if (sParts[0] >= 0 && sParts[0] < 12) sleepStartDate.setDate(sleepStartDate.getDate() - 1);
+        var sleepEndDate = new Date(sleepStartDate);
+        sleepEndDate.setHours(eParts[0], eParts[1], 0, 0);
+        if (sleepEndDate <= sleepStartDate) sleepEndDate.setDate(sleepEndDate.getDate() + 1);
+        var sleepDurationMin = Math.round((sleepEndDate - sleepStartDate) / 60000);
+
+        window._pendingActionPayload = {
+            category_id: selectedActionCategory,
+            start_time: sleepStartDate.toISOString().replace('Z', ''),
+            duration: sleepDurationMin,
+            note: actionNote || '',
+            sub_type: subType,
+            sleep_start: actionSleepStart,
+            sleep_end: actionSleepEnd,
+        };
+    } else {
+        const startIso = startTime.toISOString().replace('Z', '');
+        window._pendingActionPayload = {
+            category_id: selectedActionCategory,
+            start_time: startIso,
+            duration: submitDuration,
+            note: actionNote || '',
+            sub_type: subType,
+        };
     }
 
     openModal('📋 确认记录', confirmHtml, false);
@@ -1220,13 +1401,17 @@ function renderRecentActionsList(container, records) {
         } catch (e) {}
 
         const exp = r.exp_earned || r.exp || 0;
+        var isSleep = (r.sub_type === 'health-sleep' && r.sleep_start && r.sleep_end);
+        var timeStr = isSleep
+            ? startDate + ' 😴 ' + r.sleep_start + '→' + r.sleep_end + ' · 睡眠' + calcSleepDuration(r.sleep_start, r.sleep_end)
+            : startDate + ' ' + startTime + ' → ' + endHour + ':' + endMin + ' · ' + duration + '分钟';
         return `
             <div class="qa-history-item">
                 <div class="qa-history-item__left">
                     <span class="qa-history-item__icon">${attrIcon(r.category_id, 20)}</span>
                     <div class="qa-history-item__info">
                         <span class="qa-history-item__cat">${r.category_name || ''}</span>
-                        <span class="qa-history-item__time">${startDate} ${startTime} → ${endHour}:${endMin} · ${duration}分钟</span>
+                        <span class="qa-history-item__time">${timeStr}</span>
                         <span class="qa-history-item__note" title="${escapeHtml(r.note || '')}">${r.note || '(无备注)'}</span>
                     </div>
                 </div>
@@ -1348,15 +1533,16 @@ function renderActionHistoryTable(result, cats, pad2, fmtDate, fmtTime) {
                 eTime = fmtTime(ed);
             } catch (e) {}
 
+            var isSleep = (r.sub_type === 'health-sleep' && r.sleep_start && r.sleep_end);
             return `
             <tr class="ac-task-row">
                 <td class="ac-task-cell ac-task-cell--task">${sDate}</td>
                 <td class="ac-task-cell ac-task-cell--attr">
                     <span class="ac-task-attr">${attrIcon(r.category_id, 18)} ${r.category_name || ''}</span>
                 </td>
-                <td class="ac-task-cell ac-task-cell--num">${sTime}</td>
-                <td class="ac-task-cell ac-task-cell--num">${eTime}</td>
-                <td class="ac-task-cell ac-task-cell--num">${r.duration}分钟</td>
+                <td class="ac-task-cell ac-task-cell--num">${isSleep ? '😴 ' + r.sleep_start : sTime}</td>
+                <td class="ac-task-cell ac-task-cell--num">${isSleep ? r.sleep_end : eTime}</td>
+                <td class="ac-task-cell ac-task-cell--num">${isSleep ? '睡眠' + calcSleepDuration(r.sleep_start, r.sleep_end) : r.duration + '分钟'}</td>
                 <td class="ac-task-cell ac-task-cell--note">
                     <span class="qa-history-item__note" title="${escapeHtml(r.note || '')}" style="max-width:200px;display:inline-block">${r.note || '—'}</span>
                 </td>

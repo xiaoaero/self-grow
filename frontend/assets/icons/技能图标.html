@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Self Grow · 空状态设计预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #15171c;
+    color: #cbd5e1;
+    font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 100vh;
+  }
+  /* 侧边栏 */
+  .sidebar {
+    background: #1a1d24;
+    border-right: 1px solid #2a2d36;
+    padding: 24px 16px;
+  }
+  .logo {
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 32px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-dot {
+    width: 10px; height: 10px;
+    background: #2dd4bf;
+    border-radius: 50%;
+    box-shadow: 0 0 8px rgba(45, 212, 191, 0.6);
+  }
+  .nav-group { margin-bottom: 28px; }
+  .nav-title {
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    padding: 0 12px 10px;
+    font-weight: 500;
+  }
+  .nav-item {
+    padding: 10px 12px;
+    color: #94a3b8;
+    font-size: 13.5px;
+    border-radius: 8px;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+  }
+  .nav-item:hover { background: #232730; color: #e2e8f0; }
+  .nav-item.active {
+    background: rgba(45, 212, 191, 0.08);
+    color: #2dd4bf;
+  }
+  .nav-item.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 18px;
+    background: #2dd4bf;
+    border-radius: 2px;
+  }
+  .nav-icon {
+    width: 16px; height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.7;
+  }
+
+  /* 主内容 */
+  .main {
+    padding: 36px 40px 48px;
+    overflow-y: auto;
+  }
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 32px;
+  }
+  .page-title {
+    color: #fff;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    margin-bottom: 6px;
+  }
+  .page-sub {
+    color: #64748b;
+    font-size: 13.5px;
+  }
+  .tab-row {
+    display: flex;
+    gap: 4px;
+    background: #1e2028;
+    padding: 4px;
+    border-radius: 10px;
+    border: 1px solid #2a2d36;
+  }
+  .tab {
+    padding: 7px 16px;
+    color: #64748b;
+    font-size: 13px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tab.active {
+    background: #2a2d36;
+    color: #e2e8f0;
+  }
+
+  /* 卡片 */
+  .cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .card {
+    background: #1e2028;
+    border: 1px solid #2a2d36;
+    border-radius: 16px;
+    padding: 28px 28px 32px;
+    min-height: 520px;
+    display: flex;
+    flex-direction: column;
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid #2a2d36;
+  }
+  .card-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .card-title-icon {
+    width: 18px; height: 18px;
+    color: #2dd4bf;
+  }
+  .card-title {
+    color: #fff;
+    font-size: 15px;
+    font-weight: 500;
+  }
+  .card-badge {
+    font-size: 11.5px;
+    color: #64748b;
+    padding: 4px 10px;
+    background: #232730;
+    border-radius: 12px;
+    border: 1px solid #2a2d36;
+  }
+  .card-badge.warn {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.08);
+    border-color: rgba(251, 191, 36, 0.2);
+  }
+
+  .empty-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px 0;
+  }
+  .empty-visual {
+    width: 220px;
+    height: 200px;
+    margin-bottom: 24px;
+  }
+  .empty-title {
+    color: #e2e8f0;
+    font-size: 15px;
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+  .empty-desc {
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.6;
+    margin-bottom: 20px;
+    max-width: 280px;
+  }
+  .btn {
+    padding: 9px 18px;
+    background: rgba(45, 212, 191, 0.1);
+    color: #2dd4bf;
+    border: 1px solid rgba(45, 212, 191, 0.3);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn:hover {
+    background: rgba(45, 212, 191, 0.15);
+    border-color: rgba(45, 212, 191, 0.5);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: #94a3b8;
+    border: 1px solid #2a2d36;
+  }
+  .btn-ghost:hover {
+    background: #232730;
+    color: #e2e8f0;
+    border-color: #3a3d46;
+  }
+
+  /* 浮动设计标注 */
+  .preview-label {
+    position: fixed;
+    top: 20px;
+    right: 32px;
+    background: rgba(45, 212, 191, 0.1);
+    color: #2dd4bf;
+    padding: 7px 14px;
+    border-radius: 20px;
+    font-size: 11.5px;
+    border: 1px solid rgba(45, 212, 191, 0.3);
+    z-index: 100;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+  }
+  .preview-label::before {
+    content: "● ";
+    color: #2dd4bf;
+  }
+</style>
+</head>
+<body>
+<div class="preview-label">设计方案预览 · 暗色主题适配</div>
+
+<div class="layout">
+  <!-- 侧边栏 -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-dot"></div>
+      <span>Self Grow</span>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">成长</div>
+      <div class="nav-item">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12L12 4l9 8M5 10v10h14V10"/></svg>
+        </span>
+        总览
+      </div>
+      <div class="nav-item active">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L3 7v10l9 5 9-5V7l-9-5z"/><path d="M12 22V12M3 7l9 5 9-5"/></svg>
+        </span>
+        我的技能
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+        </span>
+        技能库
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        </span>
+        学习计划
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">数据</div>
+      <div class="nav-item">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>
+        </span>
+        热力图
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
+        </span>
+        统计
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-title">设置</div>
+      <div class="nav-item">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        </span>
+        偏好
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">技能中心</h1>
+        <p class="page-sub">管理你正在学习的技能，浏览可用的技能树</p>
+      </div>
+      <div class="tab-row">
+        <div class="tab active">全部</div>
+        <div class="tab">学习中</div>
+        <div class="tab">已完成</div>
+      </div>
+    </div>
+
+    <div class="cards">
+      <!-- 卡片1：我的技能 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <svg class="card-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z"/>
+              <path d="M12 22V12M3 7l9 5 9-5"/>
+            </svg>
+            <div class="card-title">我的技能</div>
+          </div>
+          <div class="card-badge">0 项</div>
+        </div>
+
+        <div class="empty-body">
+          <!-- 插图：打开的技能书 + 嫩芽 -->
+          <svg class="empty-visual" viewBox="0 0 240 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- 背景光晕 -->
+            <defs>
+              <radialGradient id="glow1" cx="50%" cy="55%">
+                <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.12"/>
+                <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <circle cx="120" cy="110" r="90" fill="url(#glow1)"/>
+
+            <!-- 中心：打开的笔记本 -->
+            <g transform="translate(120, 130)">
+              <!-- 阴影 -->
+              <ellipse cx="0" cy="42" rx="82" ry="4" fill="#000" opacity="0.4"/>
+              <!-- 笔记本主体 -->
+              <path d="M -72 28 L -67 -32 L 67 -32 L 72 28 Z"
+                    fill="#15171c" stroke="#475569" stroke-width="1.5" stroke-linejoin="round"/>
+              <!-- 翻开的页面 -->
+              <path d="M -62 -28 Q -26 -24 0 -24 Q 26 -24 62 -28 L 62 22 Q 26 18 0 18 Q -26 18 -62 22 Z"
+                    fill="#0f172a" stroke="#475569" stroke-width="1.5" stroke-linejoin="round"/>
+              <!-- 中缝 -->
+              <line x1="0" y1="-24" x2="0" y2="18" stroke="#334155" stroke-width="1"/>
+              <!-- 左侧三行虚线 -->
+              <line x1="-46" y1="-12" x2="-10" y2="-10" stroke="#475569" stroke-width="1.5" stroke-dasharray="3 3" stroke-linecap="round"/>
+              <line x1="-46" y1="2" x2="-15" y2="4" stroke="#475569" stroke-width="1.5" stroke-dasharray="3 3" stroke-linecap="round"/>
+              <!-- 右侧第一行实写（绿色） -->
+              <line x1="10" y1="-10" x2="46" y2="-12" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round"/>
+              <!-- 右侧第二三行虚线 -->
+              <line x1="15" y1="4" x2="46" y2="2" stroke="#475569" stroke-width="1.5" stroke-dasharray="3 3" stroke-linecap="round"/>
+              <!-- 一个绿色小点（已记录的提示） -->
+              <circle cx="-30" cy="-12" r="1.5" fill="#2dd4bf"/>
+            </g>
+
+            <!-- 嫩芽从书页长出 -->
+            <g transform="translate(120, 96)">
+              <!-- 主茎 -->
+              <path d="M 0 0 L 0 -42" stroke="#2dd4bf" stroke-width="2" stroke-linecap="round"/>
+              <!-- 左叶 -->
+              <path d="M 0 -18 Q -14 -22 -20 -36 Q -7 -32 0 -22 Z" fill="#2dd4bf" opacity="0.85"/>
+              <!-- 右叶 -->
+              <path d="M 0 -28 Q 14 -32 20 -46 Q 7 -42 0 -32 Z" fill="#5eead4" opacity="0.85"/>
+              <!-- 顶芽 -->
+              <circle cx="0" cy="-42" r="2.5" fill="#5eead4"/>
+              <circle cx="0" cy="-42" r="5.5" fill="none" stroke="#5eead4" stroke-width="0.8" opacity="0.4"/>
+            </g>
+
+            <!-- 左上：书本图标（虚线圈，待添加） -->
+            <g transform="translate(50, 56)">
+              <circle cx="0" cy="0" r="15" fill="#1e2028" stroke="#475569" stroke-width="1" stroke-dasharray="2 2"/>
+              <g fill="none" stroke="#5eead4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+                <path d="M -6 -4 L -6 5 Q -3 4 0 4 L 0 -4 Q -3 -5 -6 -4 Z"/>
+                <path d="M 6 -4 L 6 5 Q 3 4 0 4 L 0 -4 Q 3 -5 6 -4 Z"/>
+              </g>
+            </g>
+
+            <!-- 右上：目标图标 -->
+            <g transform="translate(190, 56)">
+              <circle cx="0" cy="0" r="15" fill="#1e2028" stroke="#475569" stroke-width="1" stroke-dasharray="2 2"/>
+              <g fill="none" stroke="#5eead4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+                <circle cx="0" cy="0" r="6"/>
+                <circle cx="0" cy="0" r="3"/>
+                <circle cx="0" cy="0" r="1" fill="#2dd4bf" stroke="none"/>
+              </g>
+            </g>
+
+            <!-- 左下：勋章图标 -->
+            <g transform="translate(50, 168)">
+              <circle cx="0" cy="0" r="15" fill="#1e2028" stroke="#475569" stroke-width="1" stroke-dasharray="2 2"/>
+              <g fill="none" stroke="#5eead4" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+                <circle cx="0" cy="-2" r="5"/>
+                <path d="M -3 3 L -1 9 L 0 7 L 1 9 L 3 3"/>
+              </g>
+            </g>
+
+            <!-- 右下：+ 号 -->
+            <g transform="translate(190, 168)">
+              <circle cx="0" cy="0" r="15" fill="#1e2028" stroke="#475569" stroke-width="1" stroke-dasharray="2 2"/>
+              <line x1="-5" y1="0" x2="5" y2="0" stroke="#5eead4" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
+              <line x1="0" y1="-5" x2="0" y2="5" stroke="#5eead4" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
+            </g>
+          </svg>
+
+          <h3 class="empty-title">还没有添加任何技能</h3>
+          <p class="empty-desc">前往技能库选择你想学习的技能，<br>开启你的成长之旅</p>
+          <button class="btn">
+            前往技能库
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- 卡片2：技能库 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title-wrap">
+            <svg class="card-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+            </svg>
+            <div class="card-title">技能库</div>
+          </div>
+          <div class="card-badge warn">未上线</div>
+        </div>
+
+        <div class="empty-body">
+          <!-- 插图：沙漏 + 技能树骨架 -->
+          <svg class="empty-visual" viewBox="0 0 240 200" xmlns="http://www.w3.org/2000/svg">
+            <!-- 背景光晕 -->
+            <defs>
+              <radialGradient id="glow2" cx="50%" cy="55%">
+                <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.1"/>
+                <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <circle cx="120" cy="115" r="90" fill="url(#glow2)"/>
+
+            <!-- 顶部：沙漏 -->
+            <g transform="translate(120, 45)">
+              <!-- 沙漏外框 -->
+              <path d="M -18 -22 L 18 -22 L 18 -18 L 5 0 L 18 18 L 18 22 L -18 22 L -18 18 L -5 0 L -18 -18 Z"
+                    fill="none" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <!-- 顶部沙 -->
+              <path d="M -14 -19 L 14 -19 L 4 -3 L -4 -3 Z" fill="#2dd4bf" opacity="0.7"/>
+              <!-- 底部沙（堆积） -->
+              <path d="M -10 19 L 10 19 L 6 5 L -6 5 Z" fill="#2dd4bf" opacity="0.7"/>
+              <!-- 中心点 -->
+              <circle cx="0" cy="0" r="1" fill="#5eead4"/>
+              <!-- 顶/底木条 -->
+              <line x1="-20" y1="-22" x2="20" y2="-22" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round"/>
+              <line x1="-20" y1="22" x2="20" y2="22" stroke="#2dd4bf" stroke-width="1.5" stroke-linecap="round"/>
+              <!-- 沙漏上方小点（沙粒下落） -->
+              <circle cx="0" cy="6" r="0.8" fill="#5eead4" opacity="0.6"/>
+              <circle cx="0" cy="10" r="0.6" fill="#5eead4" opacity="0.4"/>
+            </g>
+
+            <!-- 顶部连接到二级节点（虚线，浅色） -->
+            <g fill="none" stroke="#2dd4bf" stroke-width="1" stroke-dasharray="2 3" stroke-linecap="round" opacity="0.4">
+              <line x1="106" y1="68" x2="78" y2="118"/>
+              <line x1="134" y1="68" x2="162" y2="118"/>
+            </g>
+
+            <!-- 二级节点（虚线圆，未激活） -->
+            <g fill="#1e2028" stroke="#475569" stroke-width="1.3" stroke-dasharray="3 3">
+              <circle cx="70" cy="125" r="7"/>
+              <circle cx="170" cy="125" r="7"/>
+            </g>
+
+            <!-- 中心节点（待激活，带光晕） -->
+            <g transform="translate(120, 145)">
+              <!-- 外层光圈 -->
+              <circle cx="0" cy="0" r="16" fill="none" stroke="#2dd4bf" stroke-width="0.8" opacity="0.3"/>
+              <circle cx="0" cy="0" r="11" fill="none" stroke="#2dd4bf" stroke-width="0.8" opacity="0.5"/>
+              <!-- 主节点 -->
+              <circle cx="0" cy="0" r="7" fill="#1e2028" stroke="#2dd4bf" stroke-width="1.5" stroke-dasharray="3 3"/>
+              <!-- 中心点 -->
+              <circle cx="0" cy="0" r="2.5" fill="#2dd4bf"/>
+            </g>
+
+            <!-- 二级到中心 连线 -->
+            <g fill="none" stroke="#475569" stroke-width="1.2" stroke-dasharray="3 3" stroke-linecap="round">
+              <line x1="76" y1="128" x2="115" y2="143"/>
+              <line x1="164" y1="128" x2="125" y2="143"/>
+            </g>
+
+            <!-- 中心到底部节点 连线 -->
+            <g fill="none" stroke="#475569" stroke-width="1.2" stroke-dasharray="3 3" stroke-linecap="round">
+              <line x1="115" y1="151" x2="92" y2="172"/>
+              <line x1="125" y1="151" x2="148" y2="172"/>
+            </g>
+
+            <!-- 底部节点 -->
+            <g fill="#1e2028" stroke="#475569" stroke-width="1.3" stroke-dasharray="3 3">
+              <circle cx="88" cy="178" r="5"/>
+              <circle cx="152" cy="178" r="5"/>
+            </g>
+
+            <!-- 顶部装饰小圆点（节点起源） -->
+            <circle cx="120" cy="74" r="3" fill="none" stroke="#2dd4bf" stroke-width="1" stroke-dasharray="2 2"/>
+          </svg>
+
+          <h3 class="empty-title">暂无已上线的技能树</h3>
+          <p class="empty-desc">等待管理员创建并上线技能树，<br>届时可在此处选择学习</p>
+          <button class="btn btn-ghost">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            刷新
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

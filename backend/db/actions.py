@@ -7,15 +7,61 @@ from models.constants import get_category
 import datetime as _dt
 
 
+def has_finance_review_this_half(user_id: int) -> bool:
+    """检查用户当前半月是否已有财务复盘记录（sub_type='finance-review'）
+    上半月：1~15日，下半月：16~月末
+    """
+    today = _dt.date.today()
+    if today.day <= 15:
+        half_start = _dt.date(today.year, today.month, 1)
+        half_end = _dt.date(today.year, today.month, 15)
+    else:
+        half_start = _dt.date(today.year, today.month, 16)
+        # 下半月结束日：下个月1号 - 1天
+        if today.month == 12:
+            half_end = _dt.date(today.year + 1, 1, 1) - _dt.timedelta(days=1)
+        else:
+            half_end = _dt.date(today.year, today.month + 1, 1) - _dt.timedelta(days=1)
+
+    conn = get_conn()
+    row = conn.execute(
+        """SELECT COUNT(*) as cnt FROM action_logs
+           WHERE user_id = ? AND sub_type = 'finance-review'
+           AND start_time >= ? AND start_time <= ?""",
+        (user_id, f"{half_start.isoformat()}T00:00:00", f"{half_end.isoformat()}T23:59:59"),
+    ).fetchone()
+    conn.close()
+    return row["cnt"] > 0
+
+
+def has_sleep_record_today(user_id: int) -> bool:
+    """检查用户今天是否已有睡眠记录（sub_type='health-sleep'）"""
+    today = _dt.date.today().isoformat()
+    today_start = f"{today}T00:00:00"
+    today_end = f"{today}T23:59:59"
+    conn = get_conn()
+    row = conn.execute(
+        """SELECT COUNT(*) as cnt FROM action_logs
+           WHERE user_id = ? AND sub_type = 'health-sleep'
+           AND start_time >= ? AND start_time <= ?""",
+        (user_id, today_start, today_end),
+    ).fetchone()
+    conn.close()
+    return row["cnt"] > 0
+
+
 def create_action_log(user_id: int, category_id: str, start_time: str,
                       end_time: str, duration: int, note: str = "",
-                      exp_earned: int = 0) -> int:
+                      exp_earned: int = 0, sub_type: str = "",
+                      sleep_start: str = "", sleep_end: str = "") -> int:
     """插入行动记录，返回新记录的 id"""
     conn = get_conn()
     cursor = conn.execute(
-        """INSERT INTO action_logs (user_id, category_id, start_time, end_time, duration, note, exp_earned)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (user_id, category_id, start_time, end_time, duration, note, exp_earned),
+        """INSERT INTO action_logs
+           (user_id, category_id, start_time, end_time, duration, note, exp_earned, sub_type, sleep_start, sleep_end)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, category_id, start_time, end_time, duration, note, exp_earned,
+         sub_type, sleep_start, sleep_end),
     )
     new_id = cursor.lastrowid
     conn.commit()
@@ -177,7 +223,15 @@ def get_activity_feed(user_id: int, limit: int = 20) -> list:
         d = dict(r)
         cat = get_category(d["category_id"])
         d["category_name"] = cat["name"] if cat else d["category_id"]
-        note_preview = d["note"][:50] if d["note"] else f"{cat['name'] if cat else ''} {d['duration']}分钟"
+        # 睡眠记录生成友好的描述
+        if d.get("sub_type") == "health-sleep" and d.get("sleep_start") and d.get("sleep_end"):
+            note_preview = f"😴 睡眠 {d['sleep_start']}→{d['sleep_end']}"
+            if d.get("note"):
+                note_preview += f" · {d['note'][:30]}"
+        elif d["note"]:
+            note_preview = d["note"][:50]
+        else:
+            note_preview = f"{cat['name'] if cat else ''} {d['duration']}分钟"
         d["description"] = note_preview
         created = d["created_at"]
         if created:

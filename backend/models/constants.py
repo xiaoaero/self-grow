@@ -61,7 +61,7 @@ def get_category(category_id: str) -> dict:
 
 def calculate_exp(category_id: str, duration: int, sub_type: str = None,
                   sleep_start: str = None, sleep_end: str = None,
-                  today: str = None) -> dict:
+                  today: str = None, streak: int = 0) -> dict:
     """
     根据新计分规则计算维度经验。
 
@@ -72,6 +72,7 @@ def calculate_exp(category_id: str, duration: int, sub_type: str = None,
         sleep_start: 睡觉时间（HH:MM）
         sleep_end: 起床时间（HH:MM）
         today: 当前日期（YYYY-MM-DD），用于作息规律检测，默认当天
+        streak: 当前连续规律天数（用于计算规律加成）
 
     返回:
         {
@@ -80,17 +81,18 @@ def calculate_exp(category_id: str, duration: int, sub_type: str = None,
             "sub_type": str,          # 实际使用的子类型
             "sleep_valid": bool,      # 睡眠是否有效
             "routine_extra": float,   # 作息规律额外经验
+            "is_routine": bool,       # 今天是否符合作息规律（仅睡眠有值）
         }
     """
     cat = get_category(category_id)
     if not cat:
-        return {"dimension_exp": 0, "global_exp": 0, "sub_type": sub_type or "", "sleep_valid": False, "routine_extra": 0}
+        return {"dimension_exp": 0, "global_exp": 0, "sub_type": sub_type or "", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
     global_rate = cat["global_rate"]
-    result = {"dimension_exp": 0, "global_exp": 0, "sub_type": sub_type or "", "sleep_valid": False, "routine_extra": 0}
+    result = {"dimension_exp": 0, "global_exp": 0, "sub_type": sub_type or "", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
     if category_id == "health":
-        return _calc_health(duration, sub_type, sleep_start, sleep_end, global_rate, today)
+        return _calc_health(duration, sub_type, sleep_start, sleep_end, global_rate, today, streak)
     elif category_id == "study":
         return _calc_study(duration, global_rate)
     elif category_id == "relation":
@@ -112,17 +114,17 @@ def _calc_study(duration: int, global_rate: float) -> dict:
     """学习：floor(duration/20) × 10，最小20分钟"""
     blocks = duration // 20
     exp = blocks * 10
-    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "", "sleep_valid": False, "routine_extra": 0}
+    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
 
 def _calc_health(duration: int, sub_type: str, sleep_start: str, sleep_end: str,
-                 global_rate: float, today_str: str) -> dict:
+                 global_rate: float, today_str: str, streak: int = 0) -> dict:
     """健康：运动或睡眠"""
     # 判断是否为睡眠模式
     is_sleep = (sub_type == "health-sleep") or (sleep_start and sleep_end)
 
     if is_sleep:
-        return _calc_health_sleep(sleep_start, sleep_end, global_rate, today_str)
+        return _calc_health_sleep(sleep_start, sleep_end, global_rate, today_str, streak)
     else:
         return _calc_health_sport(duration, global_rate)
 
@@ -131,20 +133,21 @@ def _calc_health_sport(duration: int, global_rate: float) -> dict:
     """运动：floor(duration/15) × 3.75，最小15分钟"""
     blocks = duration // 15
     exp = blocks * 3.75
-    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "health-sport", "sleep_valid": False, "routine_extra": 0}
+    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "health-sport", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
 
-def _calc_health_sleep(sleep_start: str, sleep_end: str, global_rate: float, today_str: str) -> dict:
+def _calc_health_sleep(sleep_start: str, sleep_end: str, global_rate: float,
+                       today_str: str, streak: int = 0) -> dict:
     """睡眠：计算基础睡眠经验 + 作息规律额外经验"""
     if not sleep_start or not sleep_end:
-        return {"dimension_exp": 0, "global_exp": 0, "sub_type": "health-sleep", "sleep_valid": False, "routine_extra": 0}
+        return {"dimension_exp": 0, "global_exp": 0, "sub_type": "health-sleep", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
     # 解析时间
     try:
         sh, sm = map(int, sleep_start.split(":"))
         eh, em = map(int, sleep_end.split(":"))
     except (ValueError, AttributeError):
-        return {"dimension_exp": 0, "global_exp": 0, "sub_type": "health-sleep", "sleep_valid": False, "routine_extra": 0}
+        return {"dimension_exp": 0, "global_exp": 0, "sub_type": "health-sleep", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
     # 计算睡眠时长（跨天处理）
     start_minutes = sh * 60 + sm
@@ -155,7 +158,7 @@ def _calc_health_sleep(sleep_start: str, sleep_end: str, global_rate: float, tod
 
     # 检查睡眠时长是否在6~9小时之间
     if sleep_duration < 360 or sleep_duration > 540:  # 6h=360min, 9h=540min
-        return {"dimension_exp": 0, "global_exp": 0, "sub_type": "health-sleep", "sleep_valid": False, "routine_extra": 0}
+        return {"dimension_exp": 0, "global_exp": 0, "sub_type": "health-sleep", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
     # 计算基础睡眠经验：23:00(1380分钟)为理想入睡时间
     ideal_bedtime = 23 * 60  # 1380分钟
@@ -172,7 +175,8 @@ def _calc_health_sleep(sleep_start: str, sleep_end: str, global_rate: float, tod
     is_routine = _check_is_routine(sleep_start, sleep_end)
 
     if is_routine:
-        routine_extra = _calc_routine_bonus(today_str)
+        # streak+1 = 今天也计入连续天数
+        routine_extra = _calc_routine_bonus(streak + 1)
 
     total_exp = base_exp + routine_extra
     return {
@@ -181,6 +185,7 @@ def _calc_health_sleep(sleep_start: str, sleep_end: str, global_rate: float, tod
         "sub_type": "health-sleep",
         "sleep_valid": True,
         "routine_extra": routine_extra,
+        "is_routine": is_routine,
     }
 
 
@@ -197,89 +202,38 @@ def _check_is_routine(sleep_start: str, sleep_end: str) -> bool:
     # 23:00(1380) ~ 00:00(1440)，跨天处理
     if sleep_minutes < 12 * 60:  # 0:00~12:00视为跨天
         sleep_minutes += 24 * 60
-    if sleep_minutes < 23 * 60 or sleep_minutes > 24 * 60:
+    if sleep_minutes < 22 * 60 or sleep_minutes > 24 * 60:
         return False
 
-    # 起床时间在07:00~08:00之间
+    # 起床时间在06:30~08:30之间
     wake_minutes = eh * 60 + em
-    if wake_minutes < 7 * 60 or wake_minutes > 8 * 60:
+    if wake_minutes < 390 or wake_minutes > 510:
         return False
 
     return True
 
 
-# 作息规律数据存储（简化版：使用内存+数据库持久化）
-_routine_cache = {}  # user_id -> {"streak": int, "has_protection": bool, "last_date": str}
-
-
-def _calc_routine_bonus(today_str: str) -> float:
+def _calc_routine_bonus(streak: int) -> float:
     """
-    计算作息规律额外经验。
-    从第6天起每天+15，保护机制处理。
-    注意：此函数假设调用前已经确认今天符合规律定义。
-    实际的连续天数管理由后端API负责持久化。
+    作息规律额外经验。
+    - 连续 <6 天：0（养成期）
+    - 连续 ≥6 天：+15
+    保护机制：连续≥10天获得一次保护机会，断一天消耗保护而不重置连续天数。
     """
-    # 简化：返回15表示符合规律时应有的额外经验
-    # 实际业务逻辑在 routers/actions.py 中处理
+    if streak < 6:
+        return 0
     return 15
-
-
-def get_routine_info(user_id: int) -> dict:
-    """获取用户的作息规律信息（从缓存或数据库）"""
-    info = _routine_cache.get(user_id, {"streak": 0, "has_protection": False, "last_date": None})
-    return info
-
-
-def update_routine_info(user_id: int, is_routine_today: bool, today_str: str):
-    """更新作息规律状态"""
-    info = _routine_cache.get(user_id, {"streak": 0, "has_protection": False, "last_date": None})
-
-    if not is_routine_today:
-        if info["has_protection"]:
-            # 消耗保护：不加经验但保留连续天数
-            info["has_protection"] = False
-        else:
-            # 无保护：重置
-            info["streak"] = 0
-        info["last_date"] = today_str
-        _routine_cache[user_id] = info
-        return info
-
-    # 今天符合规律
-    if info["last_date"] is not None:
-        # 检查是否连续（日期连续）
-        from datetime import datetime, timedelta
-        last = datetime.strptime(info["last_date"], "%Y-%m-%d").date()
-        today = datetime.strptime(today_str, "%Y-%m-%d").date()
-        if (today - last).days == 1:
-            info["streak"] += 1
-        elif (today - last).days > 1:
-            # 不连续，重置
-            info["streak"] = 1
-        else:
-            # 同一天，不重复计数
-            pass
-    else:
-        info["streak"] = 1
-
-    # 连续>=10天且没有保护机会时，获得保护
-    if info["streak"] >= 10 and not info["has_protection"]:
-        info["has_protection"] = True
-
-    info["last_date"] = today_str
-    _routine_cache[user_id] = info
-    return info
 
 
 def _calc_relation(duration: int, sub_type: str, global_rate: float) -> dict:
     """关系：线下+80/次，线上floor(duration/30)×20"""
     if sub_type == "relation-offline":
         exp = 80
-        return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": sub_type, "sleep_valid": False, "routine_extra": 0}
+        return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": sub_type, "sleep_valid": False, "routine_extra": 0, "is_routine": False}
     else:
         blocks = duration // 30
         exp = blocks * 20
-        return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "relation-online", "sleep_valid": False, "routine_extra": 0}
+        return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "relation-online", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
 
 def _calc_work(sub_type: str, global_rate: float) -> dict:
@@ -290,7 +244,7 @@ def _calc_work(sub_type: str, global_rate: float) -> dict:
         exp = 20
     else:
         exp = 10  # 日常
-    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": sub_type or "work-daily", "sleep_valid": False, "routine_extra": 0}
+    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": sub_type or "work-daily", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
 
 def _calc_create(duration: int, sub_type: str, global_rate: float) -> dict:
@@ -303,28 +257,28 @@ def _calc_create(duration: int, sub_type: str, global_rate: float) -> dict:
     else:
         # 产出
         exp = duration * 2  # 120/h = 2/分钟
-    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": sub_type or "create-output", "sleep_valid": False, "routine_extra": 0}
+    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": sub_type or "create-output", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
 
 def _calc_finance(duration: int, sub_type: str, global_rate: float, today_str: str) -> dict:
-    """财务：学习梳理80/h，月度复盘+100（每月限1次）"""
+    """财务：学习梳理80/h，半月复盘+50（每半月限1次）"""
     if sub_type == "finance-review":
-        exp = 100
+        exp = 50
     else:
         exp = duration * 4 / 3  # 80/h = 4/3每分钟
-    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": sub_type or "finance-study", "sleep_valid": False, "routine_extra": 0}
+    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": sub_type or "finance-study", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
 
 def _calc_hobby(duration: int, global_rate: float) -> dict:
     """爱好：40/h"""
     exp = duration * 2 / 3  # 40/h = 2/3每分钟
-    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "", "sleep_valid": False, "routine_extra": 0}
+    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
 
 def _calc_soul(duration: int, global_rate: float) -> dict:
     """魅力：50/h"""
     exp = duration * 5 / 6  # 50/h = 5/6每分钟
-    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "", "sleep_valid": False, "routine_extra": 0}
+    return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
 
 # 旧的 calculate_exp 保留别名（向后兼容）

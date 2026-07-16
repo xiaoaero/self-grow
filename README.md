@@ -1,6 +1,6 @@
 # Self Grow — 个人成长系统
 
-> 一个原生 HTML/CSS/JS 单页应用 + FastAPI 后端的个人成长追踪系统。包含等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（支持 AI 生成节点）。
+> 一个原生 HTML/CSS/JS 单页应用 + FastAPI 后端 + Electron 桌面的个人成长追踪系统。包含等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（支持 AI 生成节点），已完成桌面版打包（绿色版 zip）。
 
 ---
 
@@ -8,9 +8,9 @@
 
 ```
 self_grow_system/
-├── README.md                         # 项目文档
+├── README.md                         # 项目文档（本文件）
 ├── CLAUDE.md                         # Claude Code 代码指引
-├── 后端迁移模块.md                    # 后端迁移规划（P0-P7，已完成 P0-P6）
+├── build.bat                         # 桌面应用一键构建脚本
 │
 ├── index.html                        # 根入口 → 自动跳转 login.html
 ├── login.html                        # 登录页（调用后端 API 选择用户）
@@ -39,7 +39,7 @@ self_grow_system/
 │   │       ├── goals.js              # 目标 — 创建/编辑/删除、里程碑、EXP 奖励领取
 │   │       ├── tasks.js              # 任务 — 本日/本周三栏（todo/doing/done）、历史、模板
 │   │       ├── habits.js             # 习惯 — 7 天周视图三态打卡、统计卡片、智能洞察
-│   │       ├── skills.js             # 技能 — 技能卡片列表 → 技能树查看器（iframe）
+│   │       ├── skills.js             # 技能 — 技能卡片列表 → 技能树查看器（iframe）+ 技能库
 │   │       └── rewards.js            # 奖励商城 — 8 分类筛选、解锁/领取双重条件、图片上传
 │   │
 │   ├── skill-tree/                   # 技能树编辑器（独立 SPA，支持查看器/编辑/管理三模式）
@@ -64,21 +64,22 @@ self_grow_system/
 │
 ├── backend/                          # 后端 FastAPI 服务（模块化架构）
 │   ├── main.py                       # 入口点：app 工厂、生命周期、路由注册、定时任务
-│   ├── config.py                     # 配置从 .env 加载（AI 端点、Key、模型、端口）
+│   ├── config.py                     # 配置从 .env 加载（AI 端点、Key、模型、端口），支持打包模式
 │   ├── database.py                   # 向后兼容层（re-export from db/ 子模块）
 │   │
 │   ├── models/                       # 数据模型
-│   │   ├── level.py                  # 等级公式（唯一来源）
-│   │   └── constants.py              # 8 维分类定义、10 段位表、颜色映射
+│   │   ├── level.py                  # 等级公式（唯一来源，含满级处理）
+│   │   └── constants.py              # 8 维分类定义、10 段位表、颜色映射、维度经验计算规则
 │   ├── schemas/                      # Pydantic 请求/响应模型
-│   │   └── api.py                    # 22 个模型定义
+│   │   └── api.py                    # 26+ 个模型定义
 │   │
 │   ├── db/                           # 数据访问层（每模块一个功能域）
 │   │   ├── connection.py             # DB_PATH + get_conn()
-│   │   ├── init.py                   # 建表（15 张）+ 默认用户/奖励 + 数据迁移
+│   │   ├── init.py                   # 建表（16 张）+ 默认用户/奖励 + 数据迁移
 │   │   ├── users.py                  # 用户 + 每日统计 CRUD
 │   │   ├── habits.py                 # 习惯 + 打卡记录 CRUD
-│   │   ├── actions.py                # 行动记录 CRUD
+│   │   ├── actions.py                # 行动记录 CRUD + 今日统计 + 动态播报 + 睡眠/复盘限制检测
+│   │   ├── routines.py               # 规律作息持久化（SQLite 替代内存缓存）
 │   │   ├── goals.py                  # 目标 CRUD
 │   │   ├── tasks.py                  # 任务 CRUD
 │   │   ├── scheduled_tasks.py        # 定时任务模板 CRUD
@@ -88,28 +89,57 @@ self_grow_system/
 │   │   └── batch.py                  # 定时批处理函数
 │   │
 │   ├── services/                     # 业务逻辑层
-│   │   ├── exp_service.py            # EXP 奖励编排（消除 5 次重复模式）
-│   │   └── ai_service.py             # AI 代理（9 个 Tool Use + 系统提示词）
+│   │   ├── exp_service.py            # EXP 奖励编排（消除重复模式）
+│   │   ├── ai_service.py             # 技能树 AI 代理（9 个 Tool Use）
+│   │   ├── ai_client.py             # AI HTTP 客户端封装
+│   │   ├── ai_action_service.py      # 行动记录 AI 解析（对话式提取）
+│   │   └── ai_habit_service.py       # 习惯 AI 分析（智能洞察 + 图标分配）
+│   │
+│   ├── prompts/                      # AI 系统提示词模板
+│   │   ├── action_parse.py           # 行动解析提示词
+│   │   ├── habit_analysis.py         # 习惯分析提示词
+│   │   ├── habit_icon.py             # 习惯图标分配提示词
+│   │   └── skill_tree.py             # 技能树 AI 提示词
 │   │
 │   ├── routers/                      # API 路由层
 │   │   ├── deps.py                   # 依赖注入（get_current_user 消除 ~31 次重复验证）
 │   │   ├── health.py                 # GET /api/health
 │   │   ├── users.py                  # 用户 API（5 个端点）
-│   │   ├── habits.py                 # 习惯 API（8 个端点）
-│   │   ├── actions.py                # 行动记录 API（4 个端点）
+│   │   ├── habits.py                 # 习惯 API（9 个端点，含 AI 分析）
+│   │   ├── actions.py                # 行动记录 API（7 个端点，含 AI 对话 + 作息状态）
 │   │   ├── goals.py                  # 目标 API（5 个端点）
 │   │   ├── tasks.py                  # 任务 API（8 个端点）
 │   │   ├── scheduled_tasks.py        # 定时任务模板 API（4 个端点）
 │   │   ├── stats.py                  # 统计 API（5 个端点）
 │   │   ├── rewards.py                # 奖励商城 API（8 个端点）
-│   │   └── ai.py                     # AI 聊天 API（1 个端点）
+│   │   └── ai.py                     # 技能树 AI 聊天 API（1 个端点）
+│   │
+│   ├── tests/                        # 测试
+│   │   ├── conftest.py               # pytest 配置
+│   │   ├── test_ai_action.py         # AI 行动解析测试
+│   │   └── test_sleep_action.py      # 睡眠行动测试
 │   │
 │   ├── .env                          # AI 配置（端点、Key、模型）
 │   ├── .env.example                  # 配置模板
 │   ├── pixi.toml                     # pixi 环境（Python 3.12 + FastAPI + httpx + APScheduler）
 │   └── data.db                       # SQLite 数据库文件（首次启动自动创建）
 │
-└── memory/                           # 开发记录
+├── desktop/                          # Electron 桌面应用
+│   ├── main.js                       # 主进程：启动后端 exe、创建窗口、进程管理
+│   ├── preload.js                    # 预加载脚本
+│   ├── package.json                  # Electron 应用配置
+│   ├── make-portable.js              # 绿色版构建脚本
+│   └── dist/                         # 构建产出（gitignored）
+│       └── SelfGrow/                 # 绿色版应用目录
+│
+├── docs/                             # 项目文档
+│   ├── 1.0版本审查报告.md            # v1.0 上线前全面审查（23 条发现）
+│   ├── 1.0版本修复方案.md            # 修复方案文档
+│   ├── 打包与更新指南.md             # 桌面应用打包与更新流程
+│   ├── 维度经验计分规则.md           # 8 维经验计算规则详情
+│   └── 项目开发规划.md              # 后续开发规划
+│
+└── memory/                           # 开发记录（Claude Code 自动管理）
     ├── MEMORY.md                     # 记忆索引
     └── ...
 ```
@@ -121,12 +151,12 @@ self_grow_system/
 | 页面 | 说明 |
 |------|------|
 | **仪表盘** | 欢迎横幅、连续打卡天数、等级 EXP 进度条（10 段位渐变色，Lv.200 满级特效）、今日概览统计卡片、待打卡习惯列表、近期活动动态 |
-| **行动** | 开始行动（计时器 + 8 分类 + EXP 结算）、行动中心（维度进度条、动态播报、目标追踪、本周任务）、行动历史（筛选+排序+分页） |
+| **行动** | 开始行动（计时器 + 8 分类 + EXP 结算）、行动中心（维度进度条、动态播报、目标追踪、本周任务）、行动历史（筛选+排序+分页）、AI 对话式记录 |
 | **成长记录** | 年度热力图（365 天 EXP 分布）、八维属性雷达图、30 天 EXP 趋势折线图 |
 | **属性** | 8 维度等级 & EXP 进度、属性详细介绍卡片 |
 | **目标** | 创建/编辑/删除目标、里程碑列表、EXP 奖励领取 |
 | **任务** | 本日任务（todo/doing/done 三栏）、本周任务（同上三栏）、历史任务（已完成/超期）、定时任务模板 + 每周任务模板 |
-| **习惯** | 7 天周视图（三态循环打卡：done/skipped/pending）、统计卡片、4 条智能洞察 |
+| **习惯** | 7 天周视图（三态循环打卡：done/skipped/pending）、统计卡片、4 条智能洞察（AI 分析）、AI 推荐习惯 |
 | **技能** | 我的技能（技能卡片列表，点击进入技能树查看器）、技能库（预设模板） |
 | **技能树编辑器** | 独立 SPA，支持 view/editor/admin 三模式，可视化节点编辑（拖拽、缩放、连线）、学习状态管理（locked/available/learning/completed）、前置条件检查、撤销/重做、AI 智能生成节点（9 种 Tool Use） |
 | **奖励商城** | 8 分类筛选、解锁条件 + 领取条件双重验证、图片上传、手动确认条件 |
@@ -135,7 +165,7 @@ self_grow_system/
 
 ## 快速启动
 
-> ⚠️ 必须使用 HTTP 服务器打开，不要直接双击 HTML 文件
+> ⚠️ 开发模式必须使用 HTTP 服务器打开，不要直接双击 HTML 文件
 
 ### 1. 后端（必须优先启动）
 
@@ -167,7 +197,7 @@ python -m http.server 3000
 # 流程：/ → login.html → 选择用户 → frontend/index.html（SPA 主页）
 ```
 
-### 3. AI 代理配置（可选，仅技能树编辑器需要）
+### 3. AI 代理配置（可选）
 
 ```bash
 cd backend
@@ -182,6 +212,20 @@ AI_MODEL=gemini-2.5-pro-exp-03-25
 PORT=3001
 ```
 
+AI 功能支持三个场景：
+- **技能树编辑器**：AI 智能生成节点、修改节点、前置条件分析（9 个 Tool Use 工具）
+- **行动记录**：通过 AI 对话自然语言记录行动（解析为结构化数据存入后端）
+- **习惯分析**：智能洞察分析 + 自动推荐习惯图标
+
+### 4. 桌面应用打包
+
+```bash
+build.bat
+# 构建产出：desktop/dist/SelfGrow/Self Grow.exe（绿色版）
+```
+
+详细打包指南见 [`docs/打包与更新指南.md`](docs/打包与更新指南.md)。
+
 ---
 
 ## 技术栈
@@ -194,7 +238,8 @@ PORT=3001
 | **后端** | Python FastAPI + httpx + SQLite |
 | **定时任务** | APScheduler 3.x（每日 03:00 / 每周一 03:00） |
 | **环境** | pixi（conda-forge，Python 3.12） |
-| **AI** | OpenAI 兼容 API + Function Calling / Tool Use（9 个工具） |
+| **AI** | OpenAI 兼容 API + Function Calling / Tool Use（3 个 AI 服务，14+ 工具） |
+| **桌面** | Electron 主进程 + PyInstaller 后端 exe + 绿色版打包 |
 
 ---
 
@@ -206,6 +251,7 @@ PORT=3001
 - **10 个段位**（每 20 级一段）：初阶 → 历练 → 资深 → 荒野 → 征途 → 秘境 → 破晓 → 星途 → 传奇 → 不朽
 - 每个段位有独立渐变色方案（10 套视觉主题），满级 Lv.200 有专属高光特效
 - **经验系统已重构**：全局总经验 = 8 维经验之和（`get_total_exp_from_dimensions()`），每次行动/任务/习惯结算时从维度表实时 SUM 并重新计算等级
+- 满级时 `expForLevel(200) = 0`，进度条显示"🏆 满级达成"
 
 ### 经验系统设计
 
@@ -221,9 +267,42 @@ PORT=3001
 3. 反算新等级，更新 `users` 表
 4. 更新 `user_stats_daily` 今日统计
 
-### 性能优化
+### 维度经验计算规则（v1.0 精细化）
 
-项目已在以下方面做了性能优化：
+| 维度 | 子类型 | 计算规则 |
+|------|--------|----------|
+| 健康-运动 | health-sport | `floor(duration/15) × 3.75`，最小 15 分钟 |
+| 健康-睡眠 | health-sleep | 6~9 小时有效：`max(0, 20 - 晚分/4)`，23:00~00:00 + 07:00~08:00 符合作息规律 +15 |
+| 学习 | study | `floor(duration/20) × 10`，最小 20 分钟 |
+| 关系-线下 | relation-offline | 每次 +80 |
+| 关系-线上 | relation-online | `floor(duration/30) × 20` |
+| 工作-日常 | work-daily | 每次 +10 |
+| 工作-加班平日 | work-overtime-weekday | 每次 +20 |
+| 工作-加班周末 | work-overtime-weekend | 每次 +30 |
+| 创作-产出 | create-output | `duration × 2`（120/h） |
+| 创作-素材 | create-material | `floor(duration/30) × 20`（40/h） |
+| 创作-发布 | create-publish | 每次 +160 |
+| 财务-梳理 | finance-study | `duration × 4/3`（80/h） |
+| 财务-复盘 | finance-review | 每次 +50（每半月限 1 次） |
+| 爱好 | hobby | `duration × 2/3`（40/h） |
+| 魅力 | soul | `duration × 5/6`（50/h） |
+
+### 作息规律系统
+
+- **定义**：23:00~00:00 睡觉 + 07:00~08:00 起床，6~9 小时有效睡眠
+- **连续机制**：连续 >=6 天规律作息，每天睡眠额外 +15 EXP
+- **护盾机制**：连续 >=10 天获得一次"保护"机会，断一天消耗保护不重置连续天数
+- **持久化**：`routine_streak` 表存储，服务重启不丢失
+
+### AI 功能体系
+
+| AI 服务 | 文件 | 工具数量 | 说明 |
+|---------|------|----------|------|
+| 技能树 | `ai_service.py` | 9 个 Tool Use | 生成/修改节点、前置条件分析、批量编辑 |
+| 行动解析 | `ai_action_service.py` | 对话式提取 | 自然语言 → 结构化行动记录，支持多轮交互 |
+| 习惯分析 | `ai_habit_service.py` | 智能洞察 + 图标 | 数据分析 + 习惯建议 + 自动分配图标 |
+
+### 性能优化
 
 | 优化项 | 说明 |
 |--------|------|
@@ -232,24 +311,26 @@ PORT=3001
 | **失败容错** | 后端不可用时降级使用模拟数据，页面 JS 加载失败显示友好提示 |
 | **APScheduler 定时任务** | 每日归档/刷新/结算由后端定时执行，前端无需轮询 |
 
-### 数据迁移进度
+### v1.0 开发里程碑
 
-项目正从前端模拟数据向后端服务迁移。详见 [`后端迁移模块.md`](后端迁移模块.md)。
-
-| 优先级 | 模块 | 状态 |
-|--------|------|------|
-| P0 | 用户数据 + 统计 | ✅ 已完成 |
-| P1 | 习惯板块 | ✅ 已完成 |
-| P2 | 行动记录 | ✅ 已完成 |
-| P3 | 目标任务 | ✅ 已完成 |
-| P4 | 等级系统 | ✅ 已完成（经验系统重构：8 维之和=全局总经验） |
-| P5 | 仪表盘 + 成长记录 | ✅ 已完成（统计 API、热力图、EXP 趋势） |
-| P6 | 奖励商城 | ✅ 已完成（含条件评估引擎、图片上传） |
-| P7 | 全端联调 | ✅ 已完成（含后端模块化重构） |
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| P0 | 用户数据 + 统计持久化 | ✅ 已完成 |
+| P1 | 习惯板块完整迁移 | ✅ 已完成 |
+| P2 | 行动记录迁移 | ✅ 已完成 |
+| P3 | 目标任务迁移 | ✅ 已完成 |
+| P4 | 等级系统重构（8 维之和=全局总经验） | ✅ 已完成 |
+| P5 | 仪表盘 + 成长记录统计 API | ✅ 已完成 |
+| P6 | 奖励商城（条件评估引擎 + 图片上传） | ✅ 已完成 |
+| P7 | 全端联调 + 后端模块化重构 | ✅ 已完成 |
+| — | v1.0 上线前审查修复（17 条） | ✅ 已完成 |
+| — | 桌面应用打包（Electron + PyInstaller） | ✅ 已完成 |
+| — | AI 行动解析服务 | ✅ 已完成 |
+| — | 习惯 AI 分析服务 | ✅ 已完成 |
 
 ### 后端数据库
 
-共 **15 张表**：
+共 **16 张表**：
 
 | 表名 | 说明 |
 |------|------|
@@ -257,14 +338,19 @@ PORT=3001
 | `user_stats_daily` | 每日统计（专注分钟、任务完成、习惯打卡、EXP） |
 | `habits` | 习惯定义 |
 | `habit_checkins` | 每日打卡记录 |
-| `action_logs` | 行动记录 |
+| `action_logs` | 行动记录（含 sub_type/sleep 字段） |
+| `routine_streak` | 规律作息连续天数持久化 |
 | `user_dimensions` | 八维属性经验 |
 | `goals` | 目标 |
 | `goal_milestones` | 目标里程碑 |
 | `tasks` | 任务（含历史） |
 | `scheduled_tasks` | 定时任务模板 |
 | `rewards` | 奖励商城 |
-| （`categories` | 8 维分类定义 — 硬编码在 `models/constants.py` 中） |
+| `reward_drafts` | 奖励创建草稿 |
+| `skill_trees` | 技能树定义 |
+| `user_skills` | 用户技能关联 |
+
+（`categories` 8 维分类定义硬编码在 `models/constants.py` 中，不作为数据库表）
 
 ### 后端定时任务
 
@@ -287,16 +373,22 @@ PORT=3001
 
 ### 修改等级/段位系统
 
-- 前端公式：`frontend/js/utils.js` 第 116-170 行
+- 前端公式：`frontend/js/utils.js`（`expForLevel` / `getRankInfo` / `getRankColors`）
 - 后端公式：`backend/models/level.py`（等级公式唯一来源）
 - 数据库：`backend/db/dimensions.py`（维度经验管理）+ `backend/db/init.py`（建表）
-- 视觉主题：`frontend/js/utils.js` 第 142-170 行（10 个段位的渐变色方案）
+- 视觉主题：`frontend/js/utils.js`（10 个段位的渐变色方案）
+
+### 修改经验计算规则
+
+- 后端规则引擎：`backend/models/constants.py`（`calculate_exp()` 及各维度子函数）
+- 维度经验值在此计算，由 `exp_service.py` 汇总到 total_exp 并重算等级
+- 完整计分规则文档见 [`docs/维度经验计分规则.md`](docs/维度经验计分规则.md)
 
 ### 技能树开发
 
-- 编辑器入口：`frontend/skill-tree/index.html`（独立页面，不依赖主 SPA，支持 role 参数）
+- 编辑器入口：`frontend/skill-tree/index.html`（独立 SPA，支持 role 参数）
 - 查看器：`frontend/skill-tree/viewer.html`（通过 iframe 嵌入技能页面）
-- 主控制器：`skill-tree/js/app.js`（App 类，包含 CRUD、撤销/重做、AI 集成）
+- 主控制器：`skill-tree/js/app.js`（App 类，CRUD、撤销/重做、AI 集成）
 - 渲染引擎：`skill-tree/js/tree-renderer.js`（DOM + SVG 渲染）
 - AI 集成：`skill-tree/js/ai-bridge.js`（通过后端 `/api/chat` 代理）
 
@@ -314,10 +406,15 @@ PORT=3001
 | PUT/DELETE | `/api/habits/{id}` | 更新/删除习惯 |
 | POST | `/api/habits/{id}/toggle` | 打卡三态切换 |
 | GET | `/api/habits/stats` | 习惯统计卡片 |
-| GET | `/api/habits/insights` | 4 条智能洞察 |
+| GET | `/api/habits/insights` | 4 条智能洞察（AI 分析） |
 | GET | `/api/habits/last-week` | 上周打卡数据 |
+| POST | `/api/habits/ai-analyze` | AI 习惯分析 |
 | GET/POST | `/api/actions` | 行动记录查询/提交 |
 | GET | `/api/actions/today-stats` | 今日行动统计 |
+| POST | `/api/actions/ai-chat` | AI 行动解析对话 |
+| POST | `/api/actions/ai-submit` | 批量提交 AI 解析的行动 |
+| GET | `/api/actions/routine-status` | 作息规律状态 |
+| GET | `/api/actions/finance-review-status` | 财务复盘状态 |
 | GET | `/api/activities/feed` | 动态播报列表 |
 | GET | `/api/activities/recent` | 仪表盘近期动态 |
 | GET/POST | `/api/goals` | 目标列表/创建 |
@@ -346,9 +443,29 @@ PORT=3001
 
 - API 路由在 `backend/routers/` — 每个模块一个资源域（`health.py`、`users.py`、`habits.py` 等）
 - 数据库操作在 `backend/db/` — 每个模块一个功能域（`users.py`、`habits.py`、`tasks.py` 等）
-- AI 代理端点 `POST /api/chat` 转发到可配置的 LLM API，支持 9 个 Tool Use（定义在 `backend/services/ai_service.py`）
-- AI 配置通过 `backend/.env`：`AI_API_BASE_URL`、`AI_API_KEY`、`AI_MODEL`
+- AI 服务在 `backend/services/` — 三个 AI 服务场景独立封装
+- AI 提示词在 `backend/prompts/` — 每个功能独立文件
 - 等级公式唯一来源：`backend/models/level.py`
+- 运行测试：`cd backend && pixi run pytest`
+
+### 桌面应用打包
+
+详细打包指南见 [`docs/打包与更新指南.md`](docs/打包与更新指南.md)。
+
+**架构**：Electron 主进程启动 PyInstaller 打包的后端 exe → 轮询 `/api/health` 等待就绪 → 加载前端页面
+
+| 产物 | 路径 | 大小 |
+|------|------|------|
+| 后端 exe | `backend/dist/self-grow-backend/` | ~56 MB |
+| 绿色版目录 | `desktop/dist/SelfGrow/` | ~325 MB |
+| 绿色版 zip | `desktop/dist/SelfGrow-v{版本}-portable.zip` | ~136 MB |
+
+**按改动范围分步打包**：
+- 仅前端 → 替换 `desktop/dist/SelfGrow/resources/frontend/` 后 `node make-portable.js`
+- 仅后端 → 重新 `pixi run pyinstaller --clean --noconfirm self_grow_server.spec` 后替换
+- 前后端都改 → `build.bat` 一键完成
+
+**打包模式数据目录**：`%APPDATA%/SelfGrow/`（独立于安装目录，更新不丢失）
 
 ---
 
@@ -364,3 +481,15 @@ PORT=3001
 | 财务 | finance | `#4ADE80` | 6× | 记账、理财、副业变现 |
 | 爱好 | hobby | `#F472B6` | 7× | 游戏、音乐、旅行、放松 |
 | 魅力 | soul | `#FBBF24` | 9× | 穿搭、气质、社交表达、个人形象 |
+
+---
+
+## v1.0 已知限制
+
+参见 [`docs/1.0版本审查报告.md`](docs/1.0版本审查报告.md) 完整 23 条发现。主要未修复项：
+
+- 作息规律连续天数持久化已修复（`routine_streak` 表替代内存缓存）
+- 异步渲染函数缺少 `await` 可能引发竞态（**中优先级，待修复**）
+- `int(dimension_exp)` 截断而非四舍五入（**中优先级，待修复**）
+- 数据库连接未使用上下文管理器（**低优先级**）
+- CORS 允许所有来源（**低优先级，本地开发无影响**）
