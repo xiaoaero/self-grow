@@ -4,18 +4,6 @@ Self Grow — 习惯图标设计 AI 提示词
 根据习惯的名称、简介、维度分类，生成 SVG 图标。
 """
 
-# 维度颜色映射，用于提示词中引导 AI 生成与系统风格一致的图标
-DIMENSION_COLORS = {
-    "health":   {"name": "健康", "color": "#FF7B72"},
-    "study":    {"name": "学习", "color": "#58D5C9"},
-    "relation": {"name": "关系", "color": "#FF91A8"},
-    "work":     {"name": "工作", "color": "#FFCA40"},
-    "create":   {"name": "创作", "color": "#B794F6"},
-    "finance":  {"name": "财务", "color": "#4ADE80"},
-    "hobby":    {"name": "爱好", "color": "#F472B6"},
-    "soul":     {"name": "魅力", "color": "#FBBF24"},
-}
-
 HABIT_ICON_SYSTEM_PROMPT = """你是一个 SVG 图标设计师。根据用户提供的习惯信息，生成一个简洁美观的 SVG 图标。
 
 ## 设计要求

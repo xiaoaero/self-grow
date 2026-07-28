@@ -8,6 +8,7 @@ backend/pixi.lock
 backend/.env
 backend/data.db
 backend/*.bak
+backend/*.log
 
 # Python cache
 __pycache__/

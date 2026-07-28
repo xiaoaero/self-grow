@@ -17,11 +17,12 @@ function renderDashboard() {
     // 重新拉取最新数据
     const userData = getCurrentUser();
     if (userData) {
-        Promise.all([
+        Promise.allSettled([
             fetchUserProfile(userData.id),
             fetchHabits(userData.id),
-        ]).then(([profile, habitsData]) => {
-            if (profile) {
+        ]).then(([profileResult, habitsResult]) => {
+            if (profileResult.status === 'fulfilled' && profileResult.value) {
+                const profile = profileResult.value;
                 AppData.user = {
                     ...AppData.user,
                     ...profile.user,
@@ -31,11 +32,11 @@ function renderDashboard() {
                 AppData.todayStats = profile.todayStats;
                 AppData.yesterdayStats = profile.yesterdayStats;
             }
-            if (habitsData) {
-                AppData.habits = habitsData;
+            if (habitsResult.status === 'fulfilled' && habitsResult.value) {
+                AppData.habits = habitsResult.value;
             }
             renderDashboardContent();
-        }).catch(() => renderDashboardContent());
+        });
     } else {
         renderDashboardContent();
     }
@@ -104,12 +105,15 @@ function renderDashboardContent() {
                 <div class="timeline">
                     ${recentActivities.map(act => {
                         const cat = getCategory(act.category);
+                        const catHtml = cat
+                            ? `<span class="badge badge--primary" style="margin-left:6px;display:inline-flex;align-items:center;gap:4px">${attrIcon(cat.id, 14)} ${cat.name}</span>`
+                            : '';
                         return `
                             <div class="timeline__item ${act.category === 'health' ? 'timeline__item--accent' : ''}">
                                 <div class="timeline__time">${act.time}</div>
                                 <div class="timeline__text">
                                     ${act.action} <strong>${act.target}</strong>
-                                    ${cat ? `<span class="badge badge--primary" style="margin-left:6px;display:inline-flex;align-items:center;gap:4px">${attrIcon(cat.id, 14)} ${cat.name}</span>` : ''}
+                                    ${catHtml}
                                     <span style="color:var(--color-accent-light);margin-left:6px;font-weight:600">+${act.exp} EXP</span>
                                 </div>
                             </div>

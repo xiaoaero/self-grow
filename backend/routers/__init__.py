@@ -15,3 +15,4 @@ from .stats import router as stats_router
 from .rewards import router as rewards_router
 from .ai import router as ai_router
 from .skill_tree import router as skill_tree_router
+from .expression import router as expression_router

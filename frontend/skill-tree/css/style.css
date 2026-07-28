@@ -307,6 +307,18 @@ textarea {
   animation: pulse-border 1s infinite;
 }
 
+/* 名称重复：红色光圈 */
+.skill-node.node-name-duplicate .node-body {
+  border-color: #ef5350 !important;
+  box-shadow: 0 0 16px rgba(239, 83, 80, 0.5), 0 0 30px rgba(239, 83, 80, 0.2);
+  animation: duplicate-pulse 1s infinite;
+}
+
+@keyframes duplicate-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(239, 83, 80, 0.4); }
+  50% { box-shadow: 0 0 22px rgba(239, 83, 80, 0.7); }
+}
+
 .skill-node.linking .node-body {
   border-color: var(--warning) !important;
   animation: pulse-border 0.8s infinite;

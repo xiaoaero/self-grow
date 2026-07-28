@@ -79,6 +79,7 @@
             <linearGradient id="g-hdr-hist" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1f1f2e"/><stop offset="100%" stop-color="#0f0f1a"/></linearGradient>
             <linearGradient id="g-hdr-habit" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0a4d3a"/><stop offset="100%" stop-color="#062820"/></linearGradient>
             <linearGradient id="g-hdr-reward" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#3d2a0a"/><stop offset="100%" stop-color="#2a1a04"/></linearGradient>
+            <linearGradient id="g-hdr-expr" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2e1a3d"/><stop offset="100%" stop-color="#1a0a28"/></linearGradient>
         </defs>
     </svg>
 
@@ -159,6 +160,31 @@
             </a>
         </nav>
 
+        <!-- 扩展区域分隔线 -->
+        <div class="sidebar__divider">
+            <div class="sidebar__divider-line"></div>
+            <span class="sidebar__divider-label">更多</span>
+            <div class="sidebar__divider-line"></div>
+        </div>
+
+        <!-- 扩展插件区域 -->
+        <div class="sidebar__extensions">
+            <a class="sidebar__nav-item sidebar__ext-item" data-page="extensions" onclick="navigateTo('extensions')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+                    <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+                    <rect x="3" y="14" width="7" height="7" rx="1.5"/>
+                    <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+                    <path d="M10 6h4M6 10v4M18 10v4M10 18h4"/>
+                </svg>
+                <span>扩展</span>
+                <svg class="sidebar__nav-arrow" id="ext-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </a>
+            <div class="sidebar__subnav" id="subnav-ext">
+                <a class="sidebar__subnav-item active" data-subpage="ext.agent" onclick="navigateTo('extensions', 'agent')"><span>表达训练</span></a>
+            </div>
+        </div>
+
         <div class="sidebar__footer" id="sidebar-footer"></div>
     </aside>
 
@@ -173,6 +199,7 @@
         <div id="page-habits" class="page"></div>
         <div id="page-skill" class="page"></div>
         <div id="page-rewards" class="page"></div>
+        <div id="page-extensions" class="page"></div>
     </main>
 
     <!-- 模态层 -->

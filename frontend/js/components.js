@@ -22,22 +22,6 @@ function renderStatCard(icon, value, label, trend, trendUp) {
     `;
 }
 
-/** Render progress bar */
-function renderProgress(value, max, variant = 'primary', showText = true) {
-    const pct = max > 0 ? Math.min(Math.round((value / max) * 100), 100) : 0;
-    return `
-        <div>
-            ${showText ? `<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px">
-                <span style="color:var(--color-text-muted)">进度</span>
-                <span style="font-weight:600">${pct}%</span>
-            </div>` : ''}
-            <div class="progress">
-                <div class="progress__fill progress__fill--${variant}" style="width:${pct}%"></div>
-            </div>
-        </div>
-    `;
-}
-
 /** Render exp bar — 等级系统全面改造版
  *  布局：[左侧渐变方块 | Lv.XX] [段位称呼] [渐变进度条] [EXP数值]
  *  配色按段位分10阶段，Lv.200满级有专属高光特效

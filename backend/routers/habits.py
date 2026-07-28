@@ -7,6 +7,7 @@ Self Grow — 习惯 API 路由
 from fastapi import APIRouter, HTTPException, Depends
 from datetime import date as date_func, timedelta
 
+from db.connection import get_conn
 from db.habits import get_habits, get_habit, create_habit, update_habit, delete_habits
 from db.habits import get_checkins_in_range, get_all_checkins_in_range, upsert_checkin, delete_checkin, calculate_streak
 from db.users import get_user
@@ -217,18 +218,23 @@ async def habit_stats(user=Depends(get_current_user)):
             best_streak = s
             best_name = h["name"]
 
-    # 本周完成率
+    # 本周完成率（按 weekly_target 加权）
     this_week_done = 0
     this_week_total = 0
+    days_passed = min(7, (today - monday).days + 1)
     for h in active_habits:
         target = h["weekly_target"] or 7
         h_checkins = this_map.get(h["id"], {})
+        # 分母：过去天数中最多不超过 weekly_target 次机会
+        contrib = min(target, days_passed)
+        this_week_total += contrib
+        # 分子：截止到今天的实际完成次数
         for i in range(7):
             d = (monday + timedelta(days=i))
-            if d <= today:
-                this_week_total += 1
-                if h_checkins.get(d.isoformat()) == "done":
-                    this_week_done += 1
+            if d <= today and h_checkins.get(d.isoformat()) == "done":
+                this_week_done += 1
+            if this_week_done > this_week_total:
+                break
 
     week_rate = round(this_week_done / this_week_total * 100) if this_week_total > 0 else 0
 
@@ -255,17 +261,16 @@ async def habit_stats(user=Depends(get_current_user)):
             yesterday_done += 1
     diff_today = done_today - yesterday_done
 
-    # 本月估算
-    if today.month == 12:
-        days_in_month = 31
-    else:
-        days_in_month = (date_func(today.year, today.month % 12 + 1, 1) - timedelta(days=1)).day
-    monthly_total = 0
-    monthly_xp = 0
-    for h in active_habits:
-        est = round(calculate_streak(h["id"]) * 0.6)
-        monthly_total += est
-        monthly_xp += est * (h["xp_reward"] or 15)
+    # 本月实际打卡统计（从 user_monthly_stats 读取）
+    year_month = today.strftime("%Y-%m")
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT habit_count, habit_xp FROM user_monthly_stats WHERE user_id = ? AND year_month = ?",
+        (user_id, year_month),
+    ).fetchone()
+    conn.close()
+    monthly_total = row["habit_count"] if row else 0
+    monthly_xp = row["habit_xp"] if row else 0
 
     inactive_count = len(habits) - total_active
 

@@ -19,8 +19,8 @@ def get_user_dimensions(user_id: int) -> list:
     return [dict(r) for r in rows]
 
 
-def upsert_dimension(user_id: int, dimension_key: str, xp_add: int = 0):
-    """增量更新维度 XP，检查是否需要升级"""
+def upsert_dimension(user_id: int, dimension_key: str, xp_add: float = 0):
+    """增量更新维度 XP（小数精度保留），检查是否需要升级"""
     conn = get_conn()
 
     row = conn.execute(
@@ -39,7 +39,7 @@ def upsert_dimension(user_id: int, dimension_key: str, xp_add: int = 0):
         ).fetchone()
 
     level = row["level"]
-    xp = row["xp"] + xp_add
+    xp = row["xp"] + xp_add  # 小数精度保留
     xp_to_next = row["xp_to_next"]
 
     # 检查是否升级（复用等级公式，维度上限 140 级）
@@ -75,14 +75,14 @@ def recalc_dimensions_from_actions(user_id: int):
 
 
 def get_total_exp_from_dimensions(user_id: int) -> int:
-    """从 8 维表 SUM 出全局总经验（level 累计经验 + 剩余经验）"""
+    """从 8 维表 SUM 出全局总经验（level 累计经验 + 剩余经验，返回整数）"""
     conn = get_conn()
     rows = conn.execute(
         "SELECT level, xp FROM user_dimensions WHERE user_id = ?",
         (user_id,),
     ).fetchall()
     conn.close()
-    total = 0
+    total = 0.0
     for r in rows:
         total += total_exp_for_level(r["level"]) + r["xp"]
-    return total
+    return round(total)

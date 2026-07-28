@@ -10,6 +10,7 @@ import datetime as _dt
 def has_finance_review_this_half(user_id: int) -> bool:
     """检查用户当前半月是否已有财务复盘记录（sub_type='finance-review'）
     上半月：1~15日，下半月：16~月末
+    注意：16 号归入下半月（half_start = 当月16日），15 号归入上半月（half_end = 当月15日）
     """
     today = _dt.date.today()
     if today.day <= 15:
@@ -84,7 +85,9 @@ def get_action_logs(user_id: int, page: int = 1, page_size: int = 20,
         where_params.append(category)
 
     if search:
-        where_clauses.append("al.note LIKE ?")
+        where_clauses.append("(al.note LIKE ? OR al.category_id LIKE ? OR al.sub_type LIKE ?)")
+        where_params.append(f"%{search}%")
+        where_params.append(f"%{search}%")
         where_params.append(f"%{search}%")
 
     if date_from:
@@ -142,6 +145,50 @@ def get_action_logs(user_id: int, page: int = 1, page_size: int = 20,
         "total_exp": total_exp,
         "records": records,
     }
+
+
+def get_action_logs_for_export(user_id: int, category: str = None,
+                                date_from: str = None, date_to: str = None) -> list:
+    """
+    导出用查询：无分页限制，按时间升序返回所有匹配记录。
+    返回列表，每条含 category_name / category_color 映射。
+    """
+    conn = get_conn()
+
+    where_clauses = ["al.user_id = ?"]
+    where_params = [user_id]
+
+    if category and category != "all":
+        where_clauses.append("al.category_id = ?")
+        where_params.append(category)
+
+    if date_from:
+        where_clauses.append("al.start_time >= ?")
+        where_params.append(f"{date_from}T00:00:00")
+
+    if date_to:
+        where_clauses.append("al.start_time <= ?")
+        where_params.append(f"{date_to}T23:59:59")
+
+    where_sql = " AND ".join(where_clauses)
+
+    rows = conn.execute(
+        f"""SELECT al.* FROM action_logs al
+            WHERE {where_sql}
+            ORDER BY al.start_time ASC, al.id ASC""",
+        where_params,
+    ).fetchall()
+    conn.close()
+
+    records = []
+    for r in rows:
+        d = dict(r)
+        cat = get_category(d["category_id"])
+        d["category_name"] = cat["name"] if cat else d["category_id"]
+        d["category_color"] = cat["color"] if cat else "#888"
+        records.append(d)
+
+    return records
 
 
 def get_today_action_stats(user_id: int) -> dict:
@@ -212,7 +259,7 @@ def get_activity_feed(user_id: int, limit: int = 20) -> list:
     rows = conn.execute(
         """SELECT al.* FROM action_logs al
            WHERE al.user_id = ?
-           ORDER BY al.created_at DESC, al.id DESC
+           ORDER BY al.start_time DESC, al.id DESC
            LIMIT ?""",
         (user_id, limit),
     ).fetchall()
@@ -231,7 +278,20 @@ def get_activity_feed(user_id: int, limit: int = 20) -> list:
         elif d["note"]:
             note_preview = d["note"][:50]
         else:
-            note_preview = f"{cat['name'] if cat else ''} {d['duration']}分钟"
+            # 固定时长子类型（duration=0），显示友好的子类型标签
+            sub_type_labels = {
+                "work-daily": "日常工作",
+                "work-overtime-weekday": "工作日加班",
+                "work-overtime-weekend": "休息日加班",
+                "relation-offline": "线下见面",
+                "create-publish": "发布作品",
+                "finance-review": "半月复盘",
+            }
+            sub_type = d.get("sub_type", "")
+            if sub_type in sub_type_labels:
+                note_preview = sub_type_labels[sub_type]
+            else:
+                note_preview = f"{cat['name'] if cat else ''} {d['duration']}分钟"
         d["description"] = note_preview
         created = d["created_at"]
         if created:

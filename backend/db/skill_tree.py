@@ -162,15 +162,16 @@ def save_learner_progress(tree_id: str, user_id: int, learner: dict) -> bool:
 
 
 def delete_skill_tree(tree_id: str, user_id: int) -> bool:
-    """删除技能树"""
+    """删除技能树，返回是否实际删除了记录"""
     conn = get_conn()
-    conn.execute(
+    cursor = conn.execute(
         "DELETE FROM skill_trees WHERE tree_id = ? AND user_id = ?",
         (tree_id, user_id),
     )
+    deleted = cursor.rowcount > 0
     conn.commit()
     conn.close()
-    return True
+    return deleted
 
 
 # ================================================================

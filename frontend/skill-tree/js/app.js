@@ -165,14 +165,11 @@ class App {
     this.updateLearningStates();
     this.renderNode(node);
     this.renderConnections();
+    this.checkDuplicateNames();
+    this._updatePublishButtons();
     this.detailPanel.refreshCurrent();
     this.sidebar.refreshStats();
     document.getElementById('node-editor').classList.add('hidden');
-
-    // 更新 AI 上下文中的树名
-    if (this.nodes.length > 0 && this.nodes[0].name === node.name) {
-      this.treeName = node.name;
-    }
   }
 
   openSettings() {
@@ -215,6 +212,7 @@ class App {
     this.nodes.push(node);
     this.updateLearningStates();
     this.renderNode(node);
+    this.checkDuplicateNames();
     this.saveHistory();
     return node;
   }
@@ -274,6 +272,8 @@ class App {
     ids.forEach(id => this.deleteNode(id));
     this.selectedIds.clear();
     this.renderConnections();
+    this.checkDuplicateNames();
+    this._updatePublishButtons();
     this.sidebar.refreshStats();
     showToast(`已删除 ${ids.length} 个节点`);
   }
@@ -361,6 +361,39 @@ class App {
 
   getSelectedNodes() {
     return this.nodes.filter(n => this.selectedIds.has(n.id));
+  }
+
+  /* ================================================================
+     名称重复检测
+     ================================================================ */
+
+  /**
+   * 检查当前技能树中是否有同名节点
+   * 将所有重复节点标记 _nameDuplicate，并清除无重复的标记
+   * @returns {boolean} 是否有重复
+   */
+  checkDuplicateNames() {
+    const nameCount = {};
+    this.nodes.forEach(n => {
+      nameCount[n.name] = (nameCount[n.name] || 0) + 1;
+    });
+
+    let hasDuplicate = false;
+    this.nodes.forEach(n => {
+      const isDup = nameCount[n.name] > 1;
+      if (isDup !== n._nameDuplicate) {
+        n._nameDuplicate = isDup;
+        this.renderNode(n);
+      }
+      if (isDup) hasDuplicate = true;
+    });
+    return hasDuplicate;
+  }
+
+  /** 是否有名称重复 */
+  hasDuplicateNames() {
+    const names = this.nodes.map(n => n.name);
+    return new Set(names).size !== names.length;
   }
 
   /* ================================================================
@@ -638,6 +671,8 @@ class App {
     this.selectedIds.clear();
     this.updateLearningStates();
     this.renderAll();
+    this.checkDuplicateNames();
+    this._updatePublishButtons();
   }
 
   updateUndoRedoButtons() {
@@ -724,6 +759,7 @@ class App {
     this.renderAll();
     this.updateLearningStates();
     this.renderConnections();
+    this.checkDuplicateNames();
     this.interaction.fitToScreen(this.nodes);
     this.saveHistory();
   }
@@ -809,6 +845,10 @@ class App {
     this.renderAll();
     this.saveHistory();
   }
+
+  /**
+   * AI 修改节点属性（通过名称匹配）
+   */
   updateNodeByName(name, changes) {
     if (this.isUser) return;
     const node = this.nodes.find(n => n.name === name);
@@ -823,6 +863,7 @@ class App {
     this.renderNode(node);
     this.renderConnections();
     this.saveHistory();
+    this.checkDuplicateNames();
   }
 
   /**
@@ -861,6 +902,10 @@ class App {
       showToast('技能树为空，无法上线', 'error');
       return;
     }
+    if (this.hasDuplicateNames()) {
+      showToast('存在同名节点，请先修改后再上线', 'error');
+      return;
+    }
     showConfirm('确定要上线当前技能树吗？上线后将在技能库中可见。', () => {
       this.sidebar.publishTree(this.sidebar.currentId);
       this._updatePublishButtons();
@@ -873,6 +918,10 @@ class App {
     const entry = this.sidebar.getCurrentEntry();
     if (!entry || !entry.publishedAt) {
       showToast('该技能树尚未上线，无法更新', 'error');
+      return;
+    }
+    if (this.hasDuplicateNames()) {
+      showToast('存在同名节点，请先修改后再更新', 'error');
       return;
     }
     showConfirm('确定要更新已上线的技能树吗？学习者进度将被保留。', () => {
@@ -901,6 +950,8 @@ class App {
     this.renderer.nodeEls.clear();
     this.updateLearningStates();
     this.renderAll();
+    this.checkDuplicateNames();
+    this._updatePublishButtons();
     this.interaction.fitToScreen(this.nodes);
     this.saveHistory();
     if (this.isAdmin) this._updatePublishButtons();

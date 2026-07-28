@@ -24,7 +24,9 @@ def total_exp_for_level(L: int) -> int:
 
 
 def level_from_total_exp(total_exp: int) -> int:
-    """根据累计总经验值计算当前等级（上限 200 级）"""
+    """根据累计总经验值计算当前等级（上限 200 级）
+    total_exp 可能是浮点数（维度表 xp 为 REAL），取整后计算等级
+    """
     if total_exp <= 0:
         return 1
     level = 1

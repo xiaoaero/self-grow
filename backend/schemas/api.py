@@ -39,7 +39,6 @@ class ExpAddRequest(BaseModel):
     amount: int
     category: str = None
 
-
 # ================================================================
 # 习惯
 # ================================================================
@@ -66,11 +65,6 @@ class DeleteHabitsRequest(BaseModel):
     ids: List[int]
 
 
-class ToggleCheckinResponse(BaseModel):
-    status: str
-    streak: int
-
-
 # ================================================================
 # AI 行动解析对话
 # ================================================================
@@ -86,6 +80,7 @@ class AISubmitActionItem(BaseModel):
     dimension_exp: float = 0
     sleep_start: str = ""
     sleep_end: str = ""
+    start_time: str = ""  # AI 解析出的行动发生时间，空字符串表示使用当前时间
 
 
 class AISubmitActionsRequest(BaseModel):
@@ -184,6 +179,7 @@ class UpdateTaskRequest(BaseModel):
 
 class PatchTaskStatusRequest(BaseModel):
     status: str
+    completed_at: str = None
 
 
 # ================================================================

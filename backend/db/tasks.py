@@ -14,24 +14,6 @@ def get_task(task_id: int):
     return dict(row) if row else None
 
 
-def get_tasks_by_status(user_id: int, statuses: list = None) -> list:
-    """获取用户任务，可按状态筛选"""
-    conn = get_conn()
-    if statuses:
-        placeholders = ",".join("?" for _ in statuses)
-        rows = conn.execute(
-            f"SELECT * FROM tasks WHERE user_id = ? AND status IN ({placeholders}) ORDER BY created_at DESC",
-            [user_id] + statuses,
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at DESC",
-            (user_id,),
-        ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
 def get_tasks_paginated(user_id: int, page: int = 1, page_size: int = 20,
                         status: str = None, category: str = None,
                         sort: str = "newest") -> dict:
@@ -79,12 +61,13 @@ def get_tasks_paginated(user_id: int, page: int = 1, page_size: int = 20,
 
 
 def get_today_tasks(user_id: int) -> dict:
-    """获取今日任务（按 status 分组为 todo/doing/done）"""
+    """获取今日任务（source_type='today' 或 'daily'，仅限今天创建）"""
     conn = get_conn()
     today_start = datetime.date.today().isoformat()
     rows = conn.execute(
         """SELECT * FROM tasks
-           WHERE user_id = ? AND date(created_at) >= ?
+           WHERE user_id = ? AND source_type IN ('today', 'daily')
+           AND date(created_at) = ?
            AND status IN ('todo', 'doing', 'done')
            ORDER BY CASE status
                WHEN 'todo' THEN 1
@@ -92,6 +75,36 @@ def get_today_tasks(user_id: int) -> dict:
                WHEN 'done' THEN 3
            END, created_at ASC""",
         (user_id, today_start),
+    ).fetchall()
+    conn.close()
+
+    result = {"todo": [], "doing": [], "done": []}
+    for r in rows:
+        d = dict(r)
+        result[d["status"]].append(d)
+    return result
+
+
+def get_week_tasks(user_id: int) -> dict:
+    """获取本周任务（source_type='weekly'，周一至周日）"""
+    today = datetime.date.today()
+    monday = today - datetime.timedelta(days=today.weekday())  # 本周一
+    sunday = monday + datetime.timedelta(days=6)                # 本周日
+    week_start = monday.isoformat()
+    week_end = sunday.isoformat()
+
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT * FROM tasks
+           WHERE user_id = ? AND source_type = 'weekly'
+           AND date(created_at) >= ? AND date(created_at) <= ?
+           AND status IN ('todo', 'doing', 'done')
+           ORDER BY CASE status
+               WHEN 'todo' THEN 1
+               WHEN 'doing' THEN 2
+               WHEN 'done' THEN 3
+           END, created_at ASC""",
+        (user_id, week_start, week_end),
     ).fetchall()
     conn.close()
 
@@ -148,16 +161,9 @@ def delete_task(task_id: int) -> bool:
 
 
 def clear_task_history(user_id: int) -> int:
-    """清空历史任务（completed/expired），返回删除数量"""
-    conn = get_conn()
-    cursor = conn.execute(
-        "DELETE FROM tasks WHERE user_id = ? AND status IN ('completed', 'expired')",
-        (user_id,),
-    )
-    deleted = cursor.rowcount
-    conn.commit()
-    conn.close()
-    return deleted
+    """清空历史任务 — 委托给 task_history 模块"""
+    from db.task_history import clear_task_history as clear_history
+    return clear_history(user_id)
 
 
 def claim_task_reward(task_id: int) -> dict:

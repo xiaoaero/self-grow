@@ -35,23 +35,27 @@ async def create_new_reward(req: CreateRewardRequest, user=Depends(get_current_u
 
 
 @router.put("/api/rewards/{reward_id}")
-async def update_existing_reward(reward_id: int, req: UpdateRewardRequest):
+async def update_existing_reward(reward_id: int, req: UpdateRewardRequest, user=Depends(get_current_user)):
     """更新奖励"""
     reward = get_reward(reward_id)
     if not reward:
         raise HTTPException(status_code=404, detail="奖励不存在")
+    if reward["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="无权修改他人奖励")
 
-    kwargs = {k: v for k, v in req.dict().items() if v is not None}
+    kwargs = {k: v for k, v in req.dict(exclude_unset=True).items() if v is not None}
     update_reward(reward_id, **kwargs)
     return get_reward(reward_id)
 
 
 @router.delete("/api/rewards/{reward_id}")
-async def delete_existing_reward(reward_id: int):
+async def delete_existing_reward(reward_id: int, user=Depends(get_current_user)):
     """删除奖励"""
     reward = get_reward(reward_id)
     if not reward:
         raise HTTPException(status_code=404, detail="奖励不存在")
+    if reward["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="无权删除他人奖励")
     delete_reward(reward_id)
     return {"deleted": True}
 
@@ -79,11 +83,13 @@ async def claim_reward_endpoint(reward_id: int, user=Depends(get_current_user)):
 
 
 @router.post("/api/rewards/{reward_id}/manual-confirm")
-async def manual_confirm_reward_condition(reward_id: int, req: ManualConfirmRequest):
+async def manual_confirm_reward_condition(reward_id: int, req: ManualConfirmRequest, user=Depends(get_current_user)):
     """手动确认某个条件"""
     reward = get_reward(reward_id)
     if not reward:
         raise HTTPException(status_code=404, detail="奖励不存在")
+    if reward["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="无权操作他人奖励")
 
     manual_confirm_condition(reward_id, req.condition_text)
     return {"confirmed": True}

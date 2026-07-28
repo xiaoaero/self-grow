@@ -4,7 +4,8 @@ Self Grow — 任务 API 路由
 
 from fastapi import APIRouter, HTTPException, Depends
 
-from db.tasks import get_task, get_today_tasks, get_tasks_paginated, create_task, update_task, delete_task, clear_task_history, claim_task_reward
+from db.tasks import get_task, get_today_tasks, get_week_tasks, get_tasks_paginated, create_task, update_task, delete_task, claim_task_reward
+from db.task_history import get_task_history, clear_task_history
 from schemas.api import CreateTaskRequest, UpdateTaskRequest, PatchTaskStatusRequest
 from routers.deps import get_current_user
 
@@ -15,6 +16,12 @@ router = APIRouter()
 async def list_today_tasks(user=Depends(get_current_user)):
     """获取今日任务（todo/doing/done 三栏）"""
     return get_today_tasks(user["id"])
+
+
+@router.get("/api/tasks/week")
+async def list_week_tasks(user=Depends(get_current_user)):
+    """获取本周任务（todo/doing/done 三栏，周一至周日）"""
+    return get_week_tasks(user["id"])
 
 
 @router.get("/api/tasks/all")
@@ -55,7 +62,10 @@ async def update_existing_task(task_id: int, req: UpdateTaskRequest):
 @router.patch("/api/tasks/{task_id}/status")
 async def patch_task_status(task_id: int, req: PatchTaskStatusRequest):
     """修改任务状态"""
-    update_task(task_id, status=req.status)
+    kwargs = {"status": req.status}
+    if req.completed_at:
+        kwargs["completed_at"] = req.completed_at
+    update_task(task_id, **kwargs)
     return {"status": req.status}
 
 
@@ -93,6 +103,21 @@ async def delete_existing_task(task_id: int):
     """删除任务"""
     delete_task(task_id)
     return {"deleted": True}
+
+
+@router.get("/api/tasks/history")
+async def list_task_history(
+    user=Depends(get_current_user),
+    page: int = 1,
+    page_size: int = 20,
+    status: str = "all",
+    source_type: str = "all",
+):
+    """分页获取任务历史（已归档的日任务/周任务）"""
+    return get_task_history(
+        user["id"], page=page, page_size=page_size,
+        status=status, source_type=source_type,
+    )
 
 
 @router.delete("/api/tasks/history")

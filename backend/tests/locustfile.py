@@ -60,8 +60,7 @@ class SelfGrowUser(HttpUser):
     def toggle_habit(self):
         """习惯打卡（写操作，SQLite 瓶颈点）"""
         self.client.post(
-            f"/api/habits/1/toggle",
-            json={"user_id": self.user_id, "date": "2026-07-16", "status": "done"},
+            f"/api/habits/{random.randint(1,5)}/toggle",
         )
 
     @task(1)
@@ -103,7 +102,6 @@ class SelfGrowWriteHeavyUser(HttpUser):
     def toggle_habit(self):
         self.client.post(
             f"/api/habits/{random.randint(1,5)}/toggle",
-            json={"user_id": self.user_id, "date": "2026-07-16", "status": "done"},
         )
 
     @task(2)

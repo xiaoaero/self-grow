@@ -15,23 +15,22 @@ const ATTR_INTROS = {
 };
 
 async function renderAttributes() {
-    // 从后端加载维度数据
-    const userId = AppData.user?.id;
-    let dims = [];
-    if (userId) {
-        const result = await fetchProfileStats(userId);
+    // 优先从 AppData.profile 读取（已在 app.js 启动时加载），避免重复请求
+    let dims = (AppData.profile && AppData.profile.dimensions) || [];
+
+    // 数据缺失时尝试从后端拉取
+    if (dims.length === 0 && AppData.user && AppData.user.id) {
+        const result = await fetchProfileStats(AppData.user.id);
         if (result && result.dimensions) {
             dims = result.dimensions;
+            AppData.profile = result;
         }
     }
 
-    // 降级：从 AppData.profile 拿
-    if (dims.length === 0 && AppData.profile && AppData.profile.dimensions) {
-        dims = AppData.profile.dimensions;
-    }
-
     const rows = dims.map((d, i) => {
-        const pct = d.xpToNext > 0 ? Math.round((d.xp / d.xpToNext) * 100) : 0;
+        const currentXp = d.xp || 0;
+        const xpToNext = d.xpToNext || 1;
+        const pct = xpToNext > 0 ? Math.round((currentXp / xpToNext) * 100) : 100;
         const displayPct = d.level >= 120 ? 100 : Math.min(pct, 100);
         const num = i + 1;
         const intro = ATTR_INTROS[d.key] || { notes: '', description: '' };
@@ -48,8 +47,8 @@ async function renderAttributes() {
                 <td class="attr-cell attr-cell--lv">
                     <span class="attr-lv" style="background:${d.color}22;color:${d.color}">Lv${d.level}</span>
                 </td>
-                <td class="attr-cell attr-cell--xp">${d.xp}</td>
-                <td class="attr-cell attr-cell--xp">${d.totalXp ? d.totalXp.toLocaleString() : d.xp}</td>
+                <td class="attr-cell attr-cell--xp">${Math.round(d.xp)}</td>
+                <td class="attr-cell attr-cell--xp">${d.totalXp ? d.totalXp.toLocaleString() : Math.round(d.xp)}</td>
                 <td class="attr-cell attr-cell--xp">${d.xpToNext}</td>
                 <td class="attr-cell attr-cell--progress">
                     <div class="attr-progress">

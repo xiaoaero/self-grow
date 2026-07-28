@@ -6,6 +6,7 @@ let currentPage = 'dashboard';
 let currentSubPage = 'quick';
 let currentTasksSubPage = 'today';
 let currentSkillSubPage = 'mine';
+let currentExtSubPage = 'agent';
 
 /** 已加载的页面 JS 模块名集合 */
 const loadedPages = new Set();
@@ -24,6 +25,7 @@ const PAGE_JS_MAP = {
     habits: 'js/pages/habits.js',
     skill: 'js/pages/skills.js',
     rewards: 'js/pages/rewards.js',
+    extensions: 'js/pages/agent.js',
 };
 
 /** 动态加载页面 JS */
@@ -47,13 +49,24 @@ function loadPageJS(pageName) {
     });
 }
 
+/** 子导航栏切换防抖（100ms） */
+let _lastSubnavToggle = 0;
+function _debounceSubnavToggle() {
+    const now = Date.now();
+    if (now - _lastSubnavToggle < 100) return false;
+    _lastSubnavToggle = now;
+    return true;
+}
+
 function navigateTo(pageName, subPage) {
     // If same page AND same subpage, skip
     if (currentPage === pageName && subPage && currentSubPage === subPage) return;
     if (currentPage === pageName && pageName === 'tasks' && subPage && currentTasksSubPage === subPage) return;
     if (currentPage === pageName && pageName === 'skill' && subPage && currentSkillSubPage === subPage) return;
+    if (currentPage === pageName && pageName === 'extensions' && subPage && currentExtSubPage === subPage) return;
     // If clicking parent "行动" while already on it, toggle subnav visibility only
     if (currentPage === pageName && pageName === 'action' && !subPage) {
+        if (!_debounceSubnavToggle()) return;
         const subnavAction = document.getElementById('subnav-action');
         if (subnavAction) {
             subnavAction.classList.toggle('sidebar__subnav--open');
@@ -62,6 +75,7 @@ function navigateTo(pageName, subPage) {
     }
     // If clicking parent "任务" while already on it, toggle subnav visibility only
     if (currentPage === pageName && pageName === 'tasks' && !subPage) {
+        if (!_debounceSubnavToggle()) return;
         const subnavTasks = document.getElementById('subnav-tasks');
         if (subnavTasks) {
             subnavTasks.classList.toggle('sidebar__subnav--open');
@@ -70,9 +84,19 @@ function navigateTo(pageName, subPage) {
     }
     // If clicking parent "技能" while already on it, toggle subnav visibility only
     if (currentPage === pageName && pageName === 'skill' && !subPage) {
+        if (!_debounceSubnavToggle()) return;
         const subnavSkill = document.getElementById('subnav-skill');
         if (subnavSkill) {
             subnavSkill.classList.toggle('sidebar__subnav--open');
+        }
+        return;
+    }
+    // If clicking parent "扩展" while already on it, toggle subnav visibility only
+    if (currentPage === pageName && pageName === 'extensions' && !subPage) {
+        if (!_debounceSubnavToggle()) return;
+        const subnavExt = document.getElementById('subnav-ext');
+        if (subnavExt) {
+            subnavExt.classList.toggle('sidebar__subnav--open');
         }
         return;
     }
@@ -130,6 +154,22 @@ function navigateTo(pageName, subPage) {
         }
     }
 
+    // Handle subnav for "扩展" page
+    const subnavExt = document.getElementById('subnav-ext');
+    if (subnavExt) {
+        if (pageName === 'extensions') {
+            subnavExt.classList.add('sidebar__subnav--open');
+            const targetSub = subPage || 'agent';
+            subnavExt.querySelectorAll('.sidebar__subnav-item').forEach(sub => {
+                sub.classList.toggle('active', sub.dataset.subpage === 'ext.' + targetSub);
+            });
+            currentExtSubPage = targetSub;
+        } else {
+            subnavExt.classList.remove('sidebar__subnav--open');
+            currentExtSubPage = null;
+        }
+    }
+
     // Update pages
     document.querySelectorAll('.page').forEach(page => {
         page.classList.remove('page--active');
@@ -158,6 +198,7 @@ function navigateTo(pageName, subPage) {
                 habits: typeof renderHabits !== 'undefined' ? renderHabits : null,
                 skill: typeof renderSkills !== 'undefined' ? () => renderSkills(currentSkillSubPage) : null,
                 rewards: typeof renderRewards !== 'undefined' ? renderRewards : null,
+                extensions: typeof renderAgent !== 'undefined' ? () => renderAgent(currentExtSubPage) : null,
             };
 
             const renderFn = renderers[pageName];
@@ -175,4 +216,12 @@ function navigateTo(pageName, subPage) {
 
     // Scroll to top
     document.querySelector('.main-content').scrollTop = 0;
+
+    // 保存当前页面到 sessionStorage（刷新后恢复，关闭重进则回到仪表盘）
+    sessionStorage.setItem('lastPage', pageName);
+    if (subPage) {
+        sessionStorage.setItem('lastSubPage', subPage);
+    } else {
+        sessionStorage.removeItem('lastSubPage');
+    }
 }

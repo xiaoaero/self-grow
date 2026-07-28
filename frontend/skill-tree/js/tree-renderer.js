@@ -92,6 +92,9 @@ class TreeRenderer {
     el.classList.toggle('selected', node._selected || false);
     el.classList.toggle('node-highlight', node._highlight || false);
 
+    // 名称重复
+    el.classList.toggle('node-name-duplicate', node._nameDuplicate || false);
+
     // 学习状态
     el.classList.toggle('node-locked', node._learningState === 'locked');
     el.classList.toggle('node-available', node._learningState === 'available');

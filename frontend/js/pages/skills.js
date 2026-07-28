@@ -27,7 +27,7 @@ async function fetchSkillTreeIndexAsync() {
     const uid = getCurrentUser()?.id;
     if (uid) {
         try {
-            const res = await fetch('/api/skill-trees?user_id=' + uid);
+            const res = await fetch(API_BASE + '/api/skill-trees?user_id=' + uid);
             if (res.ok) {
                 const data = await res.json();
                 if (data.trees && data.trees.length > 0) {
@@ -47,7 +47,7 @@ async function fetchMySkillsAsync() {
     const uid = getCurrentUser()?.id;
     if (uid) {
         try {
-            const res = await fetch('/api/skill-trees/user-skills/list?user_id=' + uid);
+            const res = await fetch(API_BASE + '/api/skill-trees/user-skills/list?user_id=' + uid);
             if (res.ok) {
                 const data = await res.json();
                 if (data.skill_ids) {
@@ -66,7 +66,7 @@ async function saveMySkillsAsync(list) {
     if (uid) {
         localStorage.setItem('my_skills_' + uid, JSON.stringify(list));
         try {
-            await fetch('/api/skill-trees/user-skills/list?user_id=' + uid, {
+            await fetch(API_BASE + '/api/skill-trees/user-skills/list?user_id=' + uid, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ skill_ids: list }),
@@ -80,7 +80,7 @@ async function fetchLearnerAsync(treeId) {
     const uid = getCurrentUser()?.id;
     if (uid) {
         try {
-            const res = await fetch('/api/skill-trees/' + treeId + '/published');
+            const res = await fetch(API_BASE + '/api/skill-trees/' + treeId + '/published');
             if (res.ok) {
                 const data = await res.json();
                 if (data && data.published_data && data.published_data.learner) {
@@ -95,7 +95,7 @@ async function fetchLearnerAsync(treeId) {
 /** 从后端获取已发布的技能树，降级到 localStorage */
 async function fetchPublishedTreeAsync(treeId) {
     try {
-        const res = await fetch('/api/skill-trees/' + treeId + '/published');
+        const res = await fetch(API_BASE + '/api/skill-trees/' + treeId + '/published');
         if (res.ok) {
             const data = await res.json();
             if (data && data.published_data) {

@@ -130,3 +130,5 @@ async def add_exp(req: ExpAddRequest, user=Depends(get_current_user)):
         "leveledUp": new_level > old_level,
         "oldLevel": old_level,
     }
+
+

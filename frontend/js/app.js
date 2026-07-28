@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 从后端并行加载用户数据
     const user = getCurrentUser();
-    const [profile, habitsData, lastWeekData, profileStats, recentActivities, rewardsData, goalsData, scheduledTasksData] = await Promise.all([
+    const [profile, habitsData, lastWeekData, profileStats, recentActivities, rewardsData, goalsData, scheduledTasksData, taskHistoryData] = await Promise.all([
         fetchUserProfile(user.id).catch(() => null),
         fetchHabits(user.id).catch(() => null),
         fetchLastWeekHabits(user.id).catch(() => null),
@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         fetchRewards(user.id).catch(() => null),
         fetchGoals(user.id).catch(() => null),
         fetchScheduledTasks(user.id).catch(() => null),
+        fetchTaskHistory(user.id, { page_size: 500 }).catch(() => null),
     ]);
 
     if (profile) {
@@ -63,14 +64,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         AppData.weeklyTaskTemplates = allTasks.filter(t => t.type === 'weekly');
     }
 
+    if (taskHistoryData && taskHistoryData.records) {
+        AppData.taskHistory = taskHistoryData.records;
+    }
+
     // Render sidebar footer (level / rank / EXP bar)
     renderSidebarFooter();
 
     // Task refresh — 已由后端定时任务（每日 03:00）替代
     await loadPageJS('tasks');
 
-    // Initialize with dashboard
-    navigateTo('dashboard');
+    // 从 sessionStorage 恢复上次页面（刷新保留，关闭重进则回到仪表盘）
+    const lastPage = sessionStorage.getItem('lastPage');
+    if (lastPage) {
+        const lastSubPage = sessionStorage.getItem('lastSubPage');
+        navigateTo(lastPage, lastSubPage || undefined);
+    } else {
+        navigateTo('dashboard');
+    }
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {

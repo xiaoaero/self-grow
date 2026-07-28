@@ -212,3 +212,39 @@
     font-size: 11px;
     color: var(--color-text-muted);
 }
+
+/* ================================================================
+   Sidebar — 扩展区域分隔线
+   ================================================================ */
+.sidebar__divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 20px 12px;
+}
+.sidebar__divider-line {
+    flex: 1;
+    height: 1px;
+    background: var(--color-border);
+    opacity: 0.5;
+}
+.sidebar__divider-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+
+/* --- 扩展区域 --- */
+.sidebar__extensions {
+    padding: 0 12px 12px;
+}
+.sidebar__ext-item.active {
+    color: #B794F6;
+    background: rgba(183, 148, 246, 0.12);
+}
+.sidebar__ext-item.active::before {
+    background: #B794F6;
+}

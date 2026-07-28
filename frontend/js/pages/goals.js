@@ -17,13 +17,12 @@ function migrateMilestones(milestones) {
     return milestones;
 }
 
-// Migrate on load
-goals.forEach(g => { g.milestones = migrateMilestones(g.milestones); });
+// Migrate on load — 已移到 loadGoalsFromBackend 中执行
 
 /** Category → progress bar gradient & icon color mapping */
 const GOAL_COLORS = {
     health:   { bar: 'linear-gradient(90deg, #F26B68, #FF7B72)', icon: '#FF7B72' },
-    study:    { bar: 'linear-gradient(90deg, #32B8B0, #46C9C0)', icon: '#46C9C0' },
+    study:    { bar: 'linear-gradient(90deg, #32B8B0, #58D5C9)', icon: '#58D5C9' },
     relation: { bar: 'linear-gradient(90deg, #F06590, #FF91A8)', icon: '#FF91A8' },
     work:     { bar: 'linear-gradient(90deg, #F7C242, #FFCA40)', icon: '#FFCA40' },
     create:   { bar: 'linear-gradient(90deg, #8B5CF6, #B794F6)', icon: '#B794F6' },
@@ -105,9 +104,15 @@ async function loadGoalsFromBackend() {
     }
     const result = await fetchGoals(curUser.id);
     if (result && result.goals) {
-        goals = result.goals;
+        goals = result.goals.map(g => ({
+            ...g,
+            milestones: migrateMilestones(g.milestones),
+        }));
     } else {
-        goals = [...AppData.goals];
+        goals = (AppData.goals || []).map(g => ({
+            ...g,
+            milestones: migrateMilestones(g.milestones),
+        }));
     }
     goalsLoaded = true;
     renderGoals();
@@ -366,8 +371,12 @@ function saveGoal(editId) {
 
     function handleSaveSuccess(savedGoal) {
         closeGoalModal();
-        // 刷新列表
-        goalsLoaded = false;
+        if (editId) {
+            const idx = goals.findIndex(g => g.id === editId);
+            if (idx >= 0) goals[idx] = savedGoal;
+        } else {
+            goals.unshift(savedGoal);
+        }
         renderGoals();
         showToast(editId ? '目标已更新' : '目标已创建！', 'success');
     }
@@ -384,6 +393,7 @@ function saveGoal(editId) {
                 Object.assign(goal, {
                     title, intro, category, deadline,
                     rewardExp, milestones, progress,
+                    category_image: goal.category_image || '',
                 });
             }
         } else {
@@ -461,6 +471,7 @@ function claimGoalReward(id) {
                 AppData.user.exp = result.exp_result.exp;
                 AppData.user.level = result.exp_result.level;
                 AppData.todayStats.expEarned = result.today_stats.expEarned;
+                renderSidebarFooter();
                 renderGoals();
                 showToast(`目标达成！获得 +${result.exp_earned} EXP`, 'success');
                 if (result.exp_result.leveledUp) {
@@ -488,6 +499,7 @@ function localClaimGoal(id) {
     // 重新计算等级
     const oldLevel = AppData.user.level;
     AppData.user.level = levelFromTotalExp(AppData.user.exp);
+    renderSidebarFooter();
     if (AppData.user.level > oldLevel) {
         setTimeout(() => showToast(`🎉 升级！Lv.${oldLevel} → Lv.${AppData.user.level}`, 'success'), 500);
     }

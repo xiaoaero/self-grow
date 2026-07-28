@@ -78,6 +78,9 @@ AI_BASE_URL = os.getenv("AI_API_BASE_URL", "https://one.loll.xyz/v1")
 AI_API_KEY = os.getenv("AI_API_KEY", "")
 AI_MODEL = os.getenv("AI_MODEL", "gemini-2.5-pro-exp-03-25")
 
+# ASR 配置（paraformer 实时语音识别）
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "") or AI_API_KEY
+
 if not AI_API_KEY:
     log.warning("⚠️ AI_API_KEY 未设置，AI 功能不可用")
 elif not AI_API_KEY.isascii():

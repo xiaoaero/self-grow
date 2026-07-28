@@ -197,7 +197,6 @@ function numChange(minutes) {
     updateExpPreview();
 }
 let actionCenterGoalFilter = 'all';
-let activityModalOpen = false;
 
 // 模块五：本周任务筛选/排序状态
 let taskAttrFilter = 'all';
@@ -662,7 +661,12 @@ function getSubmitSubType(catId) {
         if (actionWorkExtra === 'work-overtime-weekend') return 'work-overtime-weekend';
         if (actionSubType === 'work-overtime-weekday') return 'work-overtime-weekday';
         if (actionSubType === 'work-overtime-weekend') return 'work-overtime-weekend';
-        if (actionSubType === 'work-overtime') return 'work-overtime-weekday'; // 默认工作日加班
+        if (actionSubType === 'work-overtime') {
+            // 按当前日期判断，与 selectCategory 中的逻辑保持一致
+            var today = new Date();
+            var dayOfWeek = today.getDay();
+            return (dayOfWeek === 0 || dayOfWeek === 6) ? 'work-overtime-weekend' : 'work-overtime-weekday';
+        }
         return 'work-daily';
     }
 
@@ -784,13 +788,16 @@ async function checkSleepRecordedToday() {
     try {
         var curUser = getCurrentUser();
         if (!curUser) return;
-        // 通过今日统计接口查询最近行动中是否有 health-sleep
+        // 通过今日统计接口查询最近的 health-sleep 记录
         var res = await fetch(API_BASE + '/api/actions/today-stats?user_id=' + curUser.id);
         if (!res.ok) return;
         var data = await res.json();
         var recent = data.recent_actions || [];
+        // 睡眠记录是睡醒后提交的，按提交日期（今天）判断
+        var todayStr = new Date().toISOString().slice(0, 10);
         var sleepRecord = recent.find(function(r) {
-            return r.sub_type === 'health-sleep' || (r.category_id === 'health' && r.sleep_start);
+            return r.sub_type === 'health-sleep'
+                && r.start_time && r.start_time.slice(0, 10) === todayStr;
         });
         var checkEl = document.getElementById('sleep-today-check');
         var inputArea = document.getElementById('sleep-input-area');
@@ -808,7 +815,8 @@ async function checkSleepRecordedToday() {
             window._sleepRecordedToday = false;
         }
     } catch(e) {
-        window._sleepRecordedToday = false;
+        // catch 中不改变 _sleepRecordedToday，保留之前的状态
+        console.warn('检查睡眠记录失败', e);
     }
 }
 
@@ -1015,6 +1023,7 @@ async function confirmAISubmit() {
             dimension_exp: a.dimension_exp || 0,
             sleep_start: a.sleep_start || '',
             sleep_end: a.sleep_end || '',
+            start_time: a.start_time || new Date().toISOString(),
         };
     });
 
@@ -1024,6 +1033,9 @@ async function confirmAISubmit() {
         AppData.user.exp = result.exp_result.exp;
         AppData.user.level = result.exp_result.level;
         AppData.user.totalExp = result.exp_result.totalExp;
+
+        // 同步更新左下角侧边栏经验显示
+        renderSidebarFooter();
 
         showToast('🎉 成功记录 ' + result.records.length + ' 条行动！', 'success');
 
@@ -1245,6 +1257,9 @@ function confirmSubmitAction() {
             AppData.user.exp = result.exp_result.exp;
             AppData.user.level = result.exp_result.level;
             AppData.user.totalExp = result.exp_result.totalExp;
+
+            // 同步更新左下角侧边栏经验显示
+            renderSidebarFooter();
 
             actionNote = '';
             var expMsg = result.exp_earned + ' EXP';
@@ -1641,19 +1656,116 @@ function renderActionHistoryTable(result, cats, pad2, fmtDate, fmtTime) {
                     <tbody>${rows}</tbody>
                 </table>
             </div>
-            ${totalPages > 1 ? `
-            <div class="ah-pager">
-                <button class="ah-pager-btn" onclick="historyPage=1;renderActionHistory()" ${historyPage === 1 ? 'disabled' : ''}>«</button>
-                <button class="ah-pager-btn" onclick="historyPage=Math.max(1,historyPage-1);renderActionHistory()" ${historyPage === 1 ? 'disabled' : ''}>‹</button>
-                ${paginationHtml}
-                <button class="ah-pager-btn" onclick="historyPage=Math.min(${totalPages},historyPage+1);renderActionHistory()" ${historyPage === totalPages ? 'disabled' : ''}>›</button>
-                <button class="ah-pager-btn" onclick="historyPage=${totalPages};renderActionHistory()" ${historyPage === totalPages ? 'disabled' : ''}>»</button>
+            <div class="ah-table-footer">
+                <div class="ah-table-footer__pager">
+                    ${totalPages > 1 ? `
+                    <div class="ah-pager">
+                        <button class="ah-pager-btn" onclick="historyPage=1;renderActionHistory()" ${historyPage === 1 ? 'disabled' : ''}>«</button>
+                        <button class="ah-pager-btn" onclick="historyPage=Math.max(1,historyPage-1);renderActionHistory()" ${historyPage === 1 ? 'disabled' : ''}>‹</button>
+                        ${paginationHtml}
+                        <button class="ah-pager-btn" onclick="historyPage=Math.min(${totalPages},historyPage+1);renderActionHistory()" ${historyPage === totalPages ? 'disabled' : ''}>›</button>
+                        <button class="ah-pager-btn" onclick="historyPage=${totalPages};renderActionHistory()" ${historyPage === totalPages ? 'disabled' : ''}>»</button>
+                    </div>
+                    ` : ''}
+                </div>
+                <div class="ah-table-footer__export">
+                    <button class="btn btn--primary btn--sm" onclick="openExportDialog()">导出CSV</button>
+                </div>
             </div>
-            ` : ''}
         </div>
     `;
 
     document.getElementById('page-action').innerHTML = html;
+}
+
+/* ================================================================
+   导出行动历史 — 对话框 + 下载
+   ================================================================ */
+
+/** 打开导出对话框 */
+function openExportDialog() {
+    var cats = AppData.categories;
+
+    var html = `
+        <div style="display:flex;flex-direction:column;gap:16px;padding:8px 0">
+            <div style="display:flex;flex-direction:column;gap:6px">
+                <label style="font-size:14px;font-weight:600;color:var(--color-text)">分类筛选</label>
+                <select class="input" id="export-category" style="padding:10px 14px;font-size:14px">
+                    <option value="all" ${historyFilterCategory === 'all' ? 'selected' : ''}>全部</option>
+                    ${cats.map(function(c) {
+                        return '<option value="' + c.id + '" ' + (historyFilterCategory === c.id ? 'selected' : '') + '>' + c.name + '</option>';
+                    }).join('')}
+                </select>
+            </div>
+            <div style="display:flex;gap:12px;align-items:center">
+                <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+                    <label style="font-size:14px;font-weight:600;color:var(--color-text)">起始日期</label>
+                    <input type="date" class="input" id="export-date-from" value="${historyDateFrom}"
+                           style="padding:10px 14px;font-size:14px">
+                </div>
+                <span style="margin-top:24px;color:var(--color-text-muted)">至</span>
+                <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+                    <label style="font-size:14px;font-weight:600;color:var(--color-text)">结束日期</label>
+                    <input type="date" class="input" id="export-date-to" value="${historyDateTo}"
+                           style="padding:10px 14px;font-size:14px">
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:4px 0">
+                <input type="checkbox" id="export-include-exp" style="width:18px;height:18px;accent-color:var(--color-primary)">
+                <label for="export-include-exp" style="font-size:14px;color:var(--color-text);cursor:pointer">包含奖励EXP列</label>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:8px">
+                <button class="btn" style="flex:1;padding:12px;border-radius:10px;font-size:15px" onclick="closeModal()">取消</button>
+                <button class="btn btn--primary" style="flex:2;padding:12px;border-radius:10px;font-size:15px;font-weight:700" onclick="confirmExport()">✅ 确认导出</button>
+            </div>
+        </div>
+    `;
+
+    openModal('📥 导出行动记录', html, false);
+}
+
+/** 确认导出：收集参数 → 请求 CSV → 下载 */
+async function confirmExport() {
+    var category = document.getElementById('export-category').value;
+    var dateFrom = document.getElementById('export-date-from').value;
+    var dateTo = document.getElementById('export-date-to').value;
+    var includeExp = document.getElementById('export-include-exp').checked;
+
+    closeModal();
+
+    var curUser = getCurrentUser();
+    if (!curUser) {
+        showToast('请先登录', 'error');
+        return;
+    }
+
+    showToast('正在导出...', 'info');
+
+    var blob = await exportActionsCSV(curUser.id, {
+        category: category,
+        date_from: dateFrom,
+        date_to: dateTo,
+        include_exp: includeExp,
+    });
+
+    if (!blob) {
+        showToast('没有匹配的记录可导出', 'error');
+        return;
+    }
+
+    // 触发下载
+    var dateLabel = dateFrom || dateTo ? (dateFrom || 'begin') + '_' + (dateTo || 'end') : '全部';
+    var filename = '行动记录_' + dateLabel + '.csv';
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast('导出成功！', 'success');
 }
 
 /* ================================================================
@@ -1811,7 +1923,7 @@ function renderModule1_LevelProgress(dimensions) {
         const id = d.key || d.id;
         const pct = d.level >= 120 ? 100 : Math.min(100, Math.round((d.xp / xpCap) * 100));
         const color = d.color || 'var(--color-accent)';
-        const xpDisplay = d.level >= 120 ? 'MAX' : d.xp;
+        const xpDisplay = d.level >= 120 ? 'MAX' : Math.round(d.xp);
         return `
             <div class="ac-level-row">
                 <div class="ac-level-row__label">
@@ -1905,69 +2017,13 @@ function renderModule2_ActivityFeed(activities) {
     `;
 }
 
-/* ---- 模块二弹出放大面板 ---- */
-function renderActivityModal(activities) {
-    const filtered = actionCenterActivityFilter === 'all'
-        ? activities
-        : activities.filter(a => a.category === actionCenterActivityFilter);
-
-    const catOptions = [
-        { value: 'all', label: '全部' },
-        { value: 'health', label: '健康' },
-        { value: 'study', label: '学习' },
-        { value: 'relation', label: '关系' },
-        { value: 'work', label: '工作' },
-        { value: 'create', label: '创作' },
-        { value: 'finance', label: '财务' },
-        { value: 'hobby', label: '爱好' },
-        { value: 'soul', label: '魅力' },
-    ];
-
-    return `
-        <div class="ac-activity-overlay" id="activity-overlay" style="display:none" onclick="closeActivityModal(event)">
-            <div class="ac-activity-panel" onclick="event.stopPropagation()">
-                <div class="ac-activity-panel__header">
-                    <span class="ac-activity-panel__title">动态播报</span>
-                    <div class="ac-activity-panel__actions">
-                        <select class="ac-mini-select" onchange="actionCenterActivityFilter=this.value;refreshActivityModal()">
-                            ${catOptions.map(o => `<option value="${o.value}" ${actionCenterActivityFilter === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
-                        </select>
-                        <button class="ac-icon-btn" onclick="closeActivityModal()" title="关闭">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                        </button>
-                    </div>
-                </div>
-                <div class="ac-activity-panel__body" id="activity-panel-body">
-                    ${filtered.length === 0
-                        ? `<div class="empty-state"><div class="empty-state__title">📭 暂无记录</div></div>`
-                        : filtered.map((a, i) => `
-                            <div class="ac-activity-item ${i < filtered.length - 1 ? 'ac-activity-item--divider' : ''}">
-                                <div class="ac-activity-item__left">
-                                    <span class="ac-activity-item__icon">${attrIcon(a.category || a.category_id || '', 20)}</span>
-                                    <span class="ac-activity-item__cat">${a.category_name || ''}</span>
-                                </div>
-                                <div class="ac-activity-item__mid">
-                                    <span class="ac-activity-item__xp">EXP +${a.exp_earned || a.xp || 0}</span>
-                                    <span class="ac-activity-item__desc">${a.description}</span>
-                                </div>
-                                <span class="ac-activity-item__time">${a.timestamp}</span>
-                            </div>
-                        `).join('')}
-                </div>
-            </div>
-        </div>
-    `;
-}
-
 function openActivityModal() {
     document.getElementById('activity-overlay').style.display = 'flex';
-    activityModalOpen = true;
 }
 
 function closeActivityModal(e) {
     if (e && e.target !== document.getElementById('activity-overlay')) return;
     document.getElementById('activity-overlay').style.display = 'none';
-    activityModalOpen = false;
 }
 
 function refreshActivityModal() {

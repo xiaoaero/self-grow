@@ -155,6 +155,10 @@ ACTION_PARSE_TOOLS = [
                                     "type": "string",
                                     "description": "睡眠模式专用：起床时间 HH:MM",
                                 },
+                                "start_time": {
+                                    "type": "string",
+                                    "description": "行动发生的时间（ISO 8601格式），从用户的描述中提取。例如 '下午2点' → 当日14:00。如果不确定具体时间，不传此字段使用当前时间。",
+                                },
                             },
                             "required": ["category_id", "note", "dimension_exp"],
                         },

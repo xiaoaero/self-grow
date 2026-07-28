@@ -9,22 +9,32 @@ from db.users import get_user, get_user_stats, upsert_user_stats
 from db.habits import get_habits, get_checkins_in_range
 from db.dimensions import upsert_dimension, get_total_exp_from_dimensions
 from db.scheduled_tasks import get_scheduled_tasks_by_type
+from db.task_history import archive_tasks_to_history
 from models.level import level_from_total_exp, total_exp_for_level
 import datetime
 
 
-def archive_incomplete_tasks(user_id: int):
-    """将昨日未完成的 todo/doing 任务标记为 expired"""
-    conn = get_conn()
+def archive_daily_tasks(user_id: int):
+    """
+    每日 03:00 执行：将昨天 source_type IN ('today','daily') 的任务归档到 task_history 并删除。
+    已完成的任务保留 completed 状态，未完成的标记为 expired。
+    """
     yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+
+    conn = get_conn()
+    # 将昨天未完成的 today/daily 任务标记为 expired
     conn.execute(
         """UPDATE tasks SET status = 'expired'
-           WHERE user_id = ? AND status IN ('todo', 'doing')
-           AND date(created_at) <= ?""",
+           WHERE user_id = ? AND source_type IN ('today', 'daily')
+           AND date(created_at) = ?
+           AND status IN ('todo', 'doing')""",
         (user_id, yesterday),
     )
+    # 归档到 task_history 并删除
+    count = archive_tasks_to_history(conn, user_id, ['today', 'daily'], yesterday, yesterday)
     conn.commit()
     conn.close()
+    return count
 
 
 def refresh_daily_tasks(user_id: int):
@@ -48,8 +58,36 @@ def refresh_daily_tasks(user_id: int):
     conn.close()
 
 
+def archive_weekly_tasks(user_id: int):
+    """
+    每周一 03:00 执行：将上周 source_type='weekly' 的任务归档到 task_history 并删除。
+    """
+    today = datetime.date.today()
+    # 上周一 ~ 上周日
+    last_monday = today - datetime.timedelta(days=today.weekday() + 7)
+    last_sunday = last_monday + datetime.timedelta(days=6)
+
+    conn = get_conn()
+    # 将上周未完成的 weekly 任务标记为 expired
+    conn.execute(
+        """UPDATE tasks SET status = 'expired'
+           WHERE user_id = ? AND source_type = 'weekly'
+           AND date(created_at) >= ? AND date(created_at) <= ?
+           AND status IN ('todo', 'doing')""",
+        (user_id, last_monday.isoformat(), last_sunday.isoformat()),
+    )
+    # 归档到 task_history 并删除
+    count = archive_tasks_to_history(
+        conn, user_id, ['weekly'],
+        last_monday.isoformat(), last_sunday.isoformat(),
+    )
+    conn.commit()
+    conn.close()
+    return count
+
+
 def refresh_weekly_tasks(user_id: int):
-    """从 weekly 模板创建本周任务"""
+    """从 weekly 模板创建本周任务（周一凌晨 03:05 执行）"""
     templates = get_scheduled_tasks_by_type(user_id, "weekly")
     conn = get_conn()
     for t in templates:
@@ -65,11 +103,12 @@ def refresh_weekly_tasks(user_id: int):
     conn.close()
 
 
-def settle_habit_exp_for_user(user_id: int) -> int:
-    """统计昨日已完成的习惯，发放 EXP，返回发放的总 EXP"""
+def settle_habit_exp_for_user(user_id: int) -> tuple:
+    """统计昨日已完成的习惯，发放 EXP，返回 (打卡次数, 总经验)"""
     yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
     habits = get_habits(user_id)
     total_xp = 0
+    total_count = 0
     for h in habits:
         if not h["active"]:
             continue
@@ -77,6 +116,7 @@ def settle_habit_exp_for_user(user_id: int) -> int:
         if checkins and checkins[0]["status"] == "done":
             xp = h["xp_reward"]
             total_xp += xp
+            total_count += 1
             upsert_dimension(user_id, h["category"], xp)
     if total_xp > 0:
         new_total = get_total_exp_from_dimensions(user_id)
@@ -94,7 +134,7 @@ def settle_habit_exp_for_user(user_id: int) -> int:
             habits_checked=today_row["habits_checked"],
             exp_earned=today_row["exp_earned"] + total_xp,
         )
-    return total_xp
+    return (total_count, total_xp)
 
 
 def snapshot_daily_stats(user_id: int):

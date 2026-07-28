@@ -138,7 +138,7 @@ def init_db():
             user_id INTEGER NOT NULL,
             dimension_key TEXT NOT NULL,
             level INTEGER NOT NULL DEFAULT 1,
-            xp INTEGER NOT NULL DEFAULT 0,
+            xp REAL NOT NULL DEFAULT 0,
             xp_to_next INTEGER NOT NULL DEFAULT 150,
             PRIMARY KEY (user_id, dimension_key),
             FOREIGN KEY (user_id) REFERENCES users(id)
@@ -200,6 +200,40 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_tasks_user_status
         ON tasks(user_id, status)
     """)
+    # 创建索引：按 source_type 快速查询
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_tasks_user_source
+        ON tasks(user_id, source_type, created_at)
+    """)
+
+    # 清空旧任务数据，让 source_type 分离逻辑干净生效
+    cursor.execute("DELETE FROM tasks")
+
+    # ================================================================
+    # 任务历史表（定时归档）
+    # ================================================================
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS task_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            task_id INTEGER,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL,
+            priority TEXT NOT NULL DEFAULT 'mid',
+            exp INTEGER NOT NULL DEFAULT 50,
+            intro TEXT DEFAULT '',
+            status TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            completed_at TEXT,
+            created_at TEXT NOT NULL,
+            archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_task_history_user
+        ON task_history(user_id, archived_at)
+    """)
 
     # 定时任务模板表
     cursor.execute("""
@@ -258,6 +292,18 @@ def init_db():
         )
     """)
 
+    # 月度统计表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_monthly_stats (
+            user_id INTEGER NOT NULL,
+            year_month TEXT NOT NULL,
+            habit_count INTEGER NOT NULL DEFAULT 0,
+            habit_xp INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_id, year_month),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
     # 插入默认用户
     existing = cursor.execute("SELECT id FROM users").fetchall()
     if not existing:
@@ -300,6 +346,35 @@ def init_db():
 
     # 创建技能树相关表
     init_skill_trees_tables()
+
+    # 创建表达训练相关表
+    init_expression_tables()
+
+    # 迁移：user_dimensions.xp 从 INTEGER → REAL（幂等）
+    conn2 = get_conn()
+    try:
+        info = conn2.execute("PRAGMA table_info(user_dimensions)").fetchall()
+        xp_col = [c for c in info if c["name"] == "xp"]
+        if xp_col and xp_col[0]["type"].upper() == "INTEGER":
+            conn2.execute("ALTER TABLE user_dimensions ADD COLUMN xp_real REAL NOT NULL DEFAULT 0")
+            conn2.execute("UPDATE user_dimensions SET xp_real = xp")
+            conn2.execute("ALTER TABLE user_dimensions DROP COLUMN xp")
+            conn2.execute("ALTER TABLE user_dimensions RENAME COLUMN xp_real TO xp")
+            conn2.commit()
+    except Exception:
+        pass  # 列已迁移或 SQLite 版本不支持 DROP COLUMN
+    conn2.close()
+
+    # 迁移：rewards 增加 unlocked_at_snapshot 字段（幂等）
+    conn3 = get_conn()
+    try:
+        conn3.execute(
+            "ALTER TABLE rewards ADD COLUMN unlocked_at_snapshot TEXT NOT NULL DEFAULT '{}'"
+        )
+        conn3.commit()
+    except Exception:
+        pass  # 列已存在
+    conn3.close()
 
 
 def migrate_total_exp_to_dimensions():
@@ -370,6 +445,57 @@ def init_skill_trees_tables():
             skill_ids TEXT NOT NULL DEFAULT '[]',
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
+    """)
+
+    conn.commit()
+    conn.close()
+
+    # 创建表达训练相关表
+    init_expression_tables()
+
+
+def init_expression_tables():
+    """创建表达训练相关表"""
+    from db.connection import get_conn
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS expression_questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question TEXT NOT NULL,
+            question_type TEXT NOT NULL,
+            hints TEXT,
+            source TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS expression_answers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL DEFAULT 'test',
+            question_id INTEGER NOT NULL,
+            attempt INTEGER DEFAULT 1,
+            answer TEXT,
+            filler_words TEXT,
+            score_total REAL,
+            score_fluency REAL,
+            score_logic REAL,
+            score_content REAL,
+            score_language REAL,
+            strengths TEXT,
+            improvements TEXT,
+            suggestion TEXT,
+            status TEXT DEFAULT 'answered',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            FOREIGN KEY (question_id) REFERENCES expression_questions(id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_exp_answers_user
+        ON expression_answers(user_id, question_id)
     """)
 
     conn.commit()

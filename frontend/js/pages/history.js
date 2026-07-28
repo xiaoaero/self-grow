@@ -67,6 +67,9 @@ function expToHeatmapLevel(exp, maxExp, minExp) {
 
 /** Render the yearly activity heatmap for Module 2 */
 function renderYearlyHeatmap(activityData) {
+    if (!activityData || activityData.length === 0) {
+        return '<div class="profile-heatmap__empty" style="text-align:center;padding:40px;color:var(--color-muted)">暂无年度数据</div>';
+    }
     const year = new Date().getFullYear();
     const firstDayOfWeek = new Date(year, 0, 1).getDay(); // 0=Sun
     const TOTAL_COLS = 53;
@@ -142,8 +145,12 @@ function drawProfileRadarChart() {
     const canvas = document.getElementById('profile-radar');
     if (!canvas) return;
 
+    // 双重清理：Chart.js 注册表 + 自定义引用
+    const existing = Chart.getChart(canvas);
+    if (existing) existing.destroy();
     if (canvas._chart) {
         canvas._chart.destroy();
+        canvas._chart = null;
     }
 
     const dims = AppData.profile.dimensions;
@@ -331,7 +338,7 @@ async function renderHistory() {
                                 <div class="profile-bar__track-bg" style="background:${d.color}22"></div>
                                 <div class="profile-bar__fill" style="width:${pct}%; background:${d.color}"></div>
                             </div>
-                            <span class="profile-bar__xp">${d.xp.toLocaleString()} EXP</span>
+                            <span class="profile-bar__xp">${Math.round(d.xp).toLocaleString()} EXP</span>
                         </div>
                     `;
                 }).join('')}
@@ -378,10 +385,14 @@ async function switchTrendRange(days) {
 async function drawTrendChart(days) {
     const canvas = document.getElementById('trend-chart');
     if (!canvas) return;
-    // 安全销毁已有图表
-    const existing = Chart.getChart(canvas);
-    if (existing) existing.destroy();
-    if (canvas._chart) canvas._chart.destroy();
+    // 安全销毁已有图表（双重保险）
+    try {
+        const existing = Chart.getChart(canvas);
+        if (existing) existing.destroy();
+    } catch (e) { /* ignore */ }
+    try {
+        if (canvas._chart) canvas._chart.destroy();
+    } catch (e) { /* ignore */ }
     canvas._chart = null;
 
     // 从后端加载数据
@@ -396,13 +407,13 @@ async function drawTrendChart(days) {
         console.warn('获取每日经验趋势失败:', e);
     }
 
-    // 降级：如果后端没有数据，用空数组
+    // 降级：如果后端没有数据，显示空状态提示
     if (!data || data.length === 0) {
-        data = Array.from({ length: days }, (_, i) => {
-            const d = new Date();
-            d.setDate(d.getDate() - (days - 1 - i));
-            return { date: d.toISOString().slice(0, 10), exp: 0 };
-        });
+        const container = canvas.parentElement;
+        if (container) {
+            container.innerHTML = '<div class="profile-heatmap__empty" style="text-align:center;padding:40px;color:var(--color-muted)">暂无数据，开始记录行动后趋势图将在此展示</div>';
+        }
+        return;
     }
     const labels = data.map(d => {
         const parts = d.date.split('-');

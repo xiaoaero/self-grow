@@ -6,6 +6,7 @@ FastAPI 应用创建、生命周期管理、路由注册、启动入口。
 
 import os
 import logging
+import datetime
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from config import PORT, log, UPLOAD_DIR, FRONTEND_DIR
 from db.init import init_db
 from db.users import get_all_users
-from db.batch import archive_incomplete_tasks, refresh_daily_tasks, refresh_weekly_tasks, settle_habit_exp_for_user, snapshot_daily_stats
+from db.batch import archive_daily_tasks, archive_weekly_tasks, refresh_daily_tasks, refresh_weekly_tasks, settle_habit_exp_for_user, snapshot_daily_stats
 
 # 初始化数据库
 init_db()
@@ -25,30 +26,54 @@ init_db()
 # 定时任务
 # ================================================================
 
+def update_monthly_stats(user_id: int, count: int, xp: int):
+    """增量更新当月习惯统计"""
+    if count <= 0 and xp <= 0:
+        return
+    from db.connection import get_conn
+    year_month = datetime.date.today().strftime("%Y-%m")
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO user_monthly_stats (user_id, year_month, habit_count, habit_xp)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, year_month) DO UPDATE SET
+            habit_count = habit_count + excluded.habit_count,
+            habit_xp = habit_xp + excluded.habit_xp
+    """, (user_id, year_month, count, xp))
+    conn.commit()
+    conn.close()
+
+
 def run_daily_refresh():
-    """每日 03:00 执行：任务刷新 + 习惯结算 + 统计快照"""
+    """每日 03:00 执行：归档昨日任务 + 任务刷新 + 习惯结算 + 统计快照 + 月度习惯累计"""
     log.info("⏰ 执行每日定时任务...")
     for user in get_all_users():
         uid = user["id"]
         try:
-            archive_incomplete_tasks(uid)
+            archived = archive_daily_tasks(uid)
             refresh_daily_tasks(uid)
-            xp = settle_habit_exp_for_user(uid)
+            count, xp = settle_habit_exp_for_user(uid)
+            update_monthly_stats(uid, count, xp)
             snapshot_daily_stats(uid)
+            if archived:
+                log.info(f"  用户 {uid}: 归档 {archived} 条日任务")
             if xp > 0:
-                log.info(f"  用户 {uid}: 习惯结算 +{xp} EXP")
+                log.info(f"  用户 {uid}: 习惯结算 +{xp} EXP（{count} 次打卡）")
         except Exception as e:
             log.error(f"  用户 {uid} 定时任务失败: {e}")
     log.info("✅ 每日定时任务完成")
 
 
 def run_weekly_refresh():
-    """每周一 03:00 执行：从 weekly 模板创建任务"""
+    """每周一 03:05 执行：归档上周周任务 + 从 weekly 模板创建新任务"""
     log.info("⏰ 执行每周定时任务...")
     for user in get_all_users():
         uid = user["id"]
         try:
+            archived = archive_weekly_tasks(uid)
             refresh_weekly_tasks(uid)
+            if archived:
+                log.info(f"  用户 {uid}: 归档 {archived} 条周任务")
         except Exception as e:
             log.error(f"  用户 {uid} 每周任务刷新失败: {e}")
     log.info("✅ 每周定时任务完成")
@@ -103,6 +128,7 @@ from routers import (
     health_router, users_router, habits_router, actions_router,
     goals_router, tasks_router, scheduled_tasks_router,
     stats_router, rewards_router, ai_router, skill_tree_router,
+    expression_router,
 )
 
 app.include_router(health_router)
@@ -116,6 +142,7 @@ app.include_router(stats_router)
 app.include_router(rewards_router)
 app.include_router(ai_router)
 app.include_router(skill_tree_router)
+app.include_router(expression_router)
 
 
 # ================================================================

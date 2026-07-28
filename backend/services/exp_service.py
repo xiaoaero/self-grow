@@ -48,10 +48,9 @@ def award_exp_and_recalc(user_id: int, category: str, exp_amount: float,
         global_exp = round(exp_amount * global_rate)
         dimension_exp = exp_amount
 
-    # 1. 更新维度经验（始终使用维度经验原始值）
+    # 1. 更新维度经验（始终使用维度经验原始值，保留小数精度）
     if category and dimension_exp > 0:
-        # 维度经验可能为小数，但 upsert_dimension 用整数
-        upsert_dimension(user_id, category, round(dimension_exp))
+        upsert_dimension(user_id, category, dimension_exp)
 
     # 2. 从维度表实时 SUM 总经验，重算等级
     new_total = get_total_exp_from_dimensions(user_id)

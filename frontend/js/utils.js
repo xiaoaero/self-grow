@@ -120,7 +120,10 @@ const HEADER_ICONS = {
     habits: `<svg viewBox="0 0 58 58" fill="none"><g transform="translate(29,29) scale(0.82) translate(-29,-29)"><circle cx="29" cy="29" r="28" fill="url(#g-hdr-habit)"/><circle cx="29" cy="29" r="28" fill="none" stroke="#22c55e" stroke-width="0.85" opacity="0.2"/><path d="M29 10 C26 16 21.5 19 21.5 26 C21.5 33.5 24.5 37.5 29 40.5 C33.5 37.5 36.5 33.5 36.5 26 C36.5 19 32 16 29 10 Z" fill="#fbbf24"/><path d="M29 16 C27.5 20 24.5 23 24.5 29 C24.5 35 26 37.5 29 39 C32 37.5 33.5 35 33.5 29 C33.5 23 30.5 20 29 16 Z" fill="#f97316"/><ellipse cx="29" cy="32" rx="2.2" ry="3.5" fill="#fef3c7"/><circle cx="16" cy="46.5" r="2.2" fill="#5eead4"/><path d="M14.5 46.5 L16 48 L17.5 45" stroke="#062820" stroke-width="0.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="46.5" r="2.2" fill="#5eead4"/><path d="M20.5 46.5 L22 48 L23.5 45" stroke="#062820" stroke-width="0.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="28" cy="46.5" r="2.2" fill="#5eead4"/><path d="M26.5 46.5 L28 48 L29.5 45" stroke="#062820" stroke-width="0.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="34" cy="46.5" r="2.2" fill="#5eead4"/><path d="M32.5 46.5 L34 48 L35.5 45" stroke="#062820" stroke-width="0.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="39.5" cy="46.5" r="2.5" fill="#fbbf24"/><circle cx="39.5" cy="46.5" r="2.5" fill="none" stroke="#fef3c7" stroke-width="0.6" opacity="0.8"/></g></svg>`,
 
     // 7. 奖励商城 — dark amber circle, coins with star
-    rewards: `<svg viewBox="0 0 58 58" fill="none"><g transform="translate(29,29) scale(0.82) translate(-29,-29)"><circle cx="29" cy="29" r="28" fill="url(#g-hdr-reward)"/><circle cx="29" cy="29" r="28" fill="none" stroke="#fbbf24" stroke-width="0.85" opacity="0.2"/><circle cx="13" cy="42" r="3.5" fill="#fde047" stroke="#d97706" stroke-width="0.6"/><text x="13" y="43.5" font-family="Arial" font-size="3.5" font-weight="bold" fill="#92400e" text-anchor="middle">$</text><circle cx="45" cy="42" r="3.2" fill="#fde047" stroke="#d97706" stroke-width="0.6"/><text x="45" y="43.5" font-family="Arial" font-size="3.2" font-weight="bold" fill="#92400e" text-anchor="middle">$</text><circle cx="11.5" cy="27.5" r="2.5" fill="#fde047" stroke="#d97706" stroke-width="0.5"/><text x="11.5" y="29" font-family="Arial" font-size="2.5" font-weight="bold" fill="#92400e" text-anchor="middle">$</text><circle cx="46.5" cy="26" r="3" fill="#fde047" stroke="#d97706" stroke-width="0.5"/><text x="46.5" y="27.5" font-family="Arial" font-size="3" font-weight="bold" fill="#92400e" text-anchor="middle">$</text><circle cx="29" cy="29" r="11.5" fill="#fbbf24"/><circle cx="29" cy="29" r="11.5" fill="none" stroke="#92400e" stroke-width="1"/><circle cx="29" cy="29" r="9.5" fill="none" stroke="#fde047" stroke-width="0.6" opacity="0.6"/><polygon points="29,21.5 31,26.5 36.5,27 32,29.5 33,35 29,31.5 25,35 26,29.5 21.5,27 27,26.5" fill="#fef3c7" stroke="#92400e" stroke-width="0.6" stroke-linejoin="round"/><ellipse cx="24.5" cy="24" rx="3" ry="1.5" fill="#fef3c7" opacity="0.6"/></g></svg>`
+    rewards: `<svg viewBox="0 0 58 58" fill="none"><g transform="translate(29,29) scale(0.82) translate(-29,-29)"><circle cx="29" cy="29" r="28" fill="url(#g-hdr-reward)"/><circle cx="29" cy="29" r="28" fill="none" stroke="#fbbf24" stroke-width="0.85" opacity="0.2"/><circle cx="13" cy="42" r="3.5" fill="#fde047" stroke="#d97706" stroke-width="0.6"/><text x="13" y="43.5" font-family="Arial" font-size="3.5" font-weight="bold" fill="#92400e" text-anchor="middle">$</text><circle cx="45" cy="42" r="3.2" fill="#fde047" stroke="#d97706" stroke-width="0.6"/><text x="45" y="43.5" font-family="Arial" font-size="3.2" font-weight="bold" fill="#92400e" text-anchor="middle">$</text><circle cx="11.5" cy="27.5" r="2.5" fill="#fde047" stroke="#d97706" stroke-width="0.5"/><text x="11.5" y="29" font-family="Arial" font-size="2.5" font-weight="bold" fill="#92400e" text-anchor="middle">$</text><circle cx="46.5" cy="26" r="3" fill="#fde047" stroke="#d97706" stroke-width="0.5"/><text x="46.5" y="27.5" font-family="Arial" font-size="3" font-weight="bold" fill="#92400e" text-anchor="middle">$</text><circle cx="29" cy="29" r="11.5" fill="#fbbf24"/><circle cx="29" cy="29" r="11.5" fill="none" stroke="#92400e" stroke-width="1"/><circle cx="29" cy="29" r="9.5" fill="none" stroke="#fde047" stroke-width="0.6" opacity="0.6"/><polygon points="29,21.5 31,26.5 36.5,27 32,29.5 33,35 29,31.5 25,35 26,29.5 21.5,27 27,26.5" fill="#fef3c7" stroke="#92400e" stroke-width="0.6" stroke-linejoin="round"/><ellipse cx="24.5" cy="24" rx="3" ry="1.5" fill="#fef3c7" opacity="0.6"/></g></svg>`,
+
+    // 8. 表达训练 — dark purple circle, speech bubble with waves
+    expression: `<svg viewBox="0 0 58 58" fill="none"><g transform="translate(29,29) scale(0.82) translate(-29,-29)"><circle cx="29" cy="29" r="28" fill="url(#g-hdr-expr)"/><circle cx="29" cy="29" r="28" fill="none" stroke="#c084fc" stroke-width="0.85" opacity="0.2"/><path d="M15 18 L43 18 L46 21 L46 38 L15 38 Z" fill="#ede9fe" rx="3"/><path d="M15 18 L43 18 L46 21 L46 38 L15 38 Z" fill="none" stroke="#a78bfa" stroke-width="1.2" rx="3"/><circle cx="22" cy="27" r="2.5" fill="#c084fc"/><circle cx="29" cy="27" r="2.5" fill="#c084fc"/><circle cx="36" cy="27" r="2.5" fill="#c084fc"/><path d="M20 33 Q24 37 29 33 Q34 29 38 33" stroke="#a78bfa" stroke-width="1.2" fill="none" stroke-linecap="round"/><circle cx="22" cy="27" r="1" fill="#fff"/><circle cx="29" cy="27" r="1" fill="#fff"/><circle cx="36" cy="27" r="1" fill="#fff"/><path d="M8 42 L13 38 L17 42 L21 38" stroke="#c084fc" stroke-width="0.8" fill="none" stroke-linecap="round" opacity="0.5"/><path d="M10 44 L14 40 L18 44 L22 40" stroke="#a78bfa" stroke-width="0.6" fill="none" stroke-linecap="round" opacity="0.3"/></g></svg>`
 };
 
 /** Escape HTML to prevent XSS */
@@ -266,16 +269,6 @@ function getCurrentUser() {
     }
 }
 
-/** 保存当前登录用户 */
-function setCurrentUser(user) {
-    localStorage.setItem('sg_user', JSON.stringify(user));
-}
-
-/** 清除登录状态 */
-function clearCurrentUser() {
-    localStorage.removeItem('sg_user');
-}
-
 /** 检查是否已登录，未登录则跳转到登录页 */
 function requireLogin() {
     const user = getCurrentUser();
@@ -310,22 +303,6 @@ async function syncTodayStats(userId, stats) {
         return await resp.json();
     } catch (e) {
         console.warn('同步统计失败:', e);
-        return null;
-    }
-}
-
-/** 向后端发送经验值，返回更新后的用户等级信息 */
-async function addExpToBackend(userId, amount) {
-    try {
-        const resp = await fetch(`${API_BASE}/api/users/exp/add?user_id=${userId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount }),
-        });
-        if (!resp.ok) return null;
-        return await resp.json();
-    } catch (e) {
-        console.warn('后端不可用，EXP 仅在本地记录:', e);
         return null;
     }
 }
@@ -548,6 +525,24 @@ async function fetchActions(userId, params = {}) {
     }
 }
 
+/** 导出行动历史为 CSV（返回 Blob） */
+async function exportActionsCSV(userId, params = {}) {
+    try {
+        const query = new URLSearchParams({ user_id: userId });
+        if (params.category && params.category !== 'all') query.set('category', params.category);
+        if (params.date_from) query.set('date_from', params.date_from);
+        if (params.date_to) query.set('date_to', params.date_to);
+        if (params.include_exp) query.set('include_exp', 'true');
+        const resp = await fetch(`${API_BASE}/api/actions/export?${query}`);
+        if (resp.status === 204) return null;  // 无内容
+        if (!resp.ok) return null;
+        return await resp.blob();
+    } catch (e) {
+        console.warn('导出行动历史失败:', e);
+        return null;
+    }
+}
+
 /** 从后端获取今日行动统计 */
 async function fetchActionTodayStats(userId) {
     try {
@@ -677,6 +672,18 @@ async function fetchTodayTasks(userId) {
     }
 }
 
+/** 从后端获取本周任务 */
+async function fetchWeekTasks(userId) {
+    try {
+        const resp = await fetch(`${API_BASE}/api/tasks/week?user_id=${userId}`);
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        console.warn('获取本周任务失败:', e);
+        return null;
+    }
+}
+
 /** 从后端获取所有任务（分页） */
 async function fetchAllTasks(userId, params = {}) {
     try {
@@ -706,6 +713,19 @@ async function createTaskOnBackend(userId, data) {
     }
 }
 
+/** 从后端获取任务历史（分页） */
+async function fetchTaskHistory(userId, params = {}) {
+    try {
+        const query = new URLSearchParams({ user_id: userId, ...params });
+        const resp = await fetch(`${API_BASE}/api/tasks/history?${query}`);
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        console.warn('获取任务历史失败:', e);
+        return null;
+    }
+}
+
 /** 向后端更新任务 */
 async function updateTaskOnBackend(taskId, data) {
     try {
@@ -723,12 +743,12 @@ async function updateTaskOnBackend(taskId, data) {
 }
 
 /** 向后端变更任务状态 */
-async function patchTaskStatusOnBackend(taskId, status) {
+async function patchTaskStatusOnBackend(taskId, status, completedAt) {
     try {
         const resp = await fetch(`${API_BASE}/api/tasks/${taskId}/status`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status }),
+            body: JSON.stringify({ status, completed_at: completedAt || null }),
         });
         if (!resp.ok) return null;
         return await resp.json();
@@ -919,7 +939,7 @@ async function fetchRewards(userId) {
 /** 创建新奖励 */
 async function createRewardOnBackend(userId, data) {
     try {
-        const resp = await fetch(`${API_BASE}/api/rewards?user_id=${userId}`, {
+        const resp = await fetch(`${API_BASE}/api/rewards`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data),

@@ -281,15 +281,6 @@ def _calc_soul(duration: int, global_rate: float) -> dict:
     return {"dimension_exp": exp, "global_exp": round(exp * global_rate), "sub_type": "", "sleep_valid": False, "routine_extra": 0, "is_routine": False}
 
 
-# 旧的 calculate_exp 保留别名（向后兼容）
-def calculate_exp_old(category_id: str, duration: int) -> int:
-    """旧版：exp_rate × floor(duration / 15)"""
-    cat = get_category(category_id)
-    if not cat:
-        return 0
-    return cat["exp_rate"] * (duration // 15)
-
-
 # ================================================================
 # 段位系统（10 段位，每 20 级一段）
 # ================================================================

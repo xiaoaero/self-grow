@@ -21,9 +21,8 @@ class HistoryManager {
     // 限制栈大小
     if (this.stack.length > this.maxSize) {
       this.stack.shift();
-    } else {
-      this.index++;
     }
+    this.index = Math.min(this.stack.length - 1, this.index + 1);
   }
 
   /**

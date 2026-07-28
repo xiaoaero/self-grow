@@ -2,10 +2,13 @@
 Self Grow — 行动记录 API 路由
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from datetime import datetime, timedelta
+import csv, io, urllib.parse
 
-from db.actions import create_action_log, get_action_logs, get_today_action_stats, get_activity_feed, has_sleep_record_today, has_finance_review_this_half
+from db.actions import (create_action_log, get_action_logs, get_action_logs_for_export,
+                         get_today_action_stats, get_activity_feed,
+                         has_sleep_record_today, has_finance_review_this_half)
 from db.routines import get_routine_streak, upsert_routine_streak
 from db.users import get_user_stats
 from models.constants import get_category, calculate_exp, _calc_routine_bonus
@@ -179,6 +182,72 @@ async def list_actions(
     )
 
 
+@router.get("/api/actions/export")
+async def export_actions_csv(
+    user=Depends(get_current_user),
+    category: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    include_exp: bool = False,
+):
+    """导出行动历史为 CSV 文件"""
+    user_id = user["id"]
+
+    records = get_action_logs_for_export(
+        user_id, category=category or None,
+        date_from=date_from or None, date_to=date_to or None,
+    )
+
+    if not records:
+        return Response(status_code=204)  # No Content
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # 表头
+    headers = ["日期", "分类", "开始时间", "结束时间", "时长(分钟)", "备注", "子类型"]
+    if include_exp:
+        headers.append("奖励EXP")
+    writer.writerow(headers)
+
+    for r in records:
+        start_raw = r.get("start_time", "")
+        end_raw = r.get("end_time", "")
+        date_str = start_raw[:10] if start_raw else ""
+        start_str = start_raw[11:16] if len(start_raw) > 16 else start_raw
+        end_str = end_raw[11:16] if len(end_raw) > 16 else end_raw
+        sub_type = r.get("sub_type", "") or ""
+
+        row = [
+            date_str,
+            r.get("category_name", ""),
+            start_str,
+            end_str,
+            r.get("duration", 0),
+            r.get("note", ""),
+            sub_type,
+        ]
+        if include_exp:
+            row.append(r.get("exp_earned", 0))
+        writer.writerow(row)
+
+    # 日期范围用于文件名
+    if date_from or date_to:
+        fname_date = f"{date_from or 'begin'}_{date_to or 'end'}"
+    else:
+        fname_date = "全部"
+    safe_date = fname_date.replace(":", "-").replace(" ", "_")
+    filename = f"行动记录_{safe_date}.csv"
+    encoded_filename = urllib.parse.quote(filename)
+
+    csv_bytes = output.getvalue().encode("utf-8-sig")
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8-sig",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"},
+    )
+
+
 @router.get("/api/actions/today-stats")
 async def today_action_stats(user=Depends(get_current_user)):
     """今日行动统计（分类分布 + 最近行动）"""
@@ -267,9 +336,15 @@ async def ai_submit_actions(req: AISubmitActionsRequest, user=Depends(get_curren
         if not cat:
             continue
 
-        now = datetime.now()
-        start_time = now.isoformat()
-        today_str = now.strftime('%Y-%m-%d')
+        # 使用前端传的 start_time（AI 已解析），fallback 当前时间
+        start_time = action.start_time or datetime.now().isoformat()
+        try:
+            start_dt = datetime.fromisoformat(start_time)
+        except (ValueError, TypeError):
+            start_dt = datetime.now()
+            start_time = start_dt.isoformat()
+
+        today_str = start_dt.strftime('%Y-%m-%d')
 
         # 后端二次计算经验（确保与手动记录一致）
         exp_result = calculate_exp(
@@ -295,9 +370,9 @@ async def ai_submit_actions(req: AISubmitActionsRequest, user=Depends(get_curren
             continue  # 跳过重复的半月复盘
 
         # 计算 end_time
-        end_dt = now
+        end_dt = start_dt
         if action.duration > 0:
-            end_dt = now + timedelta(minutes=action.duration)
+            end_dt = start_dt + timedelta(minutes=action.duration)
         end_time = end_dt.isoformat()
 
         # 插入记录

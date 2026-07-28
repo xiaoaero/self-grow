@@ -230,6 +230,8 @@ class AIBridge {
             });
             app.renderNode(node);
             app.renderConnections();
+            app.checkDuplicateNames();
+            app._updatePublishButtons();
             resultContent = `已更新节点"${args.name}"。`;
           } else {
             resultContent = `未找到节点"${args.name}"。当前节点列表: ${app.nodes.map(n => n.name).join(', ')}`;
@@ -243,6 +245,8 @@ class AIBridge {
             app.saveHistory();
             app.deleteNode(node.id);
             app.renderConnections();
+            app.checkDuplicateNames();
+            app._updatePublishButtons();
             resultContent = `已删除节点"${args.name}"。`;
           } else {
             resultContent = `未找到节点"${args.name}"。当前节点列表: ${app.nodes.map(n => n.name).join(', ')}`;
@@ -299,6 +303,8 @@ class AIBridge {
 
         case 'replace_tree': {
           app.replaceTree(args.nodes || [], []);
+          app.checkDuplicateNames();
+          app._updatePublishButtons();
           resultContent = `已生成知识树，共 ${(args.nodes || []).length} 个节点。`;
           break;
         }

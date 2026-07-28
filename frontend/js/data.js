@@ -45,14 +45,8 @@ const AppData = {
         { id: 'soul',      name: '魅力',   color: '#FBBF24', expRate: 9,  globalRate: 0.5  },
     ],
 
-    // 八维属性（启动时由后端加载覆盖）
-    attributes: {},
-
-    // 属性详情（启动时由后端加载覆盖）
+    // 八维属性详情（启动时由后端加载覆盖）
     attributeDetails: [],
-
-    // 八维扩展（启动时由后端加载覆盖）
-    advancedAttributes: {},
 
     // 近期活动（启动时由后端加载覆盖）
     recentActivities: [],
@@ -99,8 +93,3 @@ AppData.scheduledTasks = [];
 
 // 每周任务模板（启动时由后端 API 加载覆盖）
 AppData.weeklyTaskTemplates = [];
-
-function getTodayDayOfWeek() {
-    const d = new Date().getDay();
-    return d === 0 ? 7 : d;
-}

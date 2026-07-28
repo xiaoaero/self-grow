@@ -95,7 +95,11 @@ async function renderRewards() {
     if (rewardFilter !== 'all') filtered = filtered.filter(r => r.category === rewardFilter);
     if (rewardStateFilter === 'unlocked') filtered = filtered.filter(r => r.unlocked);
     else if (rewardStateFilter === 'locked') filtered = filtered.filter(r => !r.unlocked);
-    filtered.sort((a, b) => (a.unlocked ? 0 : 1) - (b.unlocked ? 0 : 1));
+    filtered.sort((a, b) => {
+        const unlockSort = (a.unlocked ? 1 : 0) - (b.unlocked ? 1 : 0);
+        if (unlockSort !== 0) return -unlockSort;
+        return (b.id || 0) - (a.id || 0);
+    });
 
     const html = `
         <div class="page-header page-header--with-icon">
@@ -155,11 +159,12 @@ async function renderRewards() {
 }
 
 /* ---- 渲染条件行 ---- */
-function renderConditionRow(cond, reward) {
+function renderConditionRow(cond, reward, forClaim) {
     const desc = describeCondition(cond);
-    const autoMet = checkConditionLocally(cond, reward);
+    const snapshot = forClaim ? (reward.unlocked_at_snapshot || null) : null;
+    const autoMet = checkConditionLocally(cond, reward, snapshot);
     const manualList = reward.manual_confirmed || [];
-    const isManualConfirmed = manualList.includes(desc);
+    const isManualConfirmed = manualList.includes(cond._label || desc);
     const isMet = autoMet || isManualConfirmed;
 
     if (cond.type === 'manual') {
@@ -185,7 +190,7 @@ function renderConditionRow(cond, reward) {
 }
 
 /* ---- 前端本地快速判断（用于 UI 即时反馈，后端做权威判断） ---- */
-function checkConditionLocally(cond, reward) {
+function checkConditionLocally(cond, reward, snapshot) {
     // 这个函数只做快速 UI 反馈，不替代后端评估
     // 后端在 GET /api/rewards 时已经评估过 unlocked 状态
     // 前端主要用于渲染 ✓ 标记
@@ -200,8 +205,10 @@ function checkConditionLocally(cond, reward) {
         return dim && dim.level >= threshold;
     }
     if (ctype === 'exp_since_create') {
+        const total = AppData.user?.totalExp || 0;
+        if (snapshot) return (total - (snapshot.total_exp || 0)) >= threshold;
         const base = reward.created_at_exp || 0;
-        return (AppData.user?.totalExp || 0) - base >= threshold;
+        return (total - base) >= threshold;
     }
     if (ctype === 'habit_streak') {
         const h = AppData.habits.find(x => x.id === Number(targetId));
@@ -214,13 +221,27 @@ function checkConditionLocally(cond, reward) {
     if (ctype === 'milestone') {
         const g = AppData.goals.find(x => x.id === Number(targetId));
         if (!g || !g.milestones) return false;
-        return g.milestones.filter(m => m.done).length >= threshold;
+        const current = g.milestones.filter(m => m.done).length;
+        if (snapshot) return (current - ((snapshot.milestones || {})[String(targetId)] || 0)) >= threshold;
+        return current >= threshold;
     }
-    if (ctype === 'tasks_done') return (AppData.profile?.tasksCompleted || 0) >= threshold;
-    if (ctype === 'goals_done') return (AppData.profile?.goalsAchieved || 0) >= threshold;
+    if (ctype === 'tasks_done') {
+        const total = AppData.profile?.tasksCompleted || 0;
+        if (snapshot) return (total - (snapshot.tasks_done || 0)) >= threshold;
+        return total >= threshold;
+    }
+    if (ctype === 'goals_done') {
+        const total = AppData.profile?.goalsAchieved || 0;
+        if (snapshot) return (total - (snapshot.goals_done || 0)) >= threshold;
+        return total >= threshold;
+    }
     if (ctype === 'week_rate') {
-        // 简略前端判断
-        return false;
+        const profile = AppData.profile;
+        if (!profile) return false;
+        const todayHabits = AppData.todayStats?.habitsChecked || 0;
+        const totalHabits = (AppData.habits || []).filter(h => h.active !== false).length || 1;
+        const todayRate = Math.round(todayHabits / totalHabits * 100);
+        return todayRate >= threshold;
     }
     return false;
 }
@@ -266,21 +287,22 @@ function renderRewardCard(reward) {
             <div class="reward-card__cond-section">
                 <div class="reward-card__cond-label">🔒 解锁条件</div>
                 <div class="reward-card__conditions">
-                    ${unlockConds.map(c => renderConditionRow(c, reward)).join('')}
+                    ${unlockConds.map(c => renderConditionRow(c, reward, false)).join('')}
                 </div>
             </div>
         `;
     } else {
+        const snapshot = reward.unlocked_at_snapshot || null;
         const allClaimMet = claimConds.length === 0 || claimConds.every(c => {
             if (c.type === 'manual') return (reward.manual_confirmed || []).includes(c._label || describeCondition(c));
-            return checkConditionLocally(c, reward);
+            return checkConditionLocally(c, reward, snapshot);
         });
         footerHtml = `
             ${claimConds.length > 0 ? `
                 <div class="reward-card__cond-section">
                     <div class="reward-card__cond-label">🎯 领取条件</div>
                     <div class="reward-card__conditions">
-                        ${claimConds.map(c => renderConditionRow(c, reward)).join('')}
+                        ${claimConds.map(c => renderConditionRow(c, reward, true)).join('')}
                     </div>
                 </div>
             ` : ''}
@@ -348,6 +370,10 @@ async function confirmRewardDelete() {
     if (!confirm(`确定要删除选中的 ${rewardSelectedForDelete.size} 个奖励吗？此操作不可撤销。`)) return;
     for (const id of rewardSelectedForDelete) {
         await deleteRewardOnBackend(id);
+    }
+    // 同步到 AppData
+    if (AppData.rewards) {
+        AppData.rewards = AppData.rewards.filter(r => !rewardSelectedForDelete.has(r.id));
     }
     rewardDeleteMode = false;
     rewardSelectedForDelete = new Set();
@@ -495,8 +521,8 @@ async function openRewardModal(editId) {
     let unlockConds, claimConds, draftTitle, draftDesc, draftCategory, draftIcon, draftImage;
 
     if (existing) {
-        unlockConds = existing.unlock_conditions ? existing.unlock_conditions : [null];
-        claimConds = existing.claim_conditions ? existing.claim_conditions : [null];
+        unlockConds = existing.unlock_conditions && existing.unlock_conditions.length ? existing.unlock_conditions : [];
+        claimConds = existing.claim_conditions && existing.claim_conditions.length ? existing.claim_conditions : [];
     } else {
         // 尝试恢复草稿
         const userId = AppData.user?.id;
@@ -507,11 +533,12 @@ async function openRewardModal(editId) {
             draftCategory = draft.category || '';
             draftIcon = draft.icon || '🎁';
             draftImage = draft.image || '';
-            unlockConds = draft.unlock_conditions && draft.unlock_conditions.length ? draft.unlock_conditions : [null];
-            claimConds = draft.claim_conditions && draft.claim_conditions.length ? draft.claim_conditions : [null];
+            unlockConds = draft.unlock_conditions && draft.unlock_conditions.length ? draft.unlock_conditions : [];
+            claimConds = draft.claim_conditions && draft.claim_conditions.length ? draft.claim_conditions : [];
         } else {
-            unlockConds = [null];
-            claimConds = [null];
+            unlockConds = [];
+            // 默认给一个空的领取条件行，提示用户必须填写
+            claimConds = [];
         }
     }
 
@@ -730,13 +757,12 @@ function removeConditionFormRow(btn) {
 async function handleRewardImageUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-    // 如果有正在编辑的奖励，直接上传到后端
     const imageInput = document.getElementById('reward-image');
-    // 暂时用 FileReader 预览（保存时若 editId 存在再上传到后端）
+    // 先做本地预览
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
         imageInput.value = e.target.result;
-        showToast('图片已导入', 'success');
+        showToast('图片已导入，保存时将上传到服务器', 'success');
     };
     reader.readAsDataURL(file);
 }
@@ -785,11 +811,36 @@ async function saveReward(editId) {
     // 收集领取条件
     const claimConditions = collectConditions('reward-claim-list');
 
+    if (claimConditions.length === 0) {
+        showToast('请至少添加一个领取条件', 'error');
+        return;
+    }
+
     const userId = AppData.user?.id;
+
+    // 如果是编辑模式且图片是 base64 data URL，先上传到后端
+    let finalImage = image;
+    if (editId && image && image.startsWith('data:')) {
+        // 从 data URL 转成 blob 上传
+        try {
+            const resp = await fetch(image);
+            const blob = await resp.blob();
+            const file = new File([blob], 'reward_image.jpg', { type: blob.type });
+            const uploadResult = await uploadRewardImageOnBackend(editId, file);
+            if (uploadResult && uploadResult.url) {
+                finalImage = uploadResult.url;
+            }
+        } catch (e) {
+            console.warn('图片上传失败:', e);
+            showToast('图片上传失败，请重试', 'error');
+            return;
+        }
+    }
 
     if (editId) {
         const data = {
-            title, desc, icon, category, image,
+            title, desc, icon, category,
+            image: finalImage,
             unlock_conditions: unlockConditions,
             claim_conditions: claimConditions,
         };
@@ -797,7 +848,8 @@ async function saveReward(editId) {
         if (!result) { showToast('更新失败', 'error'); return; }
     } else {
         const data = {
-            title, desc, icon, category, image,
+            title, desc, icon, category,
+            image: finalImage,
             unlock_conditions: unlockConditions,
             claim_conditions: claimConditions,
         };

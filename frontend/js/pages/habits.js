@@ -82,7 +82,7 @@ function renderModule1_Stats() {
     if (s) {
         doneToday = s.doneToday;
         bestStreak = s.bestStreak;
-        bestStreakHabit = activeHabits.find(function(h) { return h.streak === s.bestStreak; });
+        bestStreakHabit = activeHabits.find(function(h) { return h.name === s.bestStreakName; });
         weekRate = s.weekRate;
         rateDiff = s.rateDiff;
         monthlyTotal = s.monthlyTotal;
@@ -168,8 +168,11 @@ function renderModule2_WeekOverview() {
                 const weekData = habitWeekView === 'this' ? h : (AppData.lastWeekHabits || []).find(lw => lw.id === h.id);
                 const doneArr = weekData ? (weekData.weekDone || []) : [];
                 const skipArr = habitWeekView === 'this' ? (h.weekSkipped || []) : (weekData ? (weekData.weekSkipped || []) : []);
-                const isDone = doneArr[dayIdx] === 1;
-                const isSkipped = skipArr[dayIdx] === 1;
+                // 补齐到7元素防止越界
+                const padDone = doneArr.length >= 7 ? doneArr : [...doneArr, ...new Array(7 - doneArr.length).fill(0)];
+                const padSkip = skipArr.length >= 7 ? skipArr : [...skipArr, ...new Array(7 - skipArr.length).fill(0)];
+                const isDone = padDone[dayIdx] === 1;
+                const isSkipped = padSkip[dayIdx] === 1;
                 if (isDone) dots.push('done');
                 else if (isSkipped) dots.push('skipped');
                 else dots.push('missed');
@@ -390,7 +393,14 @@ function renderHabitCard(habit) {
     `;
 }
 
+/** 打卡循环防抖（100ms） */
+let _habitCycleDebounce = 0;
+
 function cycleHabitStatus(id) {
+    var now = Date.now();
+    if (now - _habitCycleDebounce < 100) return;
+    _habitCycleDebounce = now;
+
     var habit = habits.find(function(h) { return h.id === id; });
     if (!habit) return;
 
@@ -628,7 +638,7 @@ function cancelHabitModal() {
 
 function saveHabit(editId) {
     var name = document.getElementById('habit-name').value.trim();
-    var icon = document.getElementById('habit-icon').value.trim() || '';
+    var icon = document.getElementById('habit-icon').value.trim() || '✅';
     var intro = document.getElementById('habit-intro').value.trim();
     var category = document.getElementById('habit-category').value;
     var weeklyTarget = parseInt(document.getElementById('habit-target').value) || 7;

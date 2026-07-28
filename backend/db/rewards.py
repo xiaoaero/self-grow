@@ -30,6 +30,7 @@ def get_rewards(user_id: int) -> list:
         d["unlock_conditions"] = json.loads(d.get("unlock_conditions", "[]"))
         d["claim_conditions"] = json.loads(d.get("claim_conditions", "[]"))
         d["manual_confirmed"] = json.loads(d.get("manual_confirmed", "[]"))
+        d["unlocked_at_snapshot"] = json.loads(d.get("unlocked_at_snapshot", "{}"))
         result.append(d)
     return result
 
@@ -45,6 +46,7 @@ def get_reward(reward_id: int):
     d["unlock_conditions"] = json.loads(d.get("unlock_conditions", "[]"))
     d["claim_conditions"] = json.loads(d.get("claim_conditions", "[]"))
     d["manual_confirmed"] = json.loads(d.get("manual_confirmed", "[]"))
+    d["unlocked_at_snapshot"] = json.loads(d.get("unlocked_at_snapshot", "{}"))
     return d
 
 
@@ -76,12 +78,13 @@ def update_reward(reward_id: int, **kwargs) -> bool:
     """更新奖励字段"""
     allowed = ["title", "desc", "icon", "category", "image",
                "unlock_conditions", "claim_conditions", "unlocked",
-               "claimed", "claimed_at", "manual_confirmed"]
+               "claimed", "claimed_at", "manual_confirmed",
+               "unlocked_at_snapshot"]
     fields = []
     values = []
     for k, v in kwargs.items():
         if k in allowed and v is not None:
-            if k in ("unlock_conditions", "claim_conditions", "manual_confirmed"):
+            if k in ("unlock_conditions", "claim_conditions", "manual_confirmed", "unlocked_at_snapshot"):
                 v = json.dumps(v, ensure_ascii=False)
             fields.append(f"{k} = ?")
             values.append(v)
@@ -154,7 +157,7 @@ def delete_reward_draft(user_id: int) -> bool:
 
 
 def claim_reward(reward_id: int, user_id: int) -> dict:
-    """领取奖励（后端校验条件），返回 exp_earned 或 None"""
+    """领取奖励（后端校验条件），返回结果"""
     conn = get_conn()
     row = conn.execute("SELECT * FROM rewards WHERE id = ? AND user_id = ?",
                        (reward_id, user_id)).fetchone()
@@ -167,8 +170,20 @@ def claim_reward(reward_id: int, user_id: int) -> dict:
     reward["claim_conditions"] = json.loads(reward.get("claim_conditions", "[]"))
     reward["manual_confirmed"] = json.loads(reward.get("manual_confirmed", "[]"))
 
-    for cond in reward["claim_conditions"]:
+    snapshot_str = reward.get("unlocked_at_snapshot")
+    snapshot = json.loads(snapshot_str) if isinstance(snapshot_str, str) else (snapshot_str or {})
+
+    # 从0重新计算解锁条件（防御）
+    for cond in reward["unlock_conditions"]:
         if not evaluate_condition(user_id, cond, reward):
+            conn.close()
+            return None
+
+    # 从解锁时刻增量计算领取条件
+    # 没快照时退化成绝对值判断（兼容旧数据）
+    for cond in reward["claim_conditions"]:
+        if not evaluate_condition(user_id, cond, reward,
+                                  snapshot=snapshot if snapshot else None):
             conn.close()
             return None
 
@@ -239,8 +254,54 @@ def calculate_week_completion_rate(user_id: int) -> int:
     return round(done_total / total * 100) if total > 0 else 0
 
 
-def evaluate_condition(user_id: int, condition: dict, reward: dict = None) -> bool:
-    """评估单个结构化条件是否满足"""
+def take_snapshot(user_id: int) -> dict:
+    """拍快照：记录用户解锁时刻的各项数值，用于领取时做增量计算"""
+    conn = get_conn()
+
+    total_exp = get_total_exp_from_dimensions(user_id)
+
+    tasks_row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM tasks WHERE user_id = ? AND claimed = 1",
+        (user_id,),
+    ).fetchone()
+    tasks_done = tasks_row["cnt"] if tasks_row else 0
+
+    goals_row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM goals WHERE user_id = ? AND progress = 100 AND claimed = 1",
+        (user_id,),
+    ).fetchone()
+    goals_done = goals_row["cnt"] if goals_row else 0
+
+    # 各目标里程碑完成数
+    goal_rows = conn.execute(
+        "SELECT id FROM goals WHERE user_id = ?", (user_id,)
+    ).fetchall()
+    milestones = {}
+    for g in goal_rows:
+        from db.goals import get_goal
+        goal_data = get_goal(g["id"])
+        if goal_data:
+            done = sum(1 for m in goal_data.get("milestones", []) if m.get("done"))
+            milestones[str(g["id"])] = done
+
+    conn.close()
+    return {
+        "total_exp": total_exp,
+        "tasks_done": tasks_done,
+        "goals_done": goals_done,
+        "milestones": milestones,
+    }
+
+
+def evaluate_condition(user_id: int, condition: dict, reward: dict = None,
+                       snapshot: dict = None) -> bool:
+    """评估单个结构化条件是否满足
+
+    snapshot 参数：当评估领取条件（从解锁时刻增量计算）时传入，
+    此时 tasks_done / goals_done / milestone / exp_since_create 会
+    用「当前值 - 快照值」做差值判断。
+    不传 snapshot 时保持原有的绝对值判断（用于解锁条件）。
+    """
     ctype = condition.get("type")
     threshold = condition.get("threshold", 0)
     target_id = condition.get("targetId")
@@ -262,6 +323,10 @@ def evaluate_condition(user_id: int, condition: dict, reward: dict = None) -> bo
 
     elif ctype == "exp_since_create":
         total = get_total_exp_from_dimensions(user_id)
+        if snapshot:
+            # 从解锁时刻增量计算
+            return (total - snapshot.get("total_exp", 0)) >= threshold
+        # 从创建时刻计算（旧逻辑，用于解锁条件场景）
         if not reward:
             return False
         base_exp = reward.get("created_at_exp", 0)
@@ -286,6 +351,17 @@ def evaluate_condition(user_id: int, condition: dict, reward: dict = None) -> bo
     elif ctype == "milestone":
         if not target_id:
             return False
+
+        if snapshot:
+            # 从解锁时刻增量计算
+            snapshot_count = snapshot.get("milestones", {}).get(str(target_id), 0)
+            goal = get_goal(int(target_id))
+            if not goal:
+                return False
+            current = sum(1 for m in goal.get("milestones", []) if m.get("done"))
+            return (current - snapshot_count) >= threshold
+
+        # 绝对值（用于解锁条件）
         goal = get_goal(int(target_id))
         if not goal:
             return False
@@ -299,7 +375,11 @@ def evaluate_condition(user_id: int, condition: dict, reward: dict = None) -> bo
             (user_id,),
         ).fetchone()
         conn.close()
-        return row["cnt"] >= threshold
+        count = row["cnt"]
+
+        if snapshot:
+            return (count - snapshot.get("tasks_done", 0)) >= threshold
+        return count >= threshold
 
     elif ctype == "goals_done":
         conn = get_conn()
@@ -308,7 +388,11 @@ def evaluate_condition(user_id: int, condition: dict, reward: dict = None) -> bo
             (user_id,),
         ).fetchone()
         conn.close()
-        return row["cnt"] >= threshold
+        count = row["cnt"]
+
+        if snapshot:
+            return (count - snapshot.get("goals_done", 0)) >= threshold
+        return count >= threshold
 
     elif ctype == "week_rate":
         rate = calculate_week_completion_rate(user_id)
@@ -336,7 +420,12 @@ def evaluate_reward(user_id: int, reward: dict) -> dict:
         )
         if all_unlock_met and reward.get("unlock_conditions"):
             reward["unlocked"] = True
-            update_reward(reward["id"], unlocked=1)
+            # 解锁时刻拍快照
+            snapshot = take_snapshot(user_id)
+            update_reward(reward["id"],
+                          unlocked=1,
+                          unlocked_at_snapshot=snapshot)
+            reward["unlocked_at_snapshot"] = snapshot
 
     return reward
 
