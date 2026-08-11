@@ -5,7 +5,7 @@ Self Grow — 任务 API 路由
 from fastapi import APIRouter, HTTPException, Depends
 
 from db.tasks import get_task, get_today_tasks, get_week_tasks, get_tasks_paginated, create_task, update_task, delete_task, claim_task_reward
-from db.task_history import get_task_history, clear_task_history
+from db.task_history import get_task_history
 from schemas.api import CreateTaskRequest, UpdateTaskRequest, PatchTaskStatusRequest
 from routers.deps import get_current_user
 
@@ -108,20 +108,20 @@ async def delete_existing_task(task_id: int):
 @router.get("/api/tasks/history")
 async def list_task_history(
     user=Depends(get_current_user),
+    user_id: int = None,
     page: int = 1,
     page_size: int = 20,
     status: str = "all",
     source_type: str = "all",
+    category: str = "all",
+    sort: str = "newest",
 ):
     """分页获取任务历史（已归档的日任务/周任务）"""
+    # 校验 user_id 与 token 中的用户一致
+    if user_id is not None and user_id != user["id"]:
+        raise HTTPException(status_code=403, detail="无权访问其他用户数据")
     return get_task_history(
         user["id"], page=page, page_size=page_size,
         status=status, source_type=source_type,
+        category=category, sort=sort,
     )
-
-
-@router.delete("/api/tasks/history")
-async def clear_history(user=Depends(get_current_user)):
-    """清空任务历史"""
-    deleted = clear_task_history(user["id"])
-    return {"deleted": deleted}

@@ -148,3 +148,72 @@ def snapshot_daily_stats(user_id: int):
         habits_checked=row["habits_checked"],
         exp_earned=row["exp_earned"],
     )
+
+
+def catch_up_missed_archives(user_id: int):
+    """
+    启动时检查：如果凌晨3点的归档任务未执行（如电脑关机），则补执行。
+    - 昨天的 today/daily 任务 → 归档
+    - 上周的 weekly 任务 → 归档
+    """
+    from config import log
+
+    today = datetime.date.today()
+    yesterday = (today - datetime.timedelta(days=1)).isoformat()
+    conn = get_conn()
+
+    # 1. 检查昨天是否有未归档的 today/daily 任务
+    yesterday_tasks = conn.execute(
+        """SELECT COUNT(*) as cnt FROM tasks
+           WHERE user_id = ? AND source_type IN ('today', 'daily')
+           AND date(created_at) = ?""",
+        (user_id, yesterday),
+    ).fetchone()
+
+    if yesterday_tasks and yesterday_tasks["cnt"] > 0:
+        # 将未完成的标记为 expired
+        conn.execute(
+            """UPDATE tasks SET status = 'expired'
+               WHERE user_id = ? AND source_type IN ('today', 'daily')
+               AND date(created_at) = ?
+               AND status IN ('todo', 'doing')""",
+            (user_id, yesterday),
+        )
+        conn.commit()
+        # 归档
+        count = archive_tasks_to_history(conn, user_id, ['today', 'daily'], yesterday, yesterday)
+        conn.commit()
+        if count > 0:
+            log.info(f"  🔧 补归档：用户 {user_id} 昨日 {count} 条日任务")
+
+    # 2. 检查上周是否有未归档的 weekly 任务
+    last_monday = today - datetime.timedelta(days=today.weekday() + 7)
+    last_sunday = last_monday + datetime.timedelta(days=6)
+
+    weekly_tasks = conn.execute(
+        """SELECT COUNT(*) as cnt FROM tasks
+           WHERE user_id = ? AND source_type = 'weekly'
+           AND date(created_at) >= ? AND date(created_at) <= ?""",
+        (user_id, last_monday.isoformat(), last_sunday.isoformat()),
+    ).fetchone()
+
+    if weekly_tasks and weekly_tasks["cnt"] > 0:
+        # 将未完成的标记为 expired
+        conn.execute(
+            """UPDATE tasks SET status = 'expired'
+               WHERE user_id = ? AND source_type = 'weekly'
+               AND date(created_at) >= ? AND date(created_at) <= ?
+               AND status IN ('todo', 'doing')""",
+            (user_id, last_monday.isoformat(), last_sunday.isoformat()),
+        )
+        conn.commit()
+        # 归档
+        count = archive_tasks_to_history(
+            conn, user_id, ['weekly'],
+            last_monday.isoformat(), last_sunday.isoformat(),
+        )
+        conn.commit()
+        if count > 0:
+            log.info(f"  🔧 补归档：用户 {user_id} 上周 {count} 条周任务")
+
+    conn.close()

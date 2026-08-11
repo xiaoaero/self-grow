@@ -2,6 +2,8 @@
    Tasks Page — 任务（本日任务 + 本周任务 + 历史任务）
    ================================================================ */
 
+const LOCAL_TASKS_KEY = 'sg_local_tasks';
+
 var todayTasks = {
     todo: [],
     doing: [],
@@ -20,6 +22,70 @@ let taskModalActive = false;
 // 同步到 window 供 utils.js 的 closeModalIfNotActive 使用
 Object.defineProperty(window, '_taskModalActive', { get: () => taskModalActive });
 
+/** 保存本地任务到 localStorage 兜底 */
+function saveLocalTaskToStorage(task) {
+    try {
+        const raw = localStorage.getItem(LOCAL_TASKS_KEY);
+        const tasks = raw ? JSON.parse(raw) : [];
+        // 避免重复
+        if (!tasks.some(t => t.id === task.id)) {
+            tasks.push(task);
+            localStorage.setItem(LOCAL_TASKS_KEY, JSON.stringify(tasks));
+        }
+    } catch (e) {
+        console.warn('保存本地任务失败:', e);
+    }
+}
+
+/** 从 localStorage 加载本地任务并合并到 todayTasks/weekTasks */
+function loadLocalTasksIntoToday() {
+    try {
+        const raw = localStorage.getItem(LOCAL_TASKS_KEY);
+        if (!raw) return;
+        const tasks = JSON.parse(raw);
+        const now = new Date();
+        const todayStr = now.toISOString().slice(0, 10);
+        const stillValid = [];
+        tasks.forEach(t => {
+            const taskDate = t.createdAt ? t.createdAt.slice(0, 10) : '';
+            // 仅今日任务
+            if (t.source_type !== 'weekly' && taskDate === todayStr) {
+                if (t.status === 'done' || t.status === 'completed') {
+                    if (!todayTasks.done.some(x => x.id === t.id)) {
+                        todayTasks.done.push({ ...t, status: 'done' });
+                    }
+                } else {
+                    if (!todayTasks.todo.some(x => x.id === t.id) && !todayTasks.doing.some(x => x.id === t.id)) {
+                        todayTasks.todo.push({ ...t, status: 'todo' });
+                    }
+                }
+                stillValid.push(t);
+            } else if (t.source_type === 'weekly') {
+                // 本周任务
+                const weekStart = new Date(now);
+                weekStart.setDate(now.getDate() - now.getDay() + 1);
+                const taskDateObj = new Date(t.createdAt);
+                if (taskDateObj >= weekStart) {
+                    if (t.status === 'done' || t.status === 'completed') {
+                        if (!weekTasks.done.some(x => x.id === t.id)) {
+                            weekTasks.done.push({ ...t, status: 'done' });
+                        }
+                    } else {
+                        if (!weekTasks.todo.some(x => x.id === t.id) && !weekTasks.doing.some(x => x.id === t.id)) {
+                            weekTasks.todo.push({ ...t, status: 'todo' });
+                        }
+                    }
+                    stillValid.push(t);
+                }
+            }
+        });
+        // 更新 localStorage（只保留有效条目）
+        localStorage.setItem(LOCAL_TASKS_KEY, JSON.stringify(stillValid));
+    } catch (e) {
+        console.warn('加载本地任务失败:', e);
+    }
+}
+
 /** Category → color mapping (same as GOAL_COLORS) */
 const TASK_COLORS = {
     health:   '#FF7B72',
@@ -33,12 +99,12 @@ const TASK_COLORS = {
 };
 
 /* ---- Main entry ---- */
-function renderTasks(subPage) {
+async function renderTasks(subPage) {
     const tab = subPage || 'today';
     if (tab === 'week') {
         renderWeekTasks();
     } else if (tab === 'history') {
-        renderHistoryTasks();
+        await renderHistoryTasks();
     } else {
         renderTodayTasks();
     }
@@ -131,6 +197,7 @@ async function loadTodayTasksFromBackend() {
     var curUser = getCurrentUser();
     if (!curUser) {
         todayTasks = { todo: [...AppData.tasks.todo], doing: [...AppData.tasks.doing], done: [...AppData.tasks.done] };
+        loadLocalTasksIntoToday();
         todayTasksLoaded = true;
         renderTodayTasks();
         return;
@@ -141,6 +208,7 @@ async function loadTodayTasksFromBackend() {
     } else {
         todayTasks = { todo: [...AppData.tasks.todo], doing: [...AppData.tasks.doing], done: [...AppData.tasks.done] };
     }
+    loadLocalTasksIntoToday();
     todayTasksLoaded = true;
     renderTodayTasks();
 }
@@ -150,6 +218,7 @@ async function loadWeekTasksFromBackend() {
     var curUser = getCurrentUser();
     if (!curUser) {
         weekTasks = { todo: [...AppData.tasks.todo], doing: [...AppData.tasks.doing], done: [...AppData.tasks.done] };
+        loadLocalTasksIntoToday();
         weekTasksLoaded = true;
         renderWeekTasks();
         return;
@@ -160,6 +229,7 @@ async function loadWeekTasksFromBackend() {
     } else {
         weekTasks = { todo: [...AppData.tasks.todo], doing: [...AppData.tasks.doing], done: [...AppData.tasks.done] };
     }
+    loadLocalTasksIntoToday();
     weekTasksLoaded = true;
     renderWeekTasks();
 }
@@ -263,7 +333,12 @@ function moveTaskToDone(id) {
         // 同步到后端
         var curUser = getCurrentUser();
         if (curUser) {
-            patchTaskStatusOnBackend(id, 'done', task.completedAt);
+            patchTaskStatusOnBackend(id, 'done', task.completedAt).catch(() => {
+                // 后端失败时保存到本地
+                saveLocalTaskToStorage(task);
+            });
+        } else {
+            saveLocalTaskToStorage(task);
         }
     }
     renderTodayTasks();
@@ -283,8 +358,6 @@ function claimTaskExp(id) {
                 AppData.todayStats.expEarned = result.today_stats.expEarned;
                 AppData.todayStats.tasksDone = result.today_stats.tasksDone;
                 renderSidebarFooter();
-                // 同步到历史列表
-                pushToTaskHistory(task);
                 if (currentTasksSubPage === 'week') renderWeekTasks();
                 else renderTodayTasks();
                 showToast(`任务完成！+${result.exp_earned} EXP`, 'success');
@@ -309,25 +382,6 @@ function claimTaskExp(id) {
     }
 }
 
-function pushToTaskHistory(task) {
-    // 避免重复添加
-    if (AppData.taskHistory.some(t => t.id === task.id)) return;
-    AppData.taskHistory.push({
-        id: task.id,
-        task_id: task.id,
-        title: task.title,
-        category: task.category,
-        priority: task.priority,
-        exp: task.exp,
-        intro: task.intro || '',
-        status: 'completed',
-        source_type: task.source_type || 'today',
-        completed_at: task.completed_at || task.completedAt || formatDate(new Date()),
-        created_at: task.created_at || task.createdAt || '',
-        archived_at: formatDate(new Date()),
-    });
-}
-
 function localClaimTaskExp(task) {
     task.claimed = true;
     AppData.user.exp += task.exp;
@@ -337,7 +391,6 @@ function localClaimTaskExp(task) {
     const oldLevel = AppData.user.level;
     AppData.user.level = levelFromTotalExp(AppData.user.exp);
     renderSidebarFooter();
-    pushToTaskHistory(task);
     if (AppData.user.level > oldLevel) {
         setTimeout(() => showToast(`🎉 升级！Lv.${oldLevel} → Lv.${AppData.user.level}`, 'success'), 500);
     }
@@ -353,7 +406,6 @@ function localClaimExpOnWeek(task) {
     const oldLevel = AppData.user.level;
     AppData.user.level = levelFromTotalExp(AppData.user.exp);
     renderSidebarFooter();
-    pushToTaskHistory(task);
     if (AppData.user.level > oldLevel) {
         setTimeout(() => showToast(`🎉 升级！Lv.${oldLevel} → Lv.${AppData.user.level}`, 'success'), 500);
     }
@@ -362,10 +414,16 @@ function localClaimExpOnWeek(task) {
 }
 
 function removeTodayTask(id) {
-    ['todo', 'doing', 'done'].forEach(col => {
-        todayTasks[col] = todayTasks[col].filter(t => t.id !== id);
-        weekTasks[col] = weekTasks[col].filter(t => t.id !== id);
-    });
+    // 只清理当前视图的任务列表，不误伤其他视图
+    if (currentTasksSubPage === 'week') {
+        ['todo', 'doing', 'done'].forEach(col => {
+            weekTasks[col] = weekTasks[col].filter(t => t.id !== id);
+        });
+    } else {
+        ['todo', 'doing', 'done'].forEach(col => {
+            todayTasks[col] = todayTasks[col].filter(t => t.id !== id);
+        });
+    }
     if (todayTasks.todo.length === 0 && todayTasks.doing.length === 0 && todayTasks.done.length === 0
         && weekTasks.todo.length === 0 && weekTasks.doing.length === 0 && weekTasks.done.length === 0) {
         taskDeleteMode = false;
@@ -375,8 +433,17 @@ function removeTodayTask(id) {
     if (curUser) {
         deleteTaskOnBackend(id);
     }
+    // 从 localStorage 删除
+    try {
+        const raw = localStorage.getItem(LOCAL_TASKS_KEY);
+        if (raw) {
+            const tasks = JSON.parse(raw);
+            const filtered = tasks.filter(t => t.id !== id);
+            localStorage.setItem(LOCAL_TASKS_KEY, JSON.stringify(filtered));
+        }
+    } catch (e) {}
 
-    renderTodayTasks();
+    reRenderTasks();
     showToast('任务已删除', 'info');
 }
 
@@ -671,7 +738,7 @@ function dropTask(event, toCol) {
 }
 
 /* ================================================================
-   历史任务 — 已完成 & 超期的任务存档
+   历史任务 — 已归档的历史任务（凌晨3点自动归档）
    ================================================================ */
 let taskHistoryFilterCategory = 'all';
 let taskHistoryFilterStatus = 'all';
@@ -680,74 +747,59 @@ let taskHistorySortBy = 'newest';
 let taskHistoryPage = 1;
 const TASK_HISTORY_PAGE_SIZE = 20;
 
-function renderHistoryTasks() {
-    const all = AppData.taskHistory;
+function renderHistoryEmpty(total, hasActiveFilters) {
+    if (total === 0) {
+        return `<div class="task-today-empty" style="text-align:center;padding:60px;color:var(--color-text-muted)">
+            <div style="font-size:48px;margin-bottom:16px">📭</div>
+            <div style="font-size:16px;font-weight:600;margin-bottom:8px">还没有历史任务</div>
+            <div style="font-size:13px;color:var(--color-text-secondary)">任务完成后，凌晨3点会自动归档到这里</div>
+        </div>`;
+    }
+    // total > 0 但当前页没数据 → 筛选条件太严，没匹配
+    return `<div class="task-today-empty" style="text-align:center;padding:60px;color:var(--color-text-muted)">
+        <div style="font-size:48px;margin-bottom:16px">🔍</div>
+        <div style="font-size:16px;font-weight:600;margin-bottom:8px">没有符合条件的历史任务</div>
+        <div style="font-size:13px;color:var(--color-text-secondary)">试试调整筛选条件</div>
+    </div>`;
+}
 
-    // Filter
-    let filtered = all.filter(t => {
-        if (taskHistoryFilterCategory !== 'all' && t.category !== taskHistoryFilterCategory) return false;
-        if (taskHistoryFilterStatus !== 'all' && t.status !== taskHistoryFilterStatus) return false;
-        if (taskHistoryFilterSource !== 'all' && t.source_type !== taskHistoryFilterSource) return false;
-        return true;
-    });
+async function renderHistoryTasks() {
+    document.getElementById('page-tasks').innerHTML = '<div style="text-align:center;padding:60px;color:var(--color-text-secondary)">加载历史任务...</div>';
 
-    // Sort
-    switch (taskHistorySortBy) {
-        case 'newest':
-            filtered.sort((a, b) => {
-                const da = a.archived_at || a.completedAt || a.createdAt || '';
-                const db = b.archived_at || b.completedAt || b.createdAt || '';
-                return db.localeCompare(da);
-            });
-            break;
-        case 'oldest':
-            filtered.sort((a, b) => {
-                const da = a.archived_at || a.completedAt || a.createdAt || '';
-                const db = b.archived_at || b.completedAt || b.createdAt || '';
-                return da.localeCompare(db);
-            });
-            break;
-        case 'exp-high':
-            filtered.sort((a, b) => b.exp - a.exp);
-            break;
-        case 'exp-low':
-            filtered.sort((a, b) => a.exp - b.exp);
-            break;
+    var curUser = getCurrentUser();
+    if (!curUser) {
+        document.getElementById('page-tasks').innerHTML = '<div style="text-align:center;padding:60px;color:var(--color-text-muted)">请先登录</div>';
+        return;
     }
 
-    // Pagination
-    const totalPages = Math.ceil(filtered.length / TASK_HISTORY_PAGE_SIZE) || 1;
+    const result = await fetchTaskHistory(curUser.id, {
+        page: taskHistoryPage,
+        page_size: TASK_HISTORY_PAGE_SIZE,
+        status: taskHistoryFilterStatus,
+        source_type: taskHistoryFilterSource,
+        category: taskHistoryFilterCategory,
+        sort: taskHistorySortBy,
+    }).catch(() => null);
+
+    const records = (result && result.records) || [];
+    const total = (result && result.total) || 0;
+    const totalPages = Math.ceil(total / TASK_HISTORY_PAGE_SIZE) || 1;
     if (taskHistoryPage > totalPages) taskHistoryPage = totalPages;
-    const start = (taskHistoryPage - 1) * TASK_HISTORY_PAGE_SIZE;
-    const pageItems = filtered.slice(start, start + TASK_HISTORY_PAGE_SIZE);
 
-    // Status counts
-    const completedCount = all.filter(t => t.status === 'completed').length;
-    const expiredCount = all.filter(t => t.status === 'expired').length;
-    const dailyCount = all.filter(t => t.source_type === 'today' || t.source_type === 'daily').length;
-    const weeklyCount = all.filter(t => t.source_type === 'weekly').length;
+    // 统一状态：把后端可能存的 'done' 转成 'completed'
+    const normalizeStatus = (s) => s === 'done' ? 'completed' : s;
+    const pageItems = records.map(r => ({ ...r, status: normalizeStatus(r.status) }));
 
+    // 统计数字（从总记录数估算，精确值只能查全量，这里用 total 表示总数）
     const html = `
         <div class="page-header page-header--with-icon">
             <div class="page-header__icon" style="width:58px;height:58px">${HEADER_ICONS.historyTasks}</div>
             <div style="flex:1;display:flex;justify-content:space-between;align-items:flex-start">
                 <div>
                     <h1 class="page-header__title">历史任务</h1>
-                    <p class="page-header__subtitle">已完成和超期的任务存档</p>
+                    <p class="page-header__subtitle">已归档的历史任务 · 共 ${total} 条</p>
                 </div>
-                ${all.length > 0 ? `
-                    <button class="task-history-clear-btn" onclick="clearTaskHistory()">清空记录</button>
-                ` : ''}
             </div>
-        </div>
-
-        <!-- Stats chips -->
-        <div class="task-history-stats">
-            <span class="task-history-stat">📦 总记录 <strong>${all.length}</strong></span>
-            <span class="task-history-stat task-history-stat--done">✅ 已完成 <strong>${completedCount}</strong></span>
-            <span class="task-history-stat task-history-stat--expired">⏰ 超期 <strong>${expiredCount}</strong></span>
-            <span class="task-history-stat">📋 日任务 <strong>${dailyCount}</strong></span>
-            <span class="task-history-stat">📅 周任务 <strong>${weeklyCount}</strong></span>
         </div>
 
         <!-- Toolbar -->
@@ -762,6 +814,8 @@ function renderHistoryTasks() {
                 </select>
                 <select class="goal-filter-select" onchange="taskHistoryFilterStatus=this.value;taskHistoryPage=1;renderHistoryTasks()">
                     <option value="all" ${taskHistoryFilterStatus === 'all' ? 'selected' : ''}>全部状态</option>
+                    <option value="todo" ${taskHistoryFilterStatus === 'todo' ? 'selected' : ''}>📋 待办</option>
+                    <option value="doing" ${taskHistoryFilterStatus === 'doing' ? 'selected' : ''}>✏️ 进行中</option>
                     <option value="completed" ${taskHistoryFilterStatus === 'completed' ? 'selected' : ''}>✅ 已完成</option>
                     <option value="expired" ${taskHistoryFilterStatus === 'expired' ? 'selected' : ''}>⏰ 超期</option>
                 </select>
@@ -778,13 +832,13 @@ function renderHistoryTasks() {
                     <option value="exp-low" ${taskHistorySortBy === 'exp-low' ? 'selected' : ''}>EXP 低→高</option>
                 </select>
             </div>
-            <span class="goal-toolbar__count">共 ${filtered.length} 条</span>
+            <span class="goal-toolbar__count">共 ${total} 条</span>
         </div>
 
         <!-- Card list -->
         <div class="task-history-list">
             ${pageItems.map(t => renderHistoryCard(t)).join('')}
-            ${pageItems.length === 0 ? `<div class="task-today-empty">暂无匹配的历史任务</div>` : ''}
+            ${pageItems.length === 0 ? renderHistoryEmpty(total, taskHistoryFilterCategory !== 'all' || taskHistoryFilterStatus !== 'all' || taskHistoryFilterSource !== 'all') : ''}
         </div>
 
         <!-- Pagination -->
@@ -798,6 +852,7 @@ function renderHistoryCard(task) {
     const cat = getCategory(task.category);
     const iconColor = TASK_COLORS[task.category] || '#46C9C0';
     const isCompleted = task.status === 'completed';
+    const isActive = task.status === 'todo' || task.status === 'doing';
     const priorityText = task.priority === 'high' ? '高' : task.priority === 'mid' ? '中' : '低';
     const sourceLabels = { today: '📋 日任务', daily: '⏰ 定时', weekly: '📅 周任务' };
     const sourceLabel = sourceLabels[task.source_type] || '📋 日任务';
@@ -805,17 +860,26 @@ function renderHistoryCard(task) {
         ? (task.completed_at || '未知日期')
         : (task.completed_at || task.created_at || '未知日期');
 
+    let statusHtml = '';
+    if (isActive) {
+        statusHtml = `<span class="task-history-card__status task-history-card__status--active">
+            ${task.status === 'todo' ? '📋 待办' : '✏️ 进行中'}
+        </span>`;
+    } else if (isCompleted) {
+        statusHtml = `<span class="task-history-card__status task-history-card__status--done">✅ 已完成</span>`;
+    } else {
+        statusHtml = `<span class="task-history-card__status task-history-card__status--expired">⏰ 超期</span>`;
+    }
+
     return `
-        <div class="task-history-card">
+        <div class="task-history-card ${isActive ? 'task-history-card--active' : ''}">
             <div class="task-history-card__header">
                 <span class="task-history-card__icon" style="color:${iconColor}">
                     ${cat ? attrIcon(cat.id, 18) : ''}
                 </span>
                 <span class="task-history-card__title">${task.title}</span>
                 <span style="font-size:11px;color:var(--color-text-muted);background:var(--color-bg-tertiary);padding:1px 8px;border-radius:4px">${sourceLabel}</span>
-                <span class="task-history-card__status ${isCompleted ? 'task-history-card__status--done' : 'task-history-card__status--expired'}">
-                    ${isCompleted ? '✅ 已完成' : '⏰ 超期'}
-                </span>
+                ${statusHtml}
                 <span class="task-history-card__exp">+${task.exp} EXP</span>
             </div>
             <div class="task-history-card__meta">
@@ -862,21 +926,6 @@ function renderHistoryPagination(page, total) {
                     onclick="taskHistoryPage=${total};renderHistoryTasks()">»</button>
         </div>
     `;
-}
-
-function clearTaskHistory() {
-    if (confirm('确定要清空所有历史任务记录吗？此操作不可撤销。')) {
-        AppData.taskHistory = [];
-
-        var curUser = getCurrentUser();
-        if (curUser) {
-            clearTaskHistoryOnBackend(curUser.id);
-        }
-
-        taskHistoryPage = 1;
-        renderHistoryTasks();
-        showToast('历史记录已清空', 'info');
-    }
 }
 
 /* ================================================================
@@ -1106,7 +1155,8 @@ function saveTask() {
                 createdAt: formatDate(new Date()), deadline: null,
                 claimed: false, sourceTemplateId: null,
             };
-            // 删除 source_type 不传到前端缓存（前端缓存结构里不存该字段）
+            // 保存到 localStorage 作为兜底
+            saveLocalTaskToStorage(newTask);
             if (currentTasksSubPage === 'week') {
                 weekTasks.todo.push(newTask);
             } else {
@@ -1114,7 +1164,7 @@ function saveTask() {
             }
             closeTaskModal();
             reRenderTasks();
-            showToast('任务已创建！', 'success');
+            showToast('任务已创建！（本地保存）', 'success');
         }
 
         if (curUser) {
@@ -1145,9 +1195,9 @@ function saveTask() {
     }
 }
 
-function reRenderTasks() {
+async function reRenderTasks() {
     if (currentTasksSubPage === 'week') renderWeekTasks();
-    else if (currentTasksSubPage === 'history') renderHistoryTasks();
+    else if (currentTasksSubPage === 'history') await renderHistoryTasks();
     else renderTodayTasks();
 }
 
@@ -1302,7 +1352,7 @@ function editTemplate(id) {
             </div>
         </div>
         <div class="modal__actions">
-            <button class="btn btn--ghost" onclick="closeModal()">取消</button>
+            <button class="btn btn--ghost" onclick="closeTaskModal()">取消</button>
             <button class="btn btn--primary" onclick="saveEditTemplate(${id})">保存修改</button>
         </div>
     `;
@@ -1477,7 +1527,7 @@ function editWeeklyTemplate(id) {
             </div>
         </div>
         <div class="modal__actions">
-            <button class="btn btn--ghost" onclick="closeModal()">取消</button>
+            <button class="btn btn--ghost" onclick="closeTaskModal()">取消</button>
             <button class="btn btn--primary" onclick="saveEditWeeklyTemplate(${id})">保存修改</button>
         </div>
     `;

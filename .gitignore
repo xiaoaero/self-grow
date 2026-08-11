@@ -4,7 +4,6 @@
 
 # backend runtime
 backend/.pixi/
-backend/pixi.lock
 backend/.env
 backend/data.db
 backend/*.bak
@@ -21,11 +20,5 @@ __pycache__/
 # IDE
 .idea/
 
-# PyInstaller build output
-backend/build/
-backend/dist/
-backend/*.spec.bak
-
-# Electron build output
-desktop/dist/
-desktop/node_modules/
+# User uploads
+backend/uploads/*

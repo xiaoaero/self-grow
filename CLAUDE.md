@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-**Self Grow (个人成长系统)** — 基于原生 HTML/CSS/JS 的单页应用 + FastAPI 后端的个人成长追踪系统。核心功能包括：等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（支持 AI 生成节点）、**表达训练系统（AI 出题 + 实时评分 + 填充词检测）**、桌面端 Electron 打包。
+**Self Grow (个人成长系统)** — 基于原生 HTML/CSS/JS 的单页应用 + FastAPI 后端的个人成长追踪系统。核心功能包括：等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（支持 AI 生成节点）、**表达训练系统（AI 出题 + 实时评分 + 填充词检测）**。部署方式为纯 Web + [Docker 部署方案](docs/Docker部署方案.md)。
 
 ## 架构概览
 
@@ -24,7 +24,8 @@ self_grow_system/
 │   └── skill-tree/        # 技能树编辑器（独立 SPA，支持 view/editor/admin 三模式）
 ├── backend/               # Python FastAPI 服务（模块化架构）
 │   ├── main.py            # 入口点：app 工厂、生命周期、路由注册、定时任务
-│   ├── config.py          # 配置：AI 端点/Key/模型、端口、数据库路径（含打包模式检测）
+│   ├── config.py          # 配置：AI 端点/Key/模型、端口、数据库路径、前端目录
+│   ├── pixi.toml          # pixi 环境（唯一依赖事实源，见 tools/export_reqs.py）
 │   ├── database.py        # 向后兼容层（re-export from db/ 子模块）
 │   ├── models/            # 数据模型（等级公式、常量、段位表）
 │   ├── schemas/           # Pydantic 请求/响应模型
@@ -46,8 +47,6 @@ self_grow_system/
 ├── docs/                  # 项目文档
 │   ├── 压测说明.md         # Locust 压测方案与结果
 │   └── 手机版部署方案.md   # 移动端部署方案
-├── dev.bat                # 开发模式一键启动（Windows）
-├── dev.sh                 # 开发模式一键启动（Unix）
 └── memory/                # 开发记录
     └── MEMORY.md          # 记忆索引
 ```
@@ -60,29 +59,34 @@ self_grow_system/
 - **技能树**：独立 SPA 位于 `skill-tree/`，使用自定义 `TreeRenderer`（DOM + SVG）渲染节点和连线。AI 集成（`AIBridge`）通过后端 `/api/chat` 代理调用 LLM，支持 9 个 Tool Use 工具。后端持久化替代了 localStorage。
 - **表达训练**：扩展侧边栏 → AI Agent 页面，前端 `agent.js` 渲染两视图（训练/历史），后端 `expression_service.py` 处理 AI 出题/评分逻辑，`expressions.py` 管理数据库题目/回答。
 - **JS 加载顺序**：`data.js` → `router.js` → `utils.js` → `components.js` → 页面脚本 → `app.js`。顺序重要，因为后面的脚本引用前面的全局变量。
-- **桌面端**：Electron 主进程启动 PyInstaller 打包的后端 exe，轮询 `/api/health` 等待就绪后加载前端。数据目录分离：开发模式在 `backend/`，打包模式在 `%APPDATA%/SelfGrow/`。
 
 ## 启动方式
 
-```bash
-# 1. 后端（必须先启动）
-cd backend
-pixi run python main.py     # 运行在 http://localhost:3001
-# 自动启动 APScheduler 定时任务（每日 03:00 归档/结算，每周一 03:00 刷新）
+后端统一用 pixi 管理环境与任务（依赖来源见 [依赖管理](#依赖管理)）：
 
-# 2. 前端（项目根目录）
+```bash
+# 开发模式：后端（backend/ 下运行）
+cd backend
+pixi run start     # 运行在 http://localhost:3001（自动启动 APScheduler 定时任务：每日 03:00 归档/结算，每周一 03:00 刷新）
+pixi run test      # 运行 pytest
+```
+
+前端（项目根目录，需一个 HTTP 服务器；开发模式不要直接打开 HTML 文件）：
+
+```bash
 cd D:\pycharm\projec\self_grow_system
 python -m http.server 3000    # 运行在 http://localhost:3000
-
-# 3. 打开 http://localhost:3000/login.html 选择用户登录
-
-# 或一键启动（开发模式）
-dev.bat  # Windows
-bash dev.sh  # Unix
-
-# 或桌面应用
-build.bat                     # 打包 → 运行 desktop/dist/SelfGrow/Self Grow.exe
 ```
+
+打开 http://localhost:3000/login.html 选择用户登录。生产部署见 [Docker 部署方案](docs/Docker部署方案.md)。
+
+### 依赖管理
+
+**`backend/pixi.toml` 的 `[dependencies]` 是唯一事实源**，开发环境由 pixi 提供。
+
+- `requirements.txt` 不是手写清单，而是由 pixi 锁定版本导出的产物（供 pip / Docker 安装，保证与开发环境版本一致）。
+- 重新生成：`pixi run export-reqs`（即 `backend/tools/export_reqs.py`）。
+- 改依赖：编辑 `pixi.toml` → `pixi update` → 必要时 `pixi run export-reqs`。不要在 requirements.txt 里裸改版本。
 
 后端首次运行自动创建 `data.db`，包含两个默认用户：`test`（Lv.188，含完整模拟数据）和 `admin`（Lv.99, 管理员权限）。
 
@@ -154,12 +158,10 @@ build.bat                     # 打包 → 运行 desktop/dist/SelfGrow/Self Gro
 - AI 提示词在 `backend/prompts/`，每个 AI 功能一个独立文件
 - AI 配置通过 `backend/.env`：`AI_API_BASE_URL`、`AI_API_KEY`、`AI_MODEL`
 
-### 桌面应用打包
-- 详细指南：`docs/打包与更新指南.md`
-- 一键构建：`build.bat`（PyInstaller 打包后端 → Electron 打包 → 绿色版 zip）
-- 按改动范围分步打包：仅前端改 / 仅后端改 / 前后端都改
-- 打包模式数据目录：`%APPDATA%/SelfGrow/`（独立于安装目录，更新不丢失）
-- 测试：`cd backend && pixi run pytest`
+### 生产部署（Docker）
+- 详细方案：`docs/Docker部署方案.md`
+- 依赖安装走 `requirements.txt`（由 `pixi run export-reqs` 从 pixi 锁定版本生成）
+- 测试：`cd backend && pixi run test`
 
 ## 8 个属性维度的颜色约定
 

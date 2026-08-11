@@ -160,12 +160,6 @@ def delete_task(task_id: int) -> bool:
     return True
 
 
-def clear_task_history(user_id: int) -> int:
-    """清空历史任务 — 委托给 task_history 模块"""
-    from db.task_history import clear_task_history as clear_history
-    return clear_history(user_id)
-
-
 def claim_task_reward(task_id: int) -> dict:
     """领取任务 EXP，返回 exp_earned"""
     conn = get_conn()

@@ -12,10 +12,8 @@
     <link rel="stylesheet" href="css/pages.css">
     <!-- Chart.js for radar/bubble charts -->
     <script src="vendor/chart.umd.min.js"></script>
-    <!-- API 配置：由后端 /api/config.js 动态注入 API_BASE（开发模式下静默失败，使用默认值） -->
     <!-- API 配置：由后端 /api/config.js 动态注入 API_BASE -->
-    <!-- 打包/Electron 模式：同源请求 /api/config.js -->
-    <!-- 开发模式：跨域请求 http://localhost:3001/api/config.js，onerror 时使用默认值 -->
+    <!-- 同源模式：加载 /api/config.js；开发模式跨域请求 http://localhost:3001/api/config.js，onerror 时使用默认值 -->
     <script src="/api/config.js" onerror=""></script>
     <script>
     if (!window.__SELF_GROW_API_BASE__) {

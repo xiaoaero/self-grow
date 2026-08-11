@@ -44,7 +44,7 @@
 // 动态获取 API_BASE：优先使用后端注入的配置，否则使用默认值
 const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
 </script>
-<!-- API 配置：由后端 /api/config.js 动态注入 API_BASE（Electron 模式下由后端 serve，开发模式静默失败） -->
+<!-- API 配置：由后端 /api/config.js 动态注入 API_BASE（同源模式由后端 serve，开发模式静默失败） -->
 <script src="/api/config.js" onerror="/* 开发模式下 config.js 不可用，使用上面定义的默认值 */"></script>
 <script>
 

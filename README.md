@@ -1,6 +1,6 @@
 # Self Grow — 个人成长系统
 
-> 一个原生 HTML/CSS/JS 单页应用 + FastAPI 后端 + Electron 桌面的个人成长追踪系统。包含等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（支持 AI 生成节点）、**表达训练系统（AI 出题 + 实时评分 + 填充词检测）**，已完成桌面版打包（绿色版 zip）。
+> 一个原生 HTML/CSS/JS 单页应用 + FastAPI 后端的个人成长追踪系统。包含等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（支持 AI 生成节点）、**表达训练系统（AI 出题 + 实时评分 + 填充词检测）**。部署方式为纯 Web + Docker。
 
 ---
 
@@ -10,9 +10,6 @@
 self_grow_system/
 ├── README.md                         # 项目文档（本文件）
 ├── CLAUDE.md                         # Claude Code 代码指引
-├── build.bat                         # 桌面应用一键构建脚本（Windows）
-├── dev.bat                           # 开发模式一键启动（Windows）
-├── dev.sh                            # 开发模式一键启动（Unix）
 ├── index.html                        # 根入口 → 自动跳转 login.html
 ├── login.html                        # 登录页（调用后端 API 选择用户）
 │
@@ -66,7 +63,7 @@ self_grow_system/
 │
 ├── backend/                          # 后端 FastAPI 服务（模块化架构）
 │   ├── main.py                       # 入口点：app 工厂、生命周期、路由注册、定时任务
-│   ├── config.py                     # 配置从 .env 加载（AI 端点、Key、模型、端口），支持打包模式
+│   ├── config.py                     # 配置从 .env 加载（AI 端点、Key、模型、端口、前端目录）
 │   ├── database.py                   # 向后兼容层（re-export from db/ 子模块）
 │   │
 │   ├── models/                       # 数据模型
@@ -129,24 +126,19 @@ self_grow_system/
 │   │
 │   ├── .env                          # AI 配置（端点、Key、模型）
 │   ├── .env.example                  # 配置模板
-│   ├── pixi.toml                     # pixi 环境（Python 3.12 + FastAPI + httpx + APScheduler）
+│   ├── pixi.toml                     # pixi 环境（Python 3.12 + FastAPI + httpx + APScheduler）— 依赖唯一事实源
+│   ├── requirements.txt              # 由 pixi 锁定的版本导出（供 pip / Docker 安装）
+│   ├── tools/export_reqs.py          # 从 pixi 导出 requirements.txt
 │   ├── test_hints.json               # 表达训练提示测试数据
 │   └── data.db                       # SQLite 数据库文件（首次启动自动创建）
 │
-├── desktop/                          # Electron 桌面应用
-│   ├── main.js                       # 主进程：启动后端 exe、创建窗口、进程管理
-│   ├── preload.js                    # 预加载脚本
-│   ├── package.json                  # Electron 应用配置
-│   ├── make-portable.js              # 绿色版构建脚本
-│   └── dist/                         # 构建产出（gitignored）
-│       └── SelfGrow/                 # 绿色版应用目录
-│
 ├── docs/                             # 项目文档
-│   ├── 1.0版本审查报告.md            # v1.0 上线前全面审查（23 条发现）
-│   ├── 1.0版本修复方案.md            # 修复方案文档
-│   ├── 打包与更新指南.md             # 桌面应用打包与更新流程
+│   ├── Docker部署方案.md             # Docker 生产部署方案
+│   ├── 前端浏览器缓存与存储详解.md     # 浏览器缓存与存储
+│   ├── 统一协调Agent设计方案.md       # 统一协调 Agent 设计
+│   ├── 数据库知识深入学习指南.md       # 数据库学习资料
+│   ├── 网络知识深入学习指南.md         # 网络学习资料
 │   ├── 维度经验计分规则.md           # 8 维经验计算规则详情
-│   ├── 项目开发规划.md              # 后续开发规划
 │   ├── 压测说明.md                   # Locust 压测方案与结果
 │   └── 手机版部署方案.md            # 移动端部署方案
 │
@@ -183,7 +175,7 @@ self_grow_system/
 
 ```bash
 cd backend
-pixi run python main.py
+pixi run start
 # 服务运行在 http://localhost:3001
 ```
 
@@ -209,17 +201,7 @@ python -m http.server 3000
 # 流程：/ → login.html → 选择用户 → frontend/index.html（SPA 主页）
 ```
 
-### 3. 一键启动（开发模式）
-
-```bash
-# Windows
-dev.bat
-
-# Unix/Mac
-bash dev.sh
-```
-
-### 4. AI 代理配置（可选）
+### 3. AI 代理配置（可选）
 
 ```bash
 cd backend
@@ -240,14 +222,19 @@ AI 功能支持四个场景：
 - **习惯分析**：智能洞察分析 + 自动推荐习惯图标
 - **表达训练**：AI 出题（查重避免重复）+ AI 评分（四维打分 + 填充词统计）+ 智能提示生成
 
-### 5. 桌面应用打包
+### 4. 生产部署（Docker）
+
+详细步骤见 [`docs/Docker部署方案.md`](docs/Docker部署方案.md)：
 
 ```bash
-build.bat
-# 构建产出：desktop/dist/SelfGrow/Self Grow.exe（绿色版）
+# 在项目根目录（与 .gitignore 同级）放置 Dockerfile / .dockerignore / docker-compose.yml
+echo "AI_API_KEY=你的真实API密钥" > .env      # AI 配置，不会提交到 git
+
+docker compose up -d
+# 浏览器访问 http://服务器IP:3001
 ```
 
-详细打包指南见 [`docs/打包与更新指南.md`](docs/打包与更新指南.md)。
+镜内依赖安装走 `backend/requirements.txt`（由 `pixi run export-reqs` 从 pixi 锁定版本生成，与开发环境版本一致）。
 
 ---
 
@@ -260,9 +247,9 @@ build.bat
 | **状态管理** | AppData 全局对象 + localStorage（仅登录状态）+ 后端 SQLite 持久化 |
 | **后端** | Python FastAPI + httpx + SQLite |
 | **定时任务** | APScheduler 3.x（每日 03:00 / 每周一 03:00） |
-| **环境** | pixi（conda-forge，Python 3.12） |
+| **环境** | pixi（conda-forge，Python 3.12）— 依赖唯一事实源 |
 | **AI** | OpenAI 兼容 API + Function Calling / Tool Use（4 个 AI 服务） |
-| **桌面** | Electron 主进程 + PyInstaller 后端 exe + 绿色版打包 |
+| **部署** | Docker（FastAPI 同时提供 API 与前端静态资源） |
 
 ---
 
@@ -365,7 +352,6 @@ build.bat
 | P6 | 奖励商城（条件评估引擎 + 图片上传） | ✅ 已完成 |
 | P7 | 全端联调 + 后端模块化重构 | ✅ 已完成 |
 | — | v1.0 上线前审查修复（17 条） | ✅ 已完成 |
-| — | 桌面应用打包（Electron + PyInstaller） | ✅ 已完成 |
 | — | AI 行动解析服务 | ✅ 已完成 |
 | — | 习惯 AI 分析服务 | ✅ 已完成 |
 | — | 技能树后端持久化（替代 localStorage） | ✅ 已完成 |
@@ -513,26 +499,29 @@ build.bat
 - AI 服务在 `backend/services/` — 四个 AI 服务场景独立封装
 - AI 提示词在 `backend/prompts/` — 每个功能独立文件
 - 等级公式唯一来源：`backend/models/level.py`
-- 运行测试：`cd backend && pixi run pytest`
+- 运行测试：`cd backend && pixi run test`
+- 依赖唯一事实源：`backend/pixi.toml`；导出锁定板到 pip/Docker：`cd backend && pixi run export-reqs`
 
-### 桌面应用打包
+### 生产部署（Docker）
 
-详细打包指南见 [`docs/打包与更新指南.md`](docs/打包与更新指南.md)。
+详细部署方案见 [`docs/Docker部署方案.md`](docs/Docker部署方案.md)。
 
-**架构**：Electron 主进程启动 PyInstaller 打包的后端 exe → 轮询 `/api/health` 等待就绪 → 加载前端页面
+**架构**：FastAPI 同时提供 API 与前端静态资源，通过 `SELF_GROW_FRONTEND_DIR` 环境变量指向容器内 `/app/frontend`。
 
-| 产物 | 路径 | 大小 |
-|------|------|------|
-| 后端 exe | `backend/dist/self-grow-backend/` | ~56 MB |
-| 绿色版目录 | `desktop/dist/SelfGrow/` | ~325 MB |
-| 绿色版 zip | `desktop/dist/SelfGrow-v{版本}-portable.zip` | ~136 MB |
+| 环节 | 说明 |
+|------|------|
+| 镜像 | `python:3.12-slim`，`pip install -r backend/requirements.txt`（版本与 pixi 开发环境一致） |
+| 数据 | `data.db` 与 `uploads/` 存 Docker 卷，容器删除数据不丢 |
+| 前端 | `SELF_GROW_FRONTEND_DIR=/app/frontend`，由 FastAPI 自动 serve |
+| AI 配置 | `.env` 传入 `AI_API_KEY` 等，不写入镜像 |
 
-**按改动范围分步打包**：
-- 仅前端 → 替换 `desktop/dist/SelfGrow/resources/frontend/` 后 `node make-portable.js`
-- 仅后端 → 重新 `pixi run pyinstaller --clean --noconfirm self_grow_server.spec` 后替换
-- 前后端都改 → `build.bat` 一键完成
-
-**打包模式数据目录**：`%APPDATA%/SelfGrow/`（独立于安装目录，更新不丢失）
+**依赖同步流程**（避免开发/生产版本漂移）：
+```bash
+cd backend
+pixi update            # 更新 pixi 环境 & 锁定
+pixi run export-reqs   # 将锁定版本写入 requirements.txt
+cd .. && docker compose build --no-cache && docker compose up -d --force-recreate
+```
 
 ---
 
@@ -551,11 +540,10 @@ build.bat
 
 ---
 
-## v1.0 已知限制
+## 已知限制
 
-参见 [`docs/1.0版本审查报告.md`](docs/1.0版本审查报告.md) 完整 23 条发现。主要未修复项：
+v1.0 上线前全面审查报告（原 `docs/1.0版本审查报告.md`，已归档）。主要遗留项：
 
-- 作息规律连续天数持久化已修复（`routine_streak` 表替代内存缓存）
 - 异步渲染函数缺少 `await` 可能引发竞态（**中优先级，待修复**）
 - `int(dimension_exp)` 截断而非四舍五入（**中优先级，待修复**）
 - 数据库连接未使用上下文管理器（**低优先级**）

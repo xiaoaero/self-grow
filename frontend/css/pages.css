@@ -2093,6 +2093,47 @@
     text-align: center;
 }
 
+/* SVG 图标样式（模态框预览 & 卡片渲染） */
+#ai-icon-preview {
+    overflow: hidden;
+    line-height: 0;
+}
+#ai-icon-preview svg {
+    width: 28px !important;
+    height: 28px !important;
+    max-width: 28px !important;
+    max-height: 28px !important;
+    display: block;
+}
+.habit-card__icon-svg {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+    width: 18px;
+    height: 18px;
+    overflow: hidden;
+    flex-shrink: 0;
+    line-height: 0;
+}
+.habit-card__icon-svg svg {
+    width: 18px !important;
+    height: 18px !important;
+    max-width: 18px !important;
+    max-height: 18px !important;
+    display: block;
+}
+.habit-rank-item__icon {
+    overflow: hidden;
+    line-height: 0;
+}
+.habit-rank-item__icon svg {
+    width: 20px !important;
+    height: 20px !important;
+    max-width: 20px !important;
+    max-height: 20px !important;
+    display: block;
+}
+
 /* Insight items */
 .habit-insight-item {
     display: flex;
@@ -3137,6 +3178,13 @@
 }
 .ac-habit-card__emoji {
     font-size: 22px;
+    display: inline-flex;
+    align-items: center;
+}
+.ac-habit-card__emoji svg {
+    width: 22px;
+    height: 22px;
+    display: block;
 }
 .ac-habit-card__status {
     font-size: 12px;
@@ -3856,23 +3904,10 @@
 .task-history-stat--expired strong {
     color: #F26B68;
 }
+.task-history-stat--active strong {
+    color: #60A5FA;
+}
 
-/* --- Clear button --- */
-.task-history-clear-btn {
-    padding: 6px 16px;
-    border-radius: var(--radius-sm);
-    border: 1px solid rgba(242,107,104,0.3);
-    background: rgba(242,107,104,0.08);
-    color: #F26B68;
-    font-size: 12px;
-    font-family: var(--font-family);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-.task-history-clear-btn:hover {
-    background: rgba(242,107,104,0.18);
-    border-color: rgba(242,107,104,0.5);
-}
 
 /* --- Card list --- */
 .task-history-list {
@@ -3925,6 +3960,13 @@
 .task-history-card__status--expired {
     background: rgba(242,107,104,0.12);
     color: #F26B68;
+}
+.task-history-card__status--active {
+    background: rgba(96,165,250,0.12);
+    color: #60A5FA;
+}
+.task-history-card--active {
+    border-left: 3px solid #60A5FA;
 }
 .task-history-card__exp {
     font-size: 13px;
@@ -4405,6 +4447,14 @@
     flex-shrink: 0;
     width: 24px;
     text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.dash-habit-item__icon svg {
+    width: 18px;
+    height: 18px;
+    display: block;
 }
 .dash-habit-item__name {
     flex: 1;
@@ -5575,6 +5625,67 @@
 .expr__custom-input::placeholder {
     color: var(--color-text-muted);
     font-size: 13px;
+}
+/* 自定义问题模式选择 + AI 美化 */
+.expr__custom-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+.expr__custom-select {
+    padding: 5px 10px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.expr__custom-select:focus {
+    border-color: var(--color-accent);
+}
+.expr__beautify-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.expr__beautify-btn {
+    padding: 5px 12px;
+    font-size: 12px;
+    background: linear-gradient(135deg, #8B5CF6, #A78BFA);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+.expr__beautify-btn:hover:not(:disabled) {
+    opacity: 0.85;
+}
+.expr__beautify-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.expr__undo-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+    background: transparent;
+    color: var(--color-text-secondary);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+.expr__undo-btn:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
 }
 .expr__detail-ai-btn {
     display: inline-flex !important;

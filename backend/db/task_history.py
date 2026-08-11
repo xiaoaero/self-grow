@@ -8,18 +8,25 @@ from db.connection import get_conn
 
 
 def get_task_history(user_id: int, page: int = 1, page_size: int = 20,
-                     status: str = None, source_type: str = None) -> dict:
-    """分页查询任务历史，按 archived_at DESC 排序"""
+                     status: str = None, source_type: str = None,
+                     category: str = None, sort: str = "newest") -> dict:
+    """分页查询任务历史，支持筛选和排序"""
     conn = get_conn()
     where_clauses = ["user_id = ?"]
     where_params = [user_id]
 
     if status and status != "all":
-        where_clauses.append("status = ?")
-        where_params.append(status)
+        if status == "completed":
+            where_clauses.append("status IN ('completed', 'done')")
+        else:
+            where_clauses.append("status = ?")
+            where_params.append(status)
     if source_type and source_type != "all":
         where_clauses.append("source_type = ?")
         where_params.append(source_type)
+    if category and category != "all":
+        where_clauses.append("category = ?")
+        where_params.append(category)
 
     where_sql = " AND ".join(where_clauses)
 
@@ -29,9 +36,22 @@ def get_task_history(user_id: int, page: int = 1, page_size: int = 20,
     ).fetchone()
     total = count_row["cnt"]
 
+    # 计算总页数，修正超出范围的页码
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+    if page > total_pages:
+        page = total_pages
+
+    order_map = {
+        "newest": "archived_at DESC, id DESC",
+        "oldest": "archived_at ASC, id ASC",
+        "exp-high": "exp DESC, archived_at DESC",
+        "exp-low": "exp ASC, archived_at DESC",
+    }
+    order_sql = order_map.get(sort, "archived_at DESC, id DESC")
+
     offset = (page - 1) * page_size
     rows = conn.execute(
-        f"SELECT * FROM task_history WHERE {where_sql} ORDER BY archived_at DESC, id DESC LIMIT ? OFFSET ?",
+        f"SELECT * FROM task_history WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
         where_params + [page_size, offset],
     ).fetchall()
     conn.close()
@@ -86,16 +106,3 @@ def archive_tasks_to_history(conn, user_id: int, source_types: list, date_start:
     )
 
     return len(rows)
-
-
-def clear_task_history(user_id: int) -> int:
-    """清空用户的任务历史"""
-    conn = get_conn()
-    cursor = conn.execute(
-        "DELETE FROM task_history WHERE user_id = ?",
-        (user_id,),
-    )
-    deleted = cursor.rowcount
-    conn.commit()
-    conn.close()
-    return deleted

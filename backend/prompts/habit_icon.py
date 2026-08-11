@@ -1,8 +1,4 @@
-"""
-Self Grow — 习惯图标设计 AI 提示词
-
-根据习惯的名称、简介、维度分类，生成 SVG 图标。
-"""
+"""Self Grow — 习惯图标设计 AI 提示词"""
 
 HABIT_ICON_SYSTEM_PROMPT = """你是一个 SVG 图标设计师。根据用户提供的习惯信息，生成一个简洁美观的 SVG 图标。
 
@@ -25,7 +21,6 @@ HABIT_ICON_SYSTEM_PROMPT = """你是一个 SVG 图标设计师。根据用户提
 - soul（魅力）：#FBBF24
 
 ## 输出要求
-- 只输出纯 SVG 代码，不要 markdown 包裹（不要 ```svg ```），不要额外说明
+- 只输出纯 SVG 代码，不要 markdown 包裹，不要额外说明
 - SVG 标签包含 xmlns="http://www.w3.org/2000/svg"
-- 确保 SVG 是有效的、可渲染的
-"""
+- 确保 SVG 是有效的、可渲染的"""

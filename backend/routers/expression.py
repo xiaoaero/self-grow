@@ -22,7 +22,7 @@ from db.expressions import (
     get_question_history_list,
     get_recent_answers,
 )
-from services.expression_service import generate_question, evaluate_answer, generate_hints
+from services.expression_service import generate_question, evaluate_answer, generate_hints, beautify_question
 from services.asr_service import ASRConnection
 from routers.deps import get_current_user
 
@@ -293,6 +293,19 @@ async def api_get_answer_detail(answer_id: int, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="回答记录不存在")
 
     return _format_answer(answer)
+
+
+@router.post("/api/expression/beautify")
+async def api_beautify_question(
+    req: dict,
+    user=Depends(get_current_user),
+):
+    """AI 美化自定义问题"""
+    text = (req.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="输入内容不能为空")
+    beautified = await beautify_question(text)
+    return {"beautified": beautified, "original": text}
 
 
 # ================================================================

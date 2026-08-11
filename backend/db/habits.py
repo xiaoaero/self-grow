@@ -2,8 +2,54 @@
 Self Grow — 习惯 CRUD + 打卡记录
 """
 
+import re
+from xml.etree import ElementTree
+
 from db.connection import get_conn
 import datetime
+
+
+def sanitize_icon(icon):
+    """icon 写入前的合法性兜底。
+
+    - 空 / emoji / 普通文本：原样放行
+    - 以 <svg 开头：必须是白名单内的合法 SVG，否则置空
+    （AI 图标走 /api/habits/ai-icon 时已在服务层校验，这里防御直接调 API 的写入）
+    """
+    if not icon:
+        return ''
+    if str(icon).strip().lower().startswith('<svg'):
+        return icon if validate_svg(icon) else ''
+    return icon
+
+
+def validate_svg(svg: str) -> bool:
+    """SVG 白名单校验（独立实现，避免与 services 层循环依赖）。
+
+    与 services/ai_habit_service.py 中的校验规则保持一致。
+    """
+    if not svg or not str(svg).strip():
+        return False
+    try:
+        root = ElementTree.fromstring(svg)
+    except ElementTree.ParseError:
+        return False
+    local = root.tag.split("}", 1)[1] if "}" in root.tag else root.tag
+    if local.lower() != "svg":
+        return False
+    allowed = {"svg", "g", "path", "rect", "circle", "ellipse", "line",
+               "polyline", "polygon"}
+    for el in root.iter():
+        tag = el.tag.lower()
+        if "}" in tag:
+            tag = tag.split("}", 1)[1]
+        if tag not in allowed:
+            return False
+        for attr in el.attrib:
+            al = attr.lower()
+            if al.startswith("on") or al in ("href", "xlink:href"):
+                return False
+    return True
 
 
 # ================================================================
@@ -36,7 +82,7 @@ def create_habit(user_id: int, name: str, icon: str, intro: str, category: str,
     cursor = conn.execute(
         """INSERT INTO habits (user_id, name, icon, intro, category, weekly_target, xp_reward)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (user_id, name, icon or '✅', intro, category, weekly_target, xp_reward),
+        (user_id, name, sanitize_icon(icon), intro, category, weekly_target, xp_reward),
     )
     new_id = cursor.lastrowid
     conn.commit()
@@ -54,6 +100,8 @@ def update_habit(habit_id: int, name: str = None, icon: str = None, intro: str =
                  ('category', category), ('weekly_target', weekly_target),
                  ('xp_reward', xp_reward), ('active', active)]:
         if v is not None:
+            if k == 'icon':
+                v = sanitize_icon(v)
             fields.append(f"{k} = ?")
             values.append(v)
     if not fields:

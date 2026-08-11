@@ -148,7 +148,7 @@ function renderPendingHabits() {
                 const cat = getCategory(h.category);
                 return `
                     <div class="dash-habit-item">
-                        <span class="dash-habit-item__icon">${h.icon}</span>
+                        <span class="dash-habit-item__icon">${renderHabitIcon(h.icon)}</span>
                         <span class="dash-habit-item__name">${h.name}</span>
                         <span class="dash-habit-item__cat" style="color:${cat ? cat.color : '#9ca3af'}">${cat ? cat.name : ''}</span>
                         <span class="dash-habit-item__streak">🔥 ${h.streak}天</span>

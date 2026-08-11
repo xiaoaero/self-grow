@@ -1,133 +1,68 @@
 """
-Self Grow — AI 习惯分析服务
+Self Grow — AI 习惯服务
 
-使用 LangChain + OpenAI 兼容 API 对用户习惯数据进行分析并给出建议。
-提示词从 prompts/ 模块导入，AI 调用通过 ai_client 统一处理。
+AI 图标设计（SVG 生成 + 白名单校验）。
+习惯 AI 分析功能已移除，待重新设计。
 """
 
-import json
 import logging
-from datetime import datetime, date
+import re
+from xml.etree import ElementTree
 
 from fastapi import HTTPException
 
 from config import AI_API_KEY
-from prompts import HABIT_ANALYSIS_SYSTEM_PROMPT, HABIT_ICON_SYSTEM_PROMPT
+from prompts import HABIT_ICON_SYSTEM_PROMPT
 from services.ai_client import call_ai_text
-from db.habits import get_habits, get_all_checkins_in_range
 
 log = logging.getLogger(__name__)
 
+# SVG 图标白名单：只允许纯图形标签，杜绝 script/foreignObject/image 等危险元素
+SVG_ALLOWED_TAGS = {"svg", "g", "path", "rect", "circle", "ellipse", "line",
+                    "polyline", "polygon"}
 
-async def call_ai_for_habits(user_id: int, date_from: str, date_to: str) -> str:
-    """调用 AI 分析习惯数据，返回分析报告文本"""
-    if not AI_API_KEY:
-        raise HTTPException(status_code=500, detail="AI_API_KEY 未配置")
 
-    # 1. 查询用户习惯
-    habits = get_habits(user_id)
-    active_habits = [h for h in habits if h["active"]]
+def extract_svg(text: str) -> str:
+    """从 AI 回复中提取第一个 <svg>...</svg> 块。
 
-    if not active_habits:
-        return "📭 还没有习惯数据可供分析，请先创建一些习惯吧！"
+    兼容 ```svg / ```XML / ```html 等任意 markdown 语言标注，
+    以及前后夹杂说明文字的情况。
+    """
+    m = re.search(r"<svg[\s\S]*?</svg>", text, re.IGNORECASE)
+    return m.group(0) if m else ""
 
-    # 2. 查询打卡记录
-    checkins = get_all_checkins_in_range(user_id, date_from, date_to)
 
-    # 3. 构建习惯数据摘要
-    habit_map = {h["id"]: h for h in active_habits}
+def validate_svg(svg: str) -> bool:
+    """校验 SVG 是否为合法的纯图形 XML。
 
-    # 按日期和习惯组织打卡数据
-    checkin_by_date = {}
-    for c in checkins:
-        d = c["date"]
-        if d not in checkin_by_date:
-            checkin_by_date[d] = {}
-        checkin_by_date[d][c["habit_id"]] = c["status"]
-
-    # 统计每个习惯的完成情况
-    habit_stats = []
-    for h in active_habits:
-        done_count = 0
-        skip_count = 0
-        total_days = 0
-
-        # 遍历日期范围内的每一天
-        d_from = date.fromisoformat(date_from)
-        d_to = date.fromisoformat(date_to)
-        current = d_from
-        while current <= d_to:
-            total_days += 1
-            d_str = current.isoformat()
-            status = checkin_by_date.get(d_str, {}).get(h["id"])
-            if status == "done":
-                done_count += 1
-            elif status == "skipped":
-                skip_count += 1
-            current = date.fromordinal(current.toordinal() + 1)
-
-        habit_stats.append({
-            "name": h["name"],
-            "icon": h["icon"] or "✅",
-            "category": h["category"],
-            "weekly_target": h["weekly_target"],
-            "done_count": done_count,
-            "skip_count": skip_count,
-            "total_days": total_days,
-            "completion_rate": round(done_count / total_days * 100) if total_days > 0 else 0,
-        })
-
-    # 维度汇总
-    dim_map = {
-        "health": "健康", "study": "学习", "relation": "关系",
-        "work": "工作", "create": "创作", "finance": "财务",
-        "hobby": "爱好", "soul": "魅力",
-    }
-    dim_stats = {}
-    for s in habit_stats:
-        cat = s["category"]
-        if cat not in dim_stats:
-            dim_stats[cat] = {"done": 0, "total": 0, "habits": []}
-        dim_stats[cat]["done"] += s["done_count"]
-        dim_stats[cat]["total"] += s["total_days"]
-        dim_stats[cat]["habits"].append(s["name"])
-
-    dim_summary = []
-    for cat_id, ds in dim_stats.items():
-        dim_summary.append({
-            "dimension": dim_map.get(cat_id, cat_id),
-            "completion_rate": round(ds["done"] / ds["total"] * 100) if ds["total"] > 0 else 0,
-            "habit_count": len(ds["habits"]),
-            "habit_names": ds["habits"],
-        })
-    dim_summary.sort(key=lambda x: -x["completion_rate"])
-
-    # 4. 构建发送给 AI 的消息
-    data_summary = {
-        "分析时间范围": f"{date_from} ~ {date_to}",
-        "总天数": (date.fromisoformat(date_to) - date.fromisoformat(date_from)).days + 1,
-        "习惯总数": len(active_habits),
-        "各习惯完成情况": habit_stats,
-        "各维度完成率": dim_summary,
-    }
-
-    data_json = json.dumps(data_summary, ensure_ascii=False, indent=2)
-
-    # 5. 通过统一客户端调用 AI
+    - 能被 XML 解析
+    - 所有标签在白名单内
+    - 剥离后仍以 <svg 开头（防止 AI 返回 <g> 等碎片）
+    """
+    if not svg.strip():
+        return False
     try:
-        user_message = f"请分析以下习惯数据：\n\n```json\n{data_json}\n```"
-        log.info(f"→ AI 习惯分析请求: {date_from} ~ {date_to}, {len(active_habits)} 个习惯")
-        content = await call_ai_text(
-            system_prompt=HABIT_ANALYSIS_SYSTEM_PROMPT,
-            user_message=user_message,
-            max_tokens=2048,
-        )
-        log.info(f"← AI 习惯分析完成: {len(content)} 字符")
-        return content
-
-    except Exception as e:
-        log.exception("AI 习惯分析调用失败")
-        raise HTTPException(status_code=500, detail=f"AI 分析失败: {str(e)}")
+        root = ElementTree.fromstring(svg)
+    except ElementTree.ParseError:
+        return False
+    if root.tag.lower() != "svg":
+        # 带默认命名空间时 tag 为 {ns}svg，取本地名比较
+        local = root.tag.split("}", 1)[1] if "}" in root.tag else root.tag
+        if local.lower() != "svg":
+            return False
+    for el in root.iter():
+        tag = el.tag.lower()
+        # 命名空间前缀（如 {http://www.w3.org/2000/svg}path）
+        if "}" in tag:
+            tag = tag.split("}", 1)[1]
+        if tag not in SVG_ALLOWED_TAGS:
+            return False
+        # 拒绝事件属性（onload/onclick...）与外部引用属性（href/xlink:href），防 XSS
+        for attr in el.attrib:
+            al = attr.lower()
+            if al.startswith("on") or al in ("href", "xlink:href"):
+                return False
+    return True
 
 
 async def call_ai_for_icon(name: str, intro: str, category: str) -> str:
@@ -150,21 +85,22 @@ async def call_ai_for_icon(name: str, intro: str, category: str) -> str:
             system_prompt=HABIT_ICON_SYSTEM_PROMPT,
             user_message=user_message,
             temperature=0.8,
-            max_tokens=1024,
+            max_tokens=10000,
         )
-        # 清理可能存在的 markdown 包裹
-        svg = svg.strip()
-        if svg.startswith("```svg"):
-            svg = svg[6:]
-        elif svg.startswith("```"):
-            svg = svg[3:]
-        if svg.endswith("```"):
-            svg = svg[:-3]
+        # 提取 <svg> 块（兼容 markdown 包裹与前后杂文），再做合法性校验
+        svg = extract_svg(svg)
+        if not validate_svg(svg):
+            log.warning(f"✗ AI 图标校验未通过: {len(svg)} 字符")
+            raise HTTPException(
+                status_code=502,
+                detail="AI 生成的图标无效，请重试",
+            )
 
-        svg = svg.strip()
         log.info(f"← AI 图标设计完成: {len(svg)} 字符")
         return svg
 
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception("AI 图标设计调用失败")
         raise HTTPException(status_code=500, detail=f"AI 图标设计失败: {str(e)}")

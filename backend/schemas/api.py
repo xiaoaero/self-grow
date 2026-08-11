@@ -5,7 +5,7 @@ Self Grow — Pydantic 请求/响应模型
 """
 
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ================================================================
@@ -44,7 +44,7 @@ class ExpAddRequest(BaseModel):
 # ================================================================
 class CreateHabitRequest(BaseModel):
     name: str
-    icon: str = '✅'
+    icon: str = ''
     intro: str = ''
     category: str
     weekly_target: int = 7
@@ -238,17 +238,9 @@ class ManualConfirmRequest(BaseModel):
 
 
 # ================================================================
-# 习惯 AI 分析
-# ================================================================
-class HabitAIInsightRequest(BaseModel):
-    date_from: str  # ISO date: YYYY-MM-DD
-    date_to: str  # ISO date: YYYY-MM-DD
-
-
-# ================================================================
 # 习惯 AI 图标设计
 # ================================================================
 class HabitAIIconRequest(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1)
     intro: str = ""
     category: str

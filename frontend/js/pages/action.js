@@ -461,16 +461,15 @@ function renderSubTypeArea(catId) {
         subTypeHtml += '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">';
         subTypeHtml += '<span style="font-size:13px">😴 睡觉</span>';
         subTypeHtml += '<input type="time" class="input" style="width:130px;padding:6px 10px" value="' + actionSleepStart + '" ' +
-            'onchange="actionSleepStart=this.value;updateDynamicForm()">';
+            'onchange="actionSleepStart=this.value;updateSleepPreview()">';
         subTypeHtml += '<span style="font-size:13px">→ 起床</span>';
         subTypeHtml += '<input type="time" class="input" style="width:130px;padding:6px 10px" value="' + actionSleepEnd + '" ' +
-            'onchange="actionSleepEnd=this.value;updateDynamicForm()">';
+            'onchange="actionSleepEnd=this.value;updateSleepPreview()">';
         subTypeHtml += '</div>';
-        // 睡眠时长和经验的实时预览
-        if (actionSleepStart && actionSleepEnd) {
-            var sleepInfo = calcSleepPreview(actionSleepStart, actionSleepEnd);
-            subTypeHtml += '<div style="margin-top:8px;font-size:12px;color:var(--color-accent-light)">' + sleepInfo + '</div>';
-        }
+        // 睡眠时长和经验的实时预览（用ID元素，方便 updateSleepPreview 更新）
+        subTypeHtml += '<div id="sleep-duration-preview" style="margin-top:8px;font-size:12px;color:var(--color-accent-light)">'
+            + (actionSleepStart && actionSleepEnd ? calcSleepPreview(actionSleepStart, actionSleepEnd) : '')
+            + '</div>';
         // 规律作息状态
         subTypeHtml += '<div id="routine-status-display" style="margin-top:6px;font-size:12px;color:var(--color-text-muted)">加载规律状态...</div>';
         subTypeHtml += '</div>'; // sleep-input-area
@@ -763,6 +762,57 @@ function updateDynamicForm() {
     }
 }
 
+/** 记录睡眠后设置今日已记录标记（持久化到 localStorage） */
+function markSleepRecordedToday() {
+    var today = new Date().toISOString().slice(0, 10);
+    window._sleepRecordedToday = true;
+    try { localStorage.setItem('sg_sleep_recorded_date', today); } catch(e) {}
+}
+
+/** 检查今日是否已记录睡眠（优先从 localStorage 读取，避免异步竞争） */
+function isSleepRecordedToday() {
+    if (window._sleepRecordedToday) return true;
+    try {
+        var saved = localStorage.getItem('sg_sleep_recorded_date');
+        if (saved === new Date().toISOString().slice(0, 10)) {
+            window._sleepRecordedToday = true;
+            return true;
+        }
+    } catch(e) {}
+    return false;
+}
+function updateSleepPreview() {
+    // 更新睡眠时长预览
+    var sleepPreviewEl = document.getElementById('sleep-duration-preview');
+    if (!sleepPreviewEl) {
+        // 如果没有预览元素，动态创建一个
+        var inputArea = document.getElementById('sleep-input-area');
+        if (inputArea && actionSleepStart && actionSleepEnd) {
+            var oldPreview = inputArea.querySelector('.sleep-preview');
+            if (!oldPreview) {
+                var div = document.createElement('div');
+                div.className = 'sleep-preview';
+                div.id = 'sleep-duration-preview';
+                div.style.cssText = 'margin-top:8px;font-size:12px;color:var(--color-accent-light)';
+                inputArea.appendChild(div);
+            }
+        }
+    }
+    if (sleepPreviewEl) {
+        if (actionSleepStart && actionSleepEnd) {
+            sleepPreviewEl.textContent = calcSleepPreview(actionSleepStart, actionSleepEnd);
+        } else {
+            sleepPreviewEl.textContent = '';
+        }
+    }
+    // 更新EXP预览
+    updateExpPreview();
+    // 更新规律状态
+    if (selectedActionCategory === 'health' && actionSubType === 'health-sleep') {
+        loadRoutineStatus();
+    }
+}
+
 /** 异步加载规律作息状态 */
 async function loadRoutineStatus() {
     try {
@@ -788,12 +838,10 @@ async function checkSleepRecordedToday() {
     try {
         var curUser = getCurrentUser();
         if (!curUser) return;
-        // 通过今日统计接口查询最近的 health-sleep 记录
         var res = await fetch(API_BASE + '/api/actions/today-stats?user_id=' + curUser.id);
         if (!res.ok) return;
         var data = await res.json();
         var recent = data.recent_actions || [];
-        // 睡眠记录是睡醒后提交的，按提交日期（今天）判断
         var todayStr = new Date().toISOString().slice(0, 10);
         var sleepRecord = recent.find(function(r) {
             return r.sub_type === 'health-sleep'
@@ -807,15 +855,13 @@ async function checkSleepRecordedToday() {
             var wakeTime = sleepRecord.sleep_end || '--';
             checkEl.innerHTML = '<div style="padding:10px 12px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);border-radius:8px;font-size:13px;color:#fbbf24">😴 今日已记录睡眠（' + sleepTime + ' → ' + wakeTime + '），每天只能记录一次</div>';
             inputArea.style.display = 'none';
-            // 标记全局状态，阻止提交
             window._sleepRecordedToday = true;
         } else {
             checkEl.innerHTML = '';
             inputArea.style.display = '';
-            window._sleepRecordedToday = false;
+            // 不要重置 _sleepRecordedToday，让 localStorage 的持久标记控制
         }
     } catch(e) {
-        // catch 中不改变 _sleepRecordedToday，保留之前的状态
         console.warn('检查睡眠记录失败', e);
     }
 }
@@ -1116,11 +1162,13 @@ function submitAction() {
     // 检查子类型选择
     const rule = DIMENSION_RULES[selectedActionCategory];
     if (rule && rule.hasSubTypes) {
-        // 健康维度需要判断睡眠/运动
+        // 健康维度必须显式选择子类型，不再自动推断
         if (selectedActionCategory === 'health') {
-            if (!actionSleepStart && !actionSleepEnd) {
-                // 运动模式，不需要额外检查
-            } else if (!actionSleepStart || !actionSleepEnd) {
+            if (!actionSubType) {
+                showToast('请选择运动或睡眠', 'error');
+                return;
+            }
+            if (actionSubType === 'health-sleep' && (!actionSleepStart || !actionSleepEnd)) {
                 showToast('请填写完整的睡眠时间（睡觉和起床时间）', 'error');
                 return;
             }
@@ -1134,7 +1182,7 @@ function submitAction() {
     const submitDuration = getSubmitDuration(selectedActionCategory);
 
     // 前端拦截：今日已记录睡眠
-    if (subType === 'health-sleep' && window._sleepRecordedToday) {
+    if (subType === 'health-sleep' && isSleepRecordedToday()) {
         showToast('今日已记录睡眠，每天只能记录一次', 'error');
         return;
     }
@@ -1279,6 +1327,12 @@ function confirmSubmitAction() {
             actionStartMin = newNow.getMinutes();
             actionSleepStart = '';
             actionSleepEnd = '';
+            actionSubType = '';
+            selectedActionCategory = '';
+            // 立即标记今日已记录睡眠，不等异步查询
+            if (payload.sub_type === 'health-sleep') {
+                markSleepRecordedToday();
+            }
 
             renderQuickAction();
 
@@ -2105,7 +2159,7 @@ function renderModule3_HabitCheckin() {
             <div class="ac-habit-card ${checkedClass}">
                 <div class="ac-habit-card__name">${h.name}</div>
                 <div class="ac-habit-card__icon-row">
-                    <span class="ac-habit-card__emoji">${h.icon}</span>
+                    <span class="ac-habit-card__emoji">${renderHabitIcon(h.icon)}</span>
                     <span class="ac-habit-card__status">
                         <span class="ac-habit-dot ${h.todayDone ? 'ac-habit-dot--done' : ''}"></span>
                         ${h.todayDone ? '已打卡' : '未打卡'}

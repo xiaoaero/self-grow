@@ -74,7 +74,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             name TEXT NOT NULL,
-            icon TEXT NOT NULL DEFAULT '✅',
+            icon TEXT NOT NULL DEFAULT '',
             intro TEXT DEFAULT '',
             category TEXT NOT NULL,
             weekly_target INTEGER NOT NULL DEFAULT 7,
@@ -205,9 +205,6 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_tasks_user_source
         ON tasks(user_id, source_type, created_at)
     """)
-
-    # 清空旧任务数据，让 source_type 分离逻辑干净生效
-    cursor.execute("DELETE FROM tasks")
 
     # ================================================================
     # 任务历史表（定时归档）

@@ -15,6 +15,54 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.remove(), 3000);
 }
 
+/**
+ * SVG 清洗：尺寸归一 + 危险属性消毒
+ * - 剥掉 style / width / height，尺寸统一交给 CSS
+ * - 剥掉 on* 事件属性与 href/xlink:href 外链，防 XSS
+ * - 只保留纯图形标签，杜绝 script/foreignObject/image/a 等危险元素
+ */
+function sanitizeSvg(svg) {
+    if (!svg) return '';
+    let s = svg;
+
+    // 1. 提取 <svg> 块（兼容 AI 返回 markdown 包裹或前后杂文）
+    const m = s.match(/<svg[\s\S]*?<\/svg>/i);
+    if (!m) return '';
+    s = m[0];
+
+    // 2. 删除危险标签（含其内容），再删除危险属性
+    s = s.replace(/<(script|foreignObject|image|a|iframe|object|embed)[\s\S]*?<\/\1>/gi, '')
+         .replace(/<(script|foreignObject|image|a|iframe|object|embed)[^>]*>/gi, '')
+         .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+         .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+         .replace(/\s(?:href|xlink:href)\s*=\s*"[^"]*"/gi, '')
+         .replace(/\s(?:href|xlink:href)\s*=\s*'[^']*'/gi, '');
+
+    // 3. 尺寸归一：去掉 style 与内联 width/height，统一交给 CSS 控制
+    s = s.replace(/\sstyle\s*=\s*"[^"]*"/gi, '')
+         .replace(/\sstyle\s*=\s*'[^']*'/gi, '')
+         .replace(/\s*width\s*=\s*"[^"]*"/gi, '')
+         .replace(/\s*width\s*=\s*'[^']*'/gi, '')
+         .replace(/\s*height\s*=\s*"[^"]*"/gi, '')
+         .replace(/\s*height\s*=\s*'[^']*'/gi, '');
+
+    // 4. 兜底：确保有 viewBox，避免 AI 忘记输出导致缩放异常
+    if (!/viewBox\s*=/.test(s)) {
+        s = s.replace(/^<svg/i, '<svg viewBox="0 0 64 64"');
+    }
+    return s;
+}
+
+/** 渲染习惯图标：SVG 清洗后加样式包裹，文本原样显示 */
+function renderHabitIcon(icon) {
+    if (!icon) return '';
+    if (icon.trim().startsWith('<svg')) {
+        const clean = sanitizeSvg(icon);
+        return clean ? `<span class="habit-card__icon-svg">${clean}</span>` : '';
+    }
+    return icon;
+}
+
 /** Open modal */
 function openModal(title, contentHtml, clickOutsideToClose = true) {
     const overlay = document.getElementById('modal-overlay');
@@ -343,28 +391,8 @@ async function fetchHabitInsights(userId) {
     }
 }
 
-/** 从后端加载 AI 习惯分析报告 */
-async function fetchHabitAIInsights(userId, dateFrom, dateTo) {
-    try {
-        const resp = await fetch(`${API_BASE}/api/habits/ai-insights?user_id=${userId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date_from: dateFrom, date_to: dateTo }),
-        });
-        if (!resp.ok) {
-            const err = await resp.text();
-            console.warn('AI 习惯分析失败:', err);
-            return null;
-        }
-        const data = await resp.json();
-        return data.report || null;
-    } catch (e) {
-        console.warn('后端不可用，AI 习惯分析返回 null:', e);
-        return null;
-    }
-}
 
-/** AI 生成习惯图标 */
+/** AI 生成习惯图标：区分参数错误(400)与服务失败(5xx) */
 async function fetchHabitAIIcon(userId, name, intro, category) {
     try {
         const resp = await fetch(`${API_BASE}/api/habits/ai-icon?user_id=${userId}`, {
@@ -372,16 +400,24 @@ async function fetchHabitAIIcon(userId, name, intro, category) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, intro, category }),
         });
+        if (resp.status === 400) {
+            // 参数问题：后端 Pydantic 校验拦截（如空名称）
+            return { ok: false, svg: null, message: '请先填写习惯名称' };
+        }
         if (!resp.ok) {
-            const err = await resp.text();
-            console.warn('AI 图标设计失败:', err);
-            return null;
+            let message = '图标生成失败，请稍后重试';
+            try {
+                const err = await resp.json();
+                if (err && err.detail) message = err.detail;
+            } catch (_) { /* 非 JSON 错误体，用默认文案 */ }
+            console.warn('AI 图标设计失败:', message);
+            return { ok: false, svg: null, message };
         }
         const data = await resp.json();
-        return data.svg || null;
+        return { ok: true, svg: data.svg || null, message: null };
     } catch (e) {
         console.warn('后端不可用，AI 图标设计返回 null:', e);
-        return null;
+        return { ok: false, svg: null, message: '后端服务不可用，请稍后重试' };
     }
 }
 
@@ -787,19 +823,6 @@ async function deleteTaskOnBackend(taskId) {
 }
 
 /** 向后端清空历史任务 */
-async function clearTaskHistoryOnBackend(userId) {
-    try {
-        const resp = await fetch(`${API_BASE}/api/tasks/history?user_id=${userId}`, {
-            method: 'DELETE',
-        });
-        if (!resp.ok) return null;
-        return await resp.json();
-    } catch (e) {
-        console.warn('清空历史任务失败:', e);
-        return null;
-    }
-}
-
 // ================================================================
 // 定时任务模板后端工具函数
 // ================================================================

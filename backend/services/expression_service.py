@@ -14,6 +14,7 @@ from prompts.expression import (
     EXPRESSION_EVALUATE_SYSTEM_PROMPT,
     EXPRESSION_QUESTION_TOOLS,
     EXPRESSION_HINTS_SYSTEM_PROMPT,
+    EXPRESSION_BEAUTIFY_SYSTEM_PROMPT,
 )
 from db.expressions import (
     get_existing_questions,
@@ -298,6 +299,26 @@ async def _call_llm_direct(system_prompt: str, user_message: str, temperature: f
 
         data = resp.json()
         return data["choices"][0]["message"]["content"]
+
+
+async def beautify_question(text: str) -> str:
+    """调用 AI 将用户模糊的问题美化为更具体的问题"""
+    if not AI_API_KEY:
+        return text
+
+    user_message = f"请将以下表达训练题目美化为更具体、更有讨论空间的问题：\n\n{text}"
+
+    try:
+        result = await _call_llm_direct(
+            system_prompt=EXPRESSION_BEAUTIFY_SYSTEM_PROMPT,
+            user_message=user_message,
+            temperature=0.7,
+        )
+        beautified = result.strip().strip('"').strip("'").strip()
+        return beautified if beautified else text
+    except Exception as e:
+        log.exception(f"美化失败: {e}")
+        return text
 
 
 def _parse_question_result(result: dict) -> dict:

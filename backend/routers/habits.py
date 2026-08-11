@@ -11,9 +11,9 @@ from db.connection import get_conn
 from db.habits import get_habits, get_habit, create_habit, update_habit, delete_habits
 from db.habits import get_checkins_in_range, get_all_checkins_in_range, upsert_checkin, delete_checkin, calculate_streak
 from db.users import get_user
-from schemas.api import CreateHabitRequest, UpdateHabitRequest, DeleteHabitsRequest, HabitAIInsightRequest, HabitAIIconRequest
+from schemas.api import CreateHabitRequest, UpdateHabitRequest, DeleteHabitsRequest, HabitAIIconRequest
 from routers.deps import get_current_user
-from services.ai_habit_service import call_ai_for_habits, call_ai_for_icon
+from services.ai_habit_service import call_ai_for_icon
 
 router = APIRouter()
 
@@ -290,7 +290,7 @@ async def habit_stats(user=Depends(get_current_user)):
 
 @router.get("/api/habits/insights")
 async def habit_insights(user=Depends(get_current_user)):
-    """简单版习惯洞察（降级方案），AI 洞察请使用 POST /api/habits/ai-insights"""
+    """简单版习惯洞察（规则计算，无 AI）"""
     user_id = user["id"]
     habits = get_habits(user_id)
     active_habits = [h for h in habits if h["active"]]
@@ -337,30 +337,6 @@ async def habit_insights(user=Depends(get_current_user)):
         })
 
     return {"insights": insights}
-
-
-@router.post("/api/habits/ai-insights")
-async def habit_ai_insights(req: HabitAIInsightRequest, user=Depends(get_current_user)):
-    """AI 分析习惯数据，返回个性化分析报告"""
-    user_id = user["id"]
-
-    # 验证日期范围
-    try:
-        d_from = date_func.fromisoformat(req.date_from)
-        d_to = date_func.fromisoformat(req.date_to)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="日期格式无效，请使用 YYYY-MM-DD")
-
-    days = (d_to - d_from).days
-    if days < 2:
-        raise HTTPException(status_code=400, detail="时间范围至少需要3天")
-    if days > 30:
-        raise HTTPException(status_code=400, detail="时间范围最多30天")
-    if d_to > date_func.today():
-        raise HTTPException(status_code=400, detail="结束日期不能超过今天")
-
-    report = await call_ai_for_habits(user_id, req.date_from, req.date_to)
-    return {"report": report}
 
 
 @router.post("/api/habits/ai-icon")

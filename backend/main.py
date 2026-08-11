@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from config import PORT, log, UPLOAD_DIR, FRONTEND_DIR
 from db.init import init_db
 from db.users import get_all_users
-from db.batch import archive_daily_tasks, archive_weekly_tasks, refresh_daily_tasks, refresh_weekly_tasks, settle_habit_exp_for_user, snapshot_daily_stats
+from db.batch import archive_daily_tasks, archive_weekly_tasks, refresh_daily_tasks, refresh_weekly_tasks, settle_habit_exp_for_user, snapshot_daily_stats, catch_up_missed_archives
 
 # 初始化数据库
 init_db()
@@ -97,6 +97,14 @@ async def lifespan(app_instance):
         scheduler.add_job(run_weekly_refresh, CronTrigger(day_of_week='mon', hour=3, minute=5))
         scheduler.start()
         log.info("⏰ 定时任务调度器已启动")
+
+        # 启动时补归档：检查凌晨3点的任务是否因关机未执行
+        log.info("🔍 检查是否有未归档的任务...")
+        for user in get_all_users():
+            try:
+                catch_up_missed_archives(user["id"])
+            except Exception as e:
+                log.error(f"  用户 {user['id']} 补归档失败: {e}")
     except ImportError:
         log.warning("⚠️ APScheduler 未安装，定时任务不可用")
     except Exception as e:
@@ -159,7 +167,7 @@ async def serve_api_config():
 
 
 # ================================================================
-# 打包模式：后端直接 serve 前端静态文件
+# 同源模式：后端直接 serve 前端静态文件（Docker 部署 / 生产）
 # ================================================================
 
 if FRONTEND_DIR and os.path.isdir(FRONTEND_DIR):
@@ -175,7 +183,7 @@ if FRONTEND_DIR and os.path.isdir(FRONTEND_DIR):
             return FileResponse(login_path)
         return {"message": "Self Grow API running"}
 
-    log.info(f"打包模式：前端文件从 {FRONTEND_DIR} 提供")
+    log.info(f"同源模式：前端文件从 {FRONTEND_DIR} 提供")
 
 
 # ================================================================

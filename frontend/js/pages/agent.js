@@ -27,6 +27,11 @@ const STATE = {
     stats: null,
     // 自定义题目
     customQuestion: '',
+    // AI 美化
+    beautifyMode: 'raw',        // 'raw' | 'beautify'
+    rawQuestion: '',            // 原始输入
+    beautifiedQuestion: '',     // 美化后版本
+    beautifyLoading: false,     // 美化请求中
     // 历史记录（旧-按回答记录）
     history: [],
     // 计时相关
@@ -397,6 +402,16 @@ function renderTrainView() {
                     </div>
                     <!-- 自定义题目输入框 -->
                     <div class="expr__custom-question" style="margin-bottom:12px">
+                        <div class="expr__custom-header">
+                            <select class="expr__custom-select" id="expr-custom-mode">
+                                <option value="raw">原问题</option>
+                                <option value="beautify">AI 美化</option>
+                            </select>
+                            <div class="expr__beautify-actions" id="expr-beautify-actions" style="display:none">
+                                <button class="expr__beautify-btn" id="expr-beautify-btn">美化</button>
+                                <button class="expr__undo-btn" id="expr-undo-btn" style="display:none">撤回</button>
+                            </div>
+                        </div>
                         <input type="text" class="expr__custom-input" id="expr-custom-question"
                                placeholder="输入自定义题目（选填，留空则使用 AI 生成）"
                                value="${STATE.customQuestion || ''}"
@@ -786,6 +801,73 @@ function bindEvents() {
     if (genBtn) {
         genBtn.addEventListener('click', debounce(handleGenerate, 300));
     }
+
+    // 模式切换：原问题 / AI 美化
+    const modeSelect = document.getElementById('expr-custom-mode');
+    if (modeSelect) {
+        modeSelect.addEventListener('change', function () {
+            const input = document.getElementById('expr-custom-question');
+            const actions = document.getElementById('expr-beautify-actions');
+            if (this.value === 'beautify') {
+                actions.style.display = 'flex';
+                // 如果有美化版本则显示美化版，否则显示原始
+                if (STATE.beautifiedQuestion) {
+                    input.value = STATE.beautifiedQuestion;
+                    STATE.customQuestion = STATE.beautifiedQuestion;
+                }
+            } else {
+                actions.style.display = 'none';
+                // 切回原问题
+                input.value = STATE.rawQuestion || input.value;
+                STATE.customQuestion = STATE.rawQuestion || '';
+            }
+            STATE.beautifyMode = this.value;
+        });
+    }
+
+    // 美化按钮
+    const beautifyBtn = document.getElementById('expr-beautify-btn');
+    if (beautifyBtn) {
+        beautifyBtn.addEventListener('click', async function () {
+            const input = document.getElementById('expr-custom-question');
+            const rawText = input.value.trim();
+            if (!rawText) {
+                showToast('请先输入需要美化的题目', 'warning');
+                return;
+            }
+            STATE.rawQuestion = rawText;
+            this.disabled = true;
+            this.textContent = '美化中...';
+            try {
+                const res = await apiPost(`/api/expression/beautify?${getUserIdParam()}`, { text: rawText });
+                if (res && res.beautified) {
+                    STATE.beautifiedQuestion = res.beautified;
+                    input.value = res.beautified;
+                    STATE.customQuestion = res.beautified;
+                    document.getElementById('expr-undo-btn').style.display = 'inline-flex';
+                    showToast('题目已美化', 'success');
+                }
+            } catch (e) {
+                showToast('美化失败: ' + (e.message || '请稍后重试'), 'error');
+            } finally {
+                this.disabled = false;
+                this.textContent = '美化';
+            }
+        });
+    }
+
+    // 撤回按钮
+    const undoBtn = document.getElementById('expr-undo-btn');
+    if (undoBtn) {
+        undoBtn.addEventListener('click', function () {
+            const input = document.getElementById('expr-custom-question');
+            input.value = STATE.rawQuestion;
+            STATE.customQuestion = STATE.rawQuestion;
+            STATE.beautifiedQuestion = '';
+            this.style.display = 'none';
+            showToast('已撤回美化', 'info');
+        });
+    }
 }
 
 function switchTab(tabName) {
@@ -846,9 +928,11 @@ async function handleGenerate() {
                 custom_type: 'custom',
             });
             STATE.currentQuestion = result;
-            // 清空输入框
+            // 清空输入框 + 重置美化状态
             STATE.customQuestion = '';
-            // 更新输入框显示
+            STATE.rawQuestion = '';
+            STATE.beautifiedQuestion = '';
+            document.getElementById('expr-undo-btn').style.display = 'none';
             const input = document.getElementById('expr-custom-question');
             if (input) input.value = '';
         } else {
