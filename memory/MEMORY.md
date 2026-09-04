@@ -38,3 +38,13 @@
 - [2026-08-01 工作记录](2026-08-01-work.md) — AI 习惯分析性能排查（推理模型max_tokens含思考空间）+ 代码清理（删除分析功能留"更新中"占位）+ ai_client 配置优化（timeout/单例/流式接口）
 
 - [2026-08-16 工作记录](2026-08-16-work.md) — 统一协调Agent设计方案v2改写：单一Agent→主/次Agent多智能体架构 + 反问题队列(滑动窗口2) + 上下文上移主Agent；代码实施(M1)待启动
+
+- [2026-08-23 工作记录](2026-08-23-work.md) — 统一协调Agent全栈实施：后端6个子Agent(action/query/goal/task/habit/reward) + 主图LLM路由 + 前端悬浮球对话框 + API端点(chat/resume/stream)；测试遇到LLM API配额问题待解决
+
+- [2026-08-25 工作记录](2026-08-25-work.md) — Coordinator Agent反问机制实现：公共ask_user工具 + 6子Agent接入 + dispatch interrupt检测 + 前端FIFO队列(max2卡片+域名标签+跳过+输入框) + resume端点改造
+
+- [2026-08-27 工作记录](2026-08-27-work.md) — 协调Agent三段式重构(ask_user替代interrupt) + 上下文管理(近5条记录/3轮反问窗口/sessionStorage) + 经验计算修复(exp键bug+sub_type) + 工具参数完善(ID查询/category枚举/exp必填) + 前端修复(拖拽方向/反问卡片/request_id污染)
+
+- [2026-09-01 工作记录](2026-09-01-work.md) — MCP插件(24业务工具暴露+Literal约束+参数校验) + 经验幂等bug修复 + 用户中心(基础信息/多模型管理) + 模型配置持久化与动态生效(git版本号)
+
+- [2026-09-03 工作记录](2026-09-03-work.md) — 技能树编辑器8项bug修复(跨树撤销污染/连线残留/参考线失效/redo时机等) + 技能树AI审查发现双轨架构 + 技能树AI重写为LangGraph全栈改造(thread_id隔离/checkpointer防累积/确认卡片/旧/api/chat无鉴权端点下线) + CLAUDE.md/README.md按实际架构全面重写

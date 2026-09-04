@@ -158,12 +158,13 @@
     <div id="ai-panel" class="panel-open">
       <div id="ai-panel-header">
         <span>🤖 AI 助手</span>
+        <button id="btn-clear-ai" title="清空对话">🗑</button>
         <button id="btn-minimize-ai" title="折叠面板">−</button>
       </div>
       <div id="ai-chat">
         <div id="ai-messages"></div>
         <div id="ai-quick-actions">
-          <button class="ai-quick-btn" data-prompt="请为"主题名"生成一个完整的知识树，包含根节点和3-4层子节点">🎯 生成知识树</button>
+          <button class="ai-quick-btn" data-fill="true" data-prompt="请为主题「」生成一个完整的知识树，包含根节点和3-4层子节点">🎯 生成知识树</button>
           <button class="ai-quick-btn" data-prompt="请为选中的节点扩展3-5个子节点">🌿 扩展子节点</button>
           <button class="ai-quick-btn" data-prompt="请帮我优化当前知识树的结构，使其更合理">🔧 优化结构</button>
         </div>

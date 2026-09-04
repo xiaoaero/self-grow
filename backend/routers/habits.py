@@ -344,7 +344,7 @@ async def habit_ai_icon(req: HabitAIIconRequest, user=Depends(get_current_user))
     """AI 根据习惯信息生成 SVG 图标"""
     if not req.name.strip():
         raise HTTPException(status_code=400, detail="习惯名称不能为空")
-    svg = await call_ai_for_icon(req.name, req.intro, req.category)
+    svg = await call_ai_for_icon(req.name, req.intro, req.category, user["id"])
     return {"svg": svg}
 
 

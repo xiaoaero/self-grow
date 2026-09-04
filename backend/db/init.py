@@ -301,6 +301,23 @@ def init_db():
         )
     """)
 
+    # 模型配置表（LLM / ASR）
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS model_configs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            model TEXT NOT NULL,
+            base_url TEXT NOT NULL DEFAULT '',
+            api_key TEXT NOT NULL DEFAULT '',
+            is_active INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
     # 插入默认用户
     existing = cursor.execute("SELECT id FROM users").fetchall()
     if not existing:
@@ -319,6 +336,25 @@ def init_db():
 
         # 注意：不再为默认用户插入默认奖励，奖励商城从空开始
         # 用户可自行创建自定义奖励，互相隔离
+
+    # 为没有模型配置的用户插入默认配置（从 .env 读取，幂等）
+    from config import AI_MODEL, AI_BASE_URL, AI_API_KEY, DASHSCOPE_API_KEY
+    for u in cursor.execute("SELECT id FROM users").fetchall():
+        uid = u["id"]
+        has_cfg = cursor.execute(
+            "SELECT COUNT(*) AS cnt FROM model_configs WHERE user_id = ?", (uid,)
+        ).fetchone()["cnt"]
+        if has_cfg == 0:
+            cursor.execute(
+                "INSERT INTO model_configs (user_id, type, name, model, base_url, api_key, is_active) "
+                "VALUES (?, 'llm', '默认模型', ?, ?, ?, 1)",
+                (uid, AI_MODEL, AI_BASE_URL, AI_API_KEY),
+            )
+            cursor.execute(
+                "INSERT INTO model_configs (user_id, type, name, model, base_url, api_key, is_active) "
+                "VALUES (?, 'asr', '默认语音模型', 'paraformer-realtime-v2', ?, ?, 1)",
+                (uid, "wss://dashscope.aliyuncs.com/api-ws/v1/inference", DASHSCOPE_API_KEY),
+            )
 
     conn.commit()
     conn.close()

@@ -174,25 +174,34 @@ class TreeRenderer {
     tooltip.innerHTML = html;
     el.appendChild(tooltip);
 
+    // 监听器只绑定一次（renderNode 会复用元素并重复调用本方法，
+    // 每次都 addEventListener 会造成监听器无限累积 + 定时器错乱）
+    if (el.__tooltipBound) return;
+    el.__tooltipBound = true;
+
     var timer = null;
-    var self = this;
 
     el.addEventListener('mouseenter', function() {
+      var tip = el.querySelector('.node-tooltip');
+      if (!tip) return;
       // 判断 tooltip 是否会超出右侧边界
       timer = setTimeout(function() {
-        tooltip.classList.add('node-tooltip--visible');
+        tip.classList.add('node-tooltip--visible');
         // 检查是否超出右边界，超出则切到左侧
-        var rect = tooltip.getBoundingClientRect();
+        var rect = tip.getBoundingClientRect();
         if (rect.right > window.innerWidth) {
-          tooltip.classList.add('node-tooltip--left');
+          tip.classList.add('node-tooltip--left');
         }
       }, 500);
     });
 
     el.addEventListener('mouseleave', function() {
       if (timer) { clearTimeout(timer); timer = null; }
-      tooltip.classList.remove('node-tooltip--visible');
-      tooltip.classList.remove('node-tooltip--left');
+      var tip = el.querySelector('.node-tooltip');
+      if (tip) {
+        tip.classList.remove('node-tooltip--visible');
+        tip.classList.remove('node-tooltip--left');
+      }
     });
   }
 
@@ -326,6 +335,10 @@ class TreeRenderer {
     this.connectionLayer.innerHTML = `
       <defs>${defsHtml}</defs>
       <g>${pathsHtml}</g>`;
+
+    // innerHTML 重建会移除已挂载的覆盖元素，这里重新挂回对齐参考线
+    this.connectionLayer.appendChild(this._alignLineH);
+    this.connectionLayer.appendChild(this._alignLineV);
 
     // 缓存 path 引用
     const svg = this.connectionLayer;

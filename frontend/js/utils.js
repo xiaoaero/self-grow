@@ -288,10 +288,13 @@ function renderSidebarFooter() {
     if (!footer) return;
 
     footer.innerHTML = `
-        <div class="sidebar__user-level">
+        <div class="sidebar__user-level" onclick="navigateTo('usercenter')" role="button" title="进入用户中心">
             <div class="sidebar__level-badge" style="background:${theme.block}">Lv.${level}</div>
             <div class="sidebar__level-info">
-                <span class="sidebar__level-name" style="color:${theme.accent}">${rank.name}</span>
+                <div class="sidebar__level-name-row">
+                    <span class="sidebar__level-name" style="color:${theme.accent}">${rank.name}</span>
+                    <svg class="sidebar__user-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+                </div>
                 <div class="sidebar__exp-bar">
                     <div class="sidebar__exp-fill" style="width:${pct}%;background:${theme.bar}"></div>
                 </div>

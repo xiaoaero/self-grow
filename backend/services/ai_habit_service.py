@@ -65,7 +65,7 @@ def validate_svg(svg: str) -> bool:
     return True
 
 
-async def call_ai_for_icon(name: str, intro: str, category: str) -> str:
+async def call_ai_for_icon(name: str, intro: str, category: str, user_id: int = None) -> str:
     """根据习惯名称、简介、维度分类，调用 AI 生成 SVG 图标"""
     if not AI_API_KEY:
         raise HTTPException(status_code=500, detail="AI_API_KEY 未配置")
@@ -86,6 +86,7 @@ async def call_ai_for_icon(name: str, intro: str, category: str) -> str:
             user_message=user_message,
             temperature=0.8,
             max_tokens=10000,
+            user_id=user_id,
         )
         # 提取 <svg> 块（兼容 markdown 包裹与前后杂文），再做合法性校验
         svg = extract_svg(svg)

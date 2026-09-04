@@ -26,6 +26,7 @@ const PAGE_JS_MAP = {
     skill: 'js/pages/skills.js',
     rewards: 'js/pages/rewards.js',
     extensions: 'js/pages/agent.js',
+    usercenter: 'js/pages/usercenter.js',
 };
 
 /** 动态加载页面 JS */
@@ -199,6 +200,7 @@ function navigateTo(pageName, subPage) {
                 skill: typeof renderSkills !== 'undefined' ? () => renderSkills(currentSkillSubPage) : null,
                 rewards: typeof renderRewards !== 'undefined' ? renderRewards : null,
                 extensions: typeof renderAgent !== 'undefined' ? () => renderAgent(currentExtSubPage) : null,
+                usercenter: typeof renderUserCenter !== 'undefined' ? renderUserCenter : null,
             };
 
             const renderFn = renderers[pageName];

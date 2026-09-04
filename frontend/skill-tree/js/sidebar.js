@@ -31,14 +31,9 @@ class SkillTreeManager {
       // 同步到 localStorage 作为缓存
       saveToStorage('skill_tree_index', this.trees);
       this._renderList();
-
-      // 如果有 currentId 且后端有对应树，自动加载
-      if (this.currentId && this.trees.find(t => t.id === this.currentId)) {
-        this.switchToTree(this.currentId);
-      } else if (this.trees.length > 0 && !this.currentId) {
-        this.currentId = this.trees[0].id;
-        this.switchToTree(this.currentId);
-      }
+      // 注意：树数据的加载由 App 统一负责（admin: initDefaultTree / user: initUserMode）。
+      // 此处不再触发 switchToTree——避免与 App 的初始化并发加载同一棵树产生竞态，
+      // 也避免 user 模式下用草稿数据覆盖已加载的发布版。
     } else {
       // 后端不可用或无数据，从 localStorage 加载
       this._loadIndex();
@@ -124,6 +119,8 @@ class SkillTreeManager {
     this._saveCurrentTree();
 
     this.currentId = treeId;
+    // 切换树后 AI 会话上下文已失效（服务端 thread 绑定旧树），重置
+    if (this.app.ai) this.app.ai.resetSession();
     const data = this.getCurrentTreeData();
     if (data) {
       this.app.loadData(data);
@@ -228,9 +225,10 @@ class SkillTreeManager {
     saveToStorage(publishedKey, publishedData);
 
     // 更新索引中的发布状态和更新历史
+    // 注意：先判断再赋值——赋值后 entry.publishedAt 恒为真，会导致首次上线也提示「已更新」
     const entry = this.trees.find(t => t.id === treeId);
+    const isUpdate = !!(entry && entry.publishedAt);
     if (entry) {
-      const isUpdate = !!entry.publishedAt;
       entry.publishedAt = publishedData.publishedAt;
       entry.updateHistory = entry.updateHistory || [];
       entry.updateHistory.push({
@@ -247,7 +245,7 @@ class SkillTreeManager {
     publishSkillTreeOnServer(treeId, publishedData, draftData.nodes.length,
       draftData.nodes.filter(n => n.progress === 100).length);
 
-    showToast(entry && entry.publishedAt ? '🔄 已更新上线版本' : '🚀 已上线：' + (entry ? entry.name : ''), 'success');
+    showToast(isUpdate ? '🔄 已更新上线版本' : '🚀 已上线：' + (entry ? entry.name : ''), 'success');
   }
 
   /** 检查是否已发布 */
@@ -403,6 +401,7 @@ class SkillTreeManager {
 
     const id = this.createTree(name, description);
     this.currentId = id;
+    if (this.app.ai) this.app.ai.resetSession();
     this._renderList();
     this.app.newTree();
     this.app.treeName = name;
@@ -422,6 +421,7 @@ class SkillTreeManager {
 
       if (this.currentId === treeId) {
         this.currentId = null;
+        if (this.app.ai) this.app.ai.resetSession();
         this.app.newTree();
         this.app._updatePublishButtons();
       }

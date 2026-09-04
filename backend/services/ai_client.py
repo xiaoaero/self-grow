@@ -17,6 +17,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGenerationChunk
 
 from config import AI_BASE_URL, AI_API_KEY, AI_MODEL
+from db.model_configs import get_active_config
 
 log = logging.getLogger(__name__)
 
@@ -30,21 +31,34 @@ DEFAULT_MAX_TOKENS = 4096
 
 # 模块级单例：复用 TCP/TLS 连接，避免每次调用重建
 _llm_instance: ChatOpenAI | None = None
+_llm_cache_key: tuple | None = None
 
 
-def _get_llm(temperature: float = 0.7, max_tokens: int = DEFAULT_MAX_TOKENS) -> ChatOpenAI:
-    """获取（缓存的）LLM 实例。temperature/max_tokens 不同时新建独立实例。"""
-    global _llm_instance
-    if _llm_instance is None or _llm_instance.temperature != temperature or _llm_instance.max_tokens != max_tokens:
+def _get_llm(temperature: float = 0.7, max_tokens: int = DEFAULT_MAX_TOKENS,
+             user_id: int = None) -> ChatOpenAI:
+    """获取（缓存的）LLM 实例。模型配置或参数变化时重建实例。
+
+    动态读取当前启用的 LLM 配置（model_configs 表），切换启用模型后
+    cache_key 变化 → 重建实例，实现「切换模型即时生效」。
+    """
+    global _llm_instance, _llm_cache_key
+    cfg = get_active_config(user_id or 1, "llm")
+    model = (cfg or {}).get("model") or AI_MODEL
+    api_key = (cfg or {}).get("api_key") or AI_API_KEY
+    base_url = (cfg or {}).get("base_url") or AI_BASE_URL
+
+    cache_key = (temperature, max_tokens, model, base_url, api_key)
+    if _llm_instance is None or _llm_cache_key != cache_key:
         _llm_instance = ChatOpenAI(
-            model=AI_MODEL,
-            api_key=AI_API_KEY,
-            base_url=AI_BASE_URL,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
             temperature=temperature,
             max_tokens=max_tokens,
             request_timeout=REQUEST_TIMEOUT,
             max_retries=MAX_RETRIES,
         )
+        _llm_cache_key = cache_key
     return _llm_instance
 
 
@@ -53,6 +67,7 @@ async def call_ai_text(
     user_message: str,
     temperature: float = 0.7,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    user_id: int = None,
 ) -> str:
     """
     调用 AI 模型，返回纯文本回复。
@@ -62,6 +77,7 @@ async def call_ai_text(
         user_message: 用户消息内容
         temperature: 温度参数（默认 0.7）
         max_tokens: 最大输出 token 数（默认 1024）
+        user_id: 用户ID（用于读取其启用的模型配置，默认 1）
 
     Returns:
         AI 返回的文本内容
@@ -69,10 +85,12 @@ async def call_ai_text(
     Raises:
         RuntimeError: 当 AI_API_KEY 未配置或 API 调用失败时
     """
-    if not AI_API_KEY:
+    cfg = get_active_config(user_id or 1, "llm")
+    effective_key = (cfg or {}).get("api_key") or AI_API_KEY
+    if not effective_key:
         raise RuntimeError("AI_API_KEY 未配置")
 
-    llm = _get_llm(temperature=temperature, max_tokens=max_tokens)
+    llm = _get_llm(temperature=temperature, max_tokens=max_tokens, user_id=user_id)
 
     messages = [
         SystemMessage(content=system_prompt),
@@ -95,6 +113,7 @@ async def call_ai_text_stream(
     user_message: str,
     temperature: float = 0.7,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    user_id: int = None,
 ):
     """
     调用 AI 模型，流式产出文本增量（异步生成器）。
@@ -107,6 +126,7 @@ async def call_ai_text_stream(
         user_message: 用户消息内容
         temperature: 温度参数（默认 0.7）
         max_tokens: 最大输出 token 数（默认 1024）
+        user_id: 用户ID（用于读取其启用的模型配置，默认 1）
 
     Yields:
         str: 文本增量块
@@ -114,10 +134,12 @@ async def call_ai_text_stream(
     Raises:
         RuntimeError: 当 AI_API_KEY 未配置时
     """
-    if not AI_API_KEY:
+    cfg = get_active_config(user_id or 1, "llm")
+    effective_key = (cfg or {}).get("api_key") or AI_API_KEY
+    if not effective_key:
         raise RuntimeError("AI_API_KEY 未配置")
 
-    llm = _get_llm(temperature=temperature, max_tokens=max_tokens)
+    llm = _get_llm(temperature=temperature, max_tokens=max_tokens, user_id=user_id)
 
     messages = [
         SystemMessage(content=system_prompt),

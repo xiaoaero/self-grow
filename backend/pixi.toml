@@ -16,6 +16,9 @@ start = "python main.py"
 # 用法：pixi run export-reqs
 export-reqs = "python tools/export_reqs.py"
 
+# 启动 MCP Server（stdio，供 Claude Desktop / Cursor 等客户端挂载）
+mcp = "python mcp_server.py"
+
 [dependencies]
 python = "3.12.*"
 fastapi = ">=0.139.0,<0.140"
@@ -24,6 +27,12 @@ httpx = ">=0.28.1,<0.29"
 python-dotenv = ">=1.2.2,<2"
 apscheduler = ">=3.11.3,<4"
 langchain-openai = ">=1.3.5,<2"
+langgraph = ">=0.2.0"
+langchain-core = ">=0.3.0"
 pytest = ">=9.1.1,<10"
 pillow = ">=12.3.0,<13"
 dashscope = ">=1.25.19,<2"
+
+# MCP 插件（mcp_server.py 用）—— fastmcp 是 MCP Python SDK v2 的高级封装（PyPI 依赖）
+[pypi-dependencies]
+fastmcp = ">=2.0"

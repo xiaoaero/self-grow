@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="css/sidebar.css">
     <link rel="stylesheet" href="css/components.css">
     <link rel="stylesheet" href="css/pages.css">
+    <link rel="stylesheet" href="css/chat.css">
     <!-- Chart.js for radar/bubble charts -->
     <script src="vendor/chart.umd.min.js"></script>
     <!-- API 配置：由后端 /api/config.js 动态注入 API_BASE -->
@@ -198,6 +199,7 @@
         <div id="page-skill" class="page"></div>
         <div id="page-rewards" class="page"></div>
         <div id="page-extensions" class="page"></div>
+        <div id="page-usercenter" class="page"></div>
     </main>
 
     <!-- 模态层 -->
@@ -207,11 +209,50 @@
     <!-- Toast通知 -->
     <div class="toast-container" id="toast-container"></div>
 
+    <!-- AI 助手悬浮球 -->
+    <div id="ai-float-ball" class="chat__float-ball" title="AI 助手">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a10 10 0 0 1 10 10v4a2 2 0 0 1-2 2h-2v-3h3a8 8 0 0 0-8-8v0a8 8 0 0 0-8 8h3v3H4a2 2 0 0 1-2-2v-4A10 10 0 0 1 12 2z"/>
+            <circle cx="8.5" cy="12.5" r="1" fill="currentColor"/>
+            <circle cx="15.5" cy="12.5" r="1" fill="currentColor"/>
+        </svg>
+    </div>
+
+    <!-- AI 助手对话框 -->
+    <div id="ai-chat-dialog" class="chat__dialog chat__dialog--hidden">
+        <div class="chat__header">
+            <span class="chat__title">🤖 AI 助手</span>
+            <button class="chat__close-btn">&times;</button>
+        </div>
+        <div class="chat__body">
+            <div class="chat__messages" id="ai-messages">
+                <div class="chat__welcome">你好！我是 AI 助手，可以帮你记录行动、查询统计、管理目标、任务、习惯和奖励。有什么需要帮助的吗？</div>
+            </div>
+            <div class="chat__tools-panel" id="ai-tools-panel">
+                <div class="chat__tools-title">工具调用</div>
+                <div class="chat__tools-list" id="ai-tools-list"></div>
+            </div>
+        </div>
+        <div class="chat__interrupt-area" id="ai-interrupt-area"></div>
+        <div class="chat__input-area">
+            <textarea id="ai-input" placeholder="说点什么..." rows="1"></textarea>
+            <button id="ai-send-btn" class="chat__send-btn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- 全局版本号（右下角） -->
+    <div class="global-version" id="global-version" title="系统版本">--</div>
+
     <!-- Core scripts (always loaded) -->
     <script src="js/data.js"></script>
     <script src="js/router.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/components.js"></script>
+    <script src="js/chat.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

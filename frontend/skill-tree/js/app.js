@@ -105,6 +105,12 @@ class App {
       btn.classList.remove('active');
     });
 
+    // 清空 AI 对话（同时丢弃服务端会话）
+    document.getElementById('btn-clear-ai').addEventListener('click', () => {
+      this.ai.resetSession();
+      showToast('已清空 AI 对话');
+    });
+
     // 设置
     document.getElementById('btn-settings').addEventListener('click', () => {
       this.openSettings();
@@ -152,8 +158,6 @@ class App {
     const node = this.nodes.find(n => n.id === nodeId);
     if (!node) return;
 
-    this.saveHistory();
-
     node.name = document.getElementById('edit-name').value.trim() || node.name;
     node.description = document.getElementById('edit-description').value.trim();
     node.tags = document.getElementById('edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
@@ -162,6 +166,8 @@ class App {
     node.priority = document.getElementById('edit-priority').value;
     node.progress = parseInt(document.getElementById('edit-progress').value);
 
+    // 历史栈语义为「改后快照」：先修改再压栈，保证 undo/redo 都能正确工作
+    this.saveHistory();
     this.updateLearningStates();
     this.renderNode(node);
     this.renderConnections();
@@ -253,7 +259,7 @@ class App {
     this.sidebar.refreshStats();
   }
 
-  deleteNode(nodeId) {
+  deleteNode(nodeId, opts = {}) {
     if (this.isUser) return;
     // 删除相关连线
     this.connections = this.connections.filter(c => c.from !== nodeId && c.to !== nodeId);
@@ -262,15 +268,18 @@ class App {
     this.selectedIds.delete(nodeId);
     this.renderer.removeNode(nodeId);
     this.updateLearningStates();
+    // 立即重渲染连线，避免节点删除后连线残留在画布上
+    // 批量删除时（deleteSelectedNodes）由调用方统一渲染一次
+    if (!opts.deferRender) this.renderConnections();
   }
 
   deleteSelectedNodes() {
     if (this.isUser) return;
     if (this.selectedIds.size === 0) return;
-    this.saveHistory();
     const ids = [...this.selectedIds];
-    ids.forEach(id => this.deleteNode(id));
+    ids.forEach(id => this.deleteNode(id, { deferRender: true }));
     this.selectedIds.clear();
+    this.saveHistory();
     this.renderConnections();
     this.checkDuplicateNames();
     this._updatePublishButtons();
@@ -497,13 +506,13 @@ class App {
       return;
     }
 
-    this.saveHistory();
     node.progress = 50;
     this.updateLearningStates();
     this.renderNode(node);
     this.renderConnections();
     this.detailPanel.refreshCurrent();
     this.sidebar.refreshStats();
+    this.saveHistory();
     showToast(`📖 开始学习：${node.name}`, 'success');
   }
 
@@ -535,13 +544,13 @@ class App {
       return;
     }
 
-    this.saveHistory();
     node.progress = 100;
     this.updateLearningStates();
     this.renderNode(node);
     this.renderConnections();
     this.detailPanel.refreshCurrent();
     this.sidebar.refreshStats();
+    this.saveHistory();
     showToast(`✅ 已完成：${node.name}`);
   }
 
@@ -690,7 +699,6 @@ class App {
    */
   replaceTree(aiNodes, aiConnections) {
     if (this.isUser) return;
-    this.saveHistory();
     this.nodes = [];
     this.connections = [];
     this.selectedIds.clear();
@@ -816,8 +824,6 @@ class App {
       return;
     }
 
-    this.saveHistory();
-
     const parentCenter = this.renderer.getNodeCenter(parent);
     const existingChildren = this.connections.filter(c => c.from === parent.id).length;
 
@@ -854,7 +860,6 @@ class App {
     const node = this.nodes.find(n => n.name === name);
     if (!node) return;
 
-    this.saveHistory();
     Object.keys(changes).forEach(key => {
       if (key in node && key !== 'id' && key !== '_selected' && key !== '_linking') {
         node[key] = changes[key];
@@ -925,8 +930,8 @@ class App {
       return;
     }
     showConfirm('确定要更新已上线的技能树吗？学习者进度将被保留。', () => {
+      // toast 由 sidebar.publishTree 统一显示，这里不再叠加
       this.sidebar.publishTree(this.sidebar.currentId);
-      showToast('🔄 已更新上线版本', 'success');
       this._updatePublishButtons();
     });
   }
@@ -940,7 +945,10 @@ class App {
   }
 
   loadData(data) {
-    this.saveHistory();
+    // 清空撤销栈：加载新数据（切换树/初始化）是全新基线。
+    // 注意不能在开头压栈——否则会把当前树的内容带进新树的撤销栈，
+    // 切到树 B 后撤销会恢复树 A 内容，保存时把 A 写进 B，造成跨树数据污染。
+    this.history.clear();
     this.nodes = (data.nodes || []).map(n => ({ ...n, _selected: false, _linking: false, _learningState: 'locked' }));
     this.connections = data.connections || [];
     this.treeName = data.name || '未命名知识树';
@@ -951,10 +959,10 @@ class App {
     this.updateLearningStates();
     this.renderAll();
     this.checkDuplicateNames();
-    this._updatePublishButtons();
     this.interaction.fitToScreen(this.nodes);
+    // 压入加载后的基线快照（栈底），保证加载后的第一次编辑可撤销
     this.saveHistory();
-    if (this.isAdmin) this._updatePublishButtons();
+    this._updatePublishButtons();
   }
 
   /* ================================================================
@@ -978,6 +986,8 @@ class App {
     this.interaction.panX = 0;
     this.interaction.panY = 0;
     this.interaction.updateTransform();
+    // 压入空树基线快照，保证新建后的第一次编辑可撤销
+    this.saveHistory();
     this.updateUndoRedoButtons();
     showToast('已创建新的知识树');
   }
@@ -1000,7 +1010,8 @@ class App {
     var checkInterval = setInterval(function() {
       if (self.nodes && self.nodes.length > 0) {
         self.nodes.forEach(function(n) { n.progress = 100; });
-        self.renderer.renderAll(self.nodes, self.connections);
+        self.updateLearningStates();
+        self.renderAll();
         clearInterval(checkInterval);
       }
     }, 100);

@@ -54,19 +54,42 @@ def has_sleep_record_today(user_id: int) -> bool:
 def create_action_log(user_id: int, category_id: str, start_time: str,
                       end_time: str, duration: int, note: str = "",
                       exp_earned: int = 0, sub_type: str = "",
-                      sleep_start: str = "", sleep_end: str = "") -> int:
-    """插入行动记录，返回新记录的 id"""
-    conn = get_conn()
+                      sleep_start: str = "", sleep_end: str = "",
+                      request_id: str = "", conn=None) -> int:
+    """插入行动记录，返回新记录的 id
+
+    重复 request_id 在同用户+同 start_time 下视为幂等，返回已有记录 ID。
+    传入 conn 时由调用方负责 commit/close。
+    """
+    own_conn = conn is None
+    if own_conn:
+        from db.connection import get_conn as _get_conn
+        conn = _get_conn()
+
+    # 幂等：同用户、同起始时间、同 request_id
+    if request_id:
+        existing = conn.execute(
+            """SELECT id FROM action_logs
+               WHERE user_id = ? AND start_time = ? AND note = ?
+               LIMIT 1""",
+            (user_id, start_time, f"[req:{request_id}] {note}" if note else f"[req:{request_id}]"),
+        ).fetchone()
+        if existing:
+            return int(existing["id"])
+
+    note_value = f"[req:{request_id}] {note}" if request_id else note
     cursor = conn.execute(
         """INSERT INTO action_logs
            (user_id, category_id, start_time, end_time, duration, note, exp_earned, sub_type, sleep_start, sleep_end)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (user_id, category_id, start_time, end_time, duration, note, exp_earned,
+        (user_id, category_id, start_time, end_time, duration, note_value, exp_earned,
          sub_type, sleep_start, sleep_end),
     )
-    new_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+    new_id = int(cursor.lastrowid)
+
+    if own_conn:
+        conn.commit()
+        conn.close()
     return new_id
 
 

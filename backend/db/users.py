@@ -50,9 +50,12 @@ def get_user_stats(user_id: int, date: str) -> dict:
 
 
 def upsert_user_stats(user_id: int, date: str, focus_minutes: int = 0, tasks_done: int = 0,
-                      habits_checked: int = 0, exp_earned: int = 0):
-    """插入或更新某日统计"""
-    conn = get_conn()
+                      habits_checked: int = 0, exp_earned: int = 0, conn=None):
+    """插入或更新某日统计。传入 conn 由调用方负责 commit。"""
+    own_conn = conn is None
+    if own_conn:
+        from db.connection import get_conn as _get_conn
+        conn = _get_conn()
     conn.execute("""
         INSERT INTO user_stats_daily (user_id, date, focus_minutes, tasks_done, habits_checked, exp_earned)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -62,18 +65,24 @@ def upsert_user_stats(user_id: int, date: str, focus_minutes: int = 0, tasks_don
             habits_checked = excluded.habits_checked,
             exp_earned = excluded.exp_earned
     """, (user_id, date, focus_minutes, tasks_done, habits_checked, exp_earned))
-    conn.commit()
-    conn.close()
+    if own_conn:
+        conn.commit()
+        conn.close()
 
 
-def update_user_exp(user_id: int, level: int, exp: int, total_exp: int = None):
-    """更新用户等级/经验值（total_exp 为 None 时从维度表实时 SUM）"""
+def update_user_exp(user_id: int, level: int, exp: int, total_exp: int = None, conn=None):
+    """更新用户等级/经验值。传入 conn 由调用方负责 commit。"""
+    own_conn = conn is None
+    if own_conn:
+        from db.connection import get_conn as _get_conn
+        conn = _get_conn()
     if total_exp is None:
+        # 若无外部 conn，此处会创建自己的连接，不算跨 conn，可接受
         total_exp = get_total_exp_from_dimensions(user_id)
-    conn = get_conn()
     conn.execute(
         "UPDATE users SET level = ?, exp = ?, total_exp = ? WHERE id = ?",
         (level, exp, total_exp, user_id),
     )
-    conn.commit()
-    conn.close()
+    if own_conn:
+        conn.commit()
+        conn.close()

@@ -1296,7 +1296,7 @@ async function startVoiceRecording() {
 }
 
 function connectASRWebSocket() {
-    const ws = new WebSocket(`${getWsBase()}/ws/asr`);
+    const ws = new WebSocket(`${getWsBase()}/ws/asr?user_id=${getCurrentUserId()}`);
     ws.binaryType = 'arraybuffer';
 
     // 累积的完整文本
@@ -1745,7 +1745,7 @@ async function startASRTest() {
 
         // 建立 WebSocket 连接（立即设置所有事件处理，避免丢失早期消息）
         setASRTestStatus('⏳ 连接语音识别服务...', 'connecting');
-        const ws = new WebSocket(getWsBase() + '/ws/asr');
+        const ws = new WebSocket(getWsBase() + '/ws/asr?user_id=' + getCurrentUserId());
         ws.binaryType = 'arraybuffer';
         STATE.asrTestWs = ws;
 

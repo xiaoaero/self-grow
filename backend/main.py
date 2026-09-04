@@ -135,8 +135,8 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 from routers import (
     health_router, users_router, habits_router, actions_router,
     goals_router, tasks_router, scheduled_tasks_router,
-    stats_router, rewards_router, ai_router, skill_tree_router,
-    expression_router,
+    stats_router, rewards_router, skill_tree_router,
+    skill_tree_ai_router, expression_router, coordinator_router, model_configs_router,
 )
 
 app.include_router(health_router)
@@ -148,9 +148,11 @@ app.include_router(tasks_router)
 app.include_router(scheduled_tasks_router)
 app.include_router(stats_router)
 app.include_router(rewards_router)
-app.include_router(ai_router)
 app.include_router(skill_tree_router)
+app.include_router(skill_tree_ai_router)
 app.include_router(expression_router)
+app.include_router(coordinator_router)
+app.include_router(model_configs_router)
 
 
 # ================================================================

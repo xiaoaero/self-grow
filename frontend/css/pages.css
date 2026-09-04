@@ -7216,3 +7216,285 @@
         min-width: 0;
     }
 }
+
+/* ================================================================
+   用户中心
+   ================================================================ */
+.usercenter-card {
+    margin-bottom: 20px;
+}
+.usercenter-card__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--color-border-light);
+}
+.usercenter-card__header-icon {
+    font-size: 18px;
+}
+
+/* 基础信息 */
+.usercenter-profile {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+.usercenter-profile__badge {
+    width: 64px;
+    height: 64px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 800;
+    color: #fff;
+    flex-shrink: 0;
+    box-shadow: var(--shadow-md);
+}
+.usercenter-profile__body {
+    flex: 1;
+    min-width: 0;
+}
+.usercenter-profile__name-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+.usercenter-profile__name {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+.usercenter-profile__role {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: var(--radius-full);
+    background: var(--color-bg-high);
+    color: var(--color-text-secondary);
+}
+.usercenter-profile__role--admin {
+    background: var(--color-accent-bg);
+    color: var(--color-accent-light);
+}
+.usercenter-info-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 24px;
+}
+.usercenter-info-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--color-border-light);
+}
+.usercenter-info-row__label {
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+.usercenter-info-row__value {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+}
+
+/* 模型信息 */
+.usercenter-version {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    background: var(--color-bg-elevated);
+    margin-bottom: 18px;
+}
+.usercenter-version__label {
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+.usercenter-version__value {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--color-accent-light);
+    font-family: var(--font-mono);
+}
+.usercenter-loading {
+    padding: 30px;
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 13px;
+}
+.usercenter-model-group {
+    margin-bottom: 22px;
+}
+.usercenter-model-group:last-child {
+    margin-bottom: 0;
+}
+.usercenter-model-group__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+.usercenter-model-group__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    letter-spacing: 0.5px;
+}
+.usercenter-model-add {
+    font-size: 12px;
+    color: var(--color-primary-light);
+    background: none;
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-full);
+    padding: 4px 12px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+.usercenter-model-add:hover {
+    border-color: var(--color-primary-light);
+    background: var(--color-primary-bg);
+}
+.usercenter-model-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.usercenter-model-empty {
+    padding: 18px;
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 12px;
+    border: 1px dashed var(--color-border-light);
+    border-radius: var(--radius-md);
+}
+.usercenter-model-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border-light);
+    transition: all var(--transition-fast);
+}
+.usercenter-model-card:hover {
+    background: var(--color-bg-surface);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+.usercenter-model-card--active {
+    border-left: 3px solid var(--color-accent);
+    background: linear-gradient(90deg, var(--color-accent-bg), transparent 45%);
+}
+.usercenter-model-card__main {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+    position: relative;
+}
+.usercenter-model-card__name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: 4px;
+}
+.usercenter-model-card__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.usercenter-model-card__model {
+    font-size: 12px;
+    color: var(--color-accent-light);
+    font-family: var(--font-mono);
+}
+.usercenter-model-card__url {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.usercenter-model-card__badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-accent-light);
+}
+.usercenter-model-card__badge--off {
+    color: var(--color-text-muted);
+}
+.usercenter-model-card__actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.usercenter-model-btn {
+    font-size: 12px;
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-high);
+    color: var(--color-text-secondary);
+    border: none;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+.usercenter-model-btn:hover {
+    background: var(--color-bg-surface);
+    color: var(--color-text-primary);
+}
+.usercenter-model-btn--danger:hover {
+    background: rgba(200, 90, 74, 0.2);
+    color: var(--color-danger);
+}
+.usercenter-modal-type {
+    font-size: 12px;
+    color: var(--color-accent-light);
+    background: var(--color-accent-bg);
+    padding: 6px 12px;
+    border-radius: var(--radius-full);
+    align-self: flex-start;
+    font-weight: 600;
+}
+.usercenter-modal-test {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.usercenter-modal-test-result {
+    font-size: 12px;
+}
+.usercenter-modal-test-result--ok {
+    color: var(--color-success);
+}
+.usercenter-modal-test-result--fail {
+    color: var(--color-danger);
+}
+
+/* ================================================================
+   全局版本号（右下角固定）
+   ================================================================ */
+.global-version {
+    position: fixed;
+    right: 16px;
+    bottom: 12px;
+    z-index: 90;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--color-text-muted);
+    opacity: 0.6;
+    pointer-events: none;
+    user-select: none;
+    letter-spacing: 0.3px;
+}

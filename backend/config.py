@@ -6,6 +6,7 @@ Self Grow — 后端配置
 
 import os
 import logging
+import subprocess
 import sys
 from dotenv import load_dotenv
 
@@ -80,6 +81,26 @@ if not AI_API_KEY:
 elif not AI_API_KEY.isascii():
     log.warning("⚠️ AI_API_KEY 包含非 ASCII 字符，AI 功能不可用（请填入有效的 API Key）")
     AI_API_KEY = ""
+
+# 系统版本号（跟随 git 记录）
+def get_version() -> str:
+    """从 git 获取版本号（git describe --tags --always），失败则返回默认值。
+
+    - 有 tag 时返回 tag 名（如 v1.0.0）
+    - tag 之后有提交时返回 v1.0.0-3-g0df2e08（tag-提交数-短commit）
+    - 非 git 环境（如 Docker 无 .git）回退到默认 "1.1.0"
+    """
+    try:
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        out = subprocess.run(
+            ["git", "describe", "--tags", "--always"],
+            capture_output=True, text=True, timeout=3, cwd=repo_root,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return "1.1.0"
 
 # 服务端口
 try:

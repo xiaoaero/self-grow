@@ -372,13 +372,17 @@ async def websocket_asr(websocket: WebSocket):
     await websocket.accept()
     log.info("WebSocket /ws/asr 连接已建立")
 
+    # 从 query param 读取 user_id（如 /ws/asr?user_id=1），默认 1
+    user_id_str = websocket.query_params.get("user_id")
+    user_id = int(user_id_str) if user_id_str and user_id_str.isdigit() else 1
+
     asr = None
     receive_task = None
     send_task = None
 
     try:
-        # 创建 ASR 连接
-        asr = ASRConnection(model="paraformer-realtime-v2", sample_rate=16000)
+        # 创建 ASR 连接（读取该用户启用的 ASR 模型配置）
+        asr = ASRConnection(model="paraformer-realtime-v2", sample_rate=16000, user_id=user_id)
         asr.start()
 
         async def receive_audio():

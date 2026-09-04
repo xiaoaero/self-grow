@@ -22,3 +22,8 @@ __pycache__/
 
 # User uploads
 backend/uploads/*
+
+# Local tool configs & caches
+.claude/
+.workbuddy/
+.pytest_cache/

@@ -19,9 +19,12 @@ def get_user_dimensions(user_id: int) -> list:
     return [dict(r) for r in rows]
 
 
-def upsert_dimension(user_id: int, dimension_key: str, xp_add: float = 0):
-    """增量更新维度 XP（小数精度保留），检查是否需要升级"""
-    conn = get_conn()
+def upsert_dimension(user_id: int, dimension_key: str, xp_add: float = 0, conn=None):
+    """增量更新维度 XP（小数精度保留），检查是否需要升级。传入 conn 由调用方负责 commit。"""
+    own_conn = conn is None
+    if own_conn:
+        from db.connection import get_conn as _get_conn
+        conn = _get_conn()
 
     row = conn.execute(
         "SELECT level, xp, xp_to_next FROM user_dimensions WHERE user_id = ? AND dimension_key = ?",
@@ -39,10 +42,9 @@ def upsert_dimension(user_id: int, dimension_key: str, xp_add: float = 0):
         ).fetchone()
 
     level = row["level"]
-    xp = row["xp"] + xp_add  # 小数精度保留
+    xp = row["xp"] + xp_add
     xp_to_next = row["xp_to_next"]
 
-    # 检查是否升级（复用等级公式，维度上限 140 级）
     while xp >= xp_to_next and level < 140:
         xp -= xp_to_next
         level += 1
@@ -52,8 +54,10 @@ def upsert_dimension(user_id: int, dimension_key: str, xp_add: float = 0):
         "UPDATE user_dimensions SET level = ?, xp = ?, xp_to_next = ? WHERE user_id = ? AND dimension_key = ?",
         (level, xp, xp_to_next, user_id, dimension_key),
     )
-    conn.commit()
-    conn.close()
+
+    if own_conn:
+        conn.commit()
+        conn.close()
     return {"level": level, "xp": xp, "xp_to_next": xp_to_next}
 
 

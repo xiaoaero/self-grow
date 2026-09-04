@@ -1,13 +1,18 @@
 /* ================================================================
-   ai-bridge.js — AI 集成模块
-   通过后端代理调用 AI，支持 Tool Use
+   ai-bridge.js — AI 集成模块（LangGraph 版）
+   对接后端 /api/skill-trees/{tree_id}/chat 端点：
+   - 服务端维护会话（checkpointer），前端只持有 thread_id
+   - 后端工具按节点 ID 操作内存中的树，返回完整 tree + 执行日志
+   - 危险操作（替换整棵树/级联删除）走 pending_confirmation 确认卡片
    ================================================================ */
 
 class AIBridge {
   constructor() {
     this.serverUrl = window.__SELF_GROW_API_BASE__ || window.API_BASE || 'http://localhost:3001';
-    this.messages = [];   // 对话历史
-    this.abortController = null;
+
+    // 会话状态
+    this.threadId = null;      // LangGraph thread_id，服务端持久化
+    this.isLoading = false;
 
     // UI
     this.panel = document.getElementById('ai-panel');
@@ -15,9 +20,6 @@ class AIBridge {
     this.inputEl = document.getElementById('ai-input');
     this.sendBtn = document.getElementById('btn-ai-send');
     this.quickBtns = document.querySelectorAll('.ai-quick-btn');
-
-    // 最大工具调用轮次（防止无限循环）
-    this.maxToolRounds = 5;
 
     this.bindUI();
   }
@@ -31,306 +33,238 @@ class AIBridge {
       }
     });
 
+    // 快捷按钮：data-fill 模式的只填充不发送（需要用户补充主题），
+    // 其余直接发送
     this.quickBtns.forEach(btn => {
       btn.addEventListener('click', () => {
         const prompt = btn.dataset.prompt;
-        // 替换占位符
-        this.inputEl.value = prompt.replace('"主题名"', '');
-        this.sendMessage();
+        if (btn.dataset.fill) {
+          this.inputEl.value = prompt;
+          this.inputEl.focus();
+        } else {
+          this.inputEl.value = prompt;
+          this.sendMessage();
+        }
       });
     });
   }
 
-  /**
-   * 发送消息
-   */
+  /* ================================================================
+     发送消息
+     ================================================================ */
+
   async sendMessage() {
     const text = this.inputEl.value.trim();
-    if (!text) return;
+    if (!text || this.isLoading) return;
+
+    const app = window.__app;
+    if (!app || !app.sidebar.currentId) {
+      showToast('请先创建一棵技能树', 'error');
+      return;
+    }
 
     this.inputEl.value = '';
-    this.messages.push({ role: 'user', content: text });
     this.addMessage('user', text);
     this.setLoading(true);
 
     try {
-      await this.sendToAI(0);
+      const data = await this._request(
+        `/api/skill-trees/${app.sidebar.currentId}/chat`,
+        {
+          tree: this.buildTreePayload(app),
+          message: text,
+          selected_node_ids: [...app.selectedIds],
+          thread_id: this.threadId,
+        }
+      );
+      this.threadId = data.thread_id;
+      this._handleResponse(data);
     } catch (err) {
-      if (err.name === 'AbortError') {
-        this.addMessage('system', '已取消');
-      } else {
-        this.addMessage('system', `❌ ${err.message}`);
-      }
+      this.addMessage('system', `❌ ${err.message}`);
     } finally {
       this.setLoading(false);
-      this.abortController = null;
     }
   }
 
   /**
-   * 递归调用 AI，支持多轮 Tool Use 循环
-   * @param {number} round 当前轮次
+   * 恢复会话：回答确认卡片（确认/取消）或补充信息
    */
-  async sendToAI(round) {
-    if (round >= this.maxToolRounds) {
-      this.addMessage('system', `⚠️ AI 已达到最大工具调用轮次 (${this.maxToolRounds})`);
-      return;
+  async resume(confirm, message = '') {
+    if (this.isLoading || !this.threadId) return;
+    const app = window.__app;
+
+    this.setLoading(true);
+    try {
+      const data = await this._request(
+        `/api/skill-trees/${app.sidebar.currentId}/chat/resume`,
+        {
+          thread_id: this.threadId,
+          message: message,
+          confirm: confirm,
+        }
+      );
+      this._handleResponse(data);
+    } catch (err) {
+      this.addMessage('system', `❌ ${err.message}`);
+    } finally {
+      this.setLoading(false);
     }
+  }
 
-    this.abortController = new AbortController();
-
-    const response = await fetch(`${this.serverUrl}/api/chat`, {
+  /** 统一请求封装 */
+  async _request(path, body) {
+    const userId = getCurrentUserId() || 1;
+    const resp = await fetch(`${this.serverUrl}${path}?user_id=${userId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: this.messages.slice(-20), // 只发最近 20 条
-        tree_state: this.buildTreeState()
-      }),
-      signal: this.abortController.signal
+      body: JSON.stringify(body),
     });
+    if (!resp.ok) {
+      let detail = `HTTP ${resp.status}`;
+      try {
+        const err = await resp.json();
+        if (err.detail) detail = err.detail;
+      } catch (e) { /* 忽略解析失败 */ }
+      throw new Error(detail);
+    }
+    return resp.json();
+  }
 
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`服务器错误 ${response.status}: ${err}`);
+  /* ================================================================
+     响应处理
+     ================================================================ */
+
+  _handleResponse(data) {
+    // 1. AI 回复
+    if (data.reply) {
+      this.addMessage('assistant', data.reply);
     }
 
-    const data = await response.json();
-
-    // 处理工具调用
-    if (data.tool_calls && data.tool_calls.length > 0) {
-      // 执行工具并收集结果
-      const toolResults = await this.executeToolCalls(data.tool_calls);
-
-      // 将工具调用和结果加入对话历史（让 AI 知道发生了什么）
-      for (const tc of data.tool_calls) {
-        this.messages.push({
-          role: 'assistant',
-          content: null,
-          tool_calls: [{
-            id: tc.id,
-            type: 'function',
-            function: {
-              name: tc.name,
-              arguments: JSON.stringify(tc.arguments)
-            }
-          }]
-        });
-        // 工具执行结果
-        const result = toolResults.find(r => r.id === tc.id);
-        this.messages.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          content: result ? result.content : '执行成功'
-        });
-      }
-
-      // 继续下一轮 AI 推理（AI 根据工具结果决定下一步操作还是回复用户）
-      await this.sendToAI(round + 1);
+    // 2. 工具执行日志
+    if (data.executed_tools && data.executed_tools.length > 0) {
+      const summary = data.executed_tools
+        .map(t => `${t.success ? '✅' : '❌'} ${t.message || t.tool}`)
+        .join('\n');
+      this.addMessage('assistant', `🔧 已执行操作:\n${summary}`);
     }
 
-    // 处理文本回复（可能在有 tool_calls 时也有 content，也可能纯文本回复）
-    if (data.content) {
-      this.messages.push({ role: 'assistant', content: data.content });
-      this.addMessage('assistant', data.content);
+    // 3. 应用树变更（有工具实际修改过树才应用）
+    const app = window.__app;
+    const touched = (data.executed_tools || []).some(
+      t => t.success && t.status !== 'needs_confirmation'
+    );
+    if (app && touched && data.tree && Array.isArray(data.tree.nodes)) {
+      this._applyTree(app, data.tree);
+    }
+
+    // 4. 待确认操作 → 渲染确认卡片
+    if (data.pending_confirmation) {
+      this._renderConfirmCard(data.pending_confirmation);
     }
   }
 
   /**
-   * 构建当前树状态用于发送给 AI
+   * 将后端返回的树应用到画布。
+   * 注意：不走 loadData()（它会清空撤销栈）——这里手动
+   * push「改前快照 + 改后快照」，保证 AI 的修改可以用 Ctrl+Z 撤销。
    */
-  buildTreeState() {
-    const app = window.__app;
-    if (!app) return null;
+  _applyTree(app, tree) {
+    // 改前快照
+    app.saveHistory();
+
+    app.nodes = (tree.nodes || []).map(n => ({
+      ...n,
+      _selected: false, _linking: false, _learningState: 'locked'
+    }));
+    app.connections = tree.connections || [];
+    app.treeName = tree.name || app.treeName;
+    app.selectedIds.clear();
+    app.renderer.nodeEls.forEach(el => el.remove());
+    app.renderer.nodeEls.clear();
+    app.updateLearningStates();
+    app.renderAll();
+    app.checkDuplicateNames();
+    app.sidebar.refreshStats();
+    app._updatePublishButtons();
+
+    // 改后快照
+    app.saveHistory();
+    showToast('🎨 AI 已更新技能树');
+  }
+
+  /* ================================================================
+     构建请求负载
+     ================================================================ */
+
+  buildTreePayload(app) {
     return {
       name: app.treeName || '未命名知识树',
+      description: app.treeDescription || '',
       nodes: app.nodes.map(n => ({
         id: n.id,
         name: n.name,
-        icon: n.icon,
-        color: n.color,
-        description: n.description,
-        tags: n.tags,
-        priority: n.priority,
-        progress: n.progress
+        x: n.x,
+        y: n.y,
+        size: n.size || 70,
+        shape: n.shape || 'round',
+        icon: n.icon || '📚',
+        color: n.color || '#2a2a4a',
+        borderColor: n.borderColor || '#444466',
+        description: n.description || '',
+        tags: n.tags || [],
+        priority: n.priority || 'none',
+        progress: n.progress || 0,
       })),
       connections: app.connections.map(c => ({
-        from: (() => { const n = app.nodes.find(nn => nn.id === c.from); return n ? n.name : ''; })(),
-        to: (() => { const n = app.nodes.find(nn => nn.id === c.to); return n ? n.name : ''; })(),
+        id: c.id,
+        from: c.from,
+        to: c.to,
       })),
-      selectedNodes: app.getSelectedNodes().map(n => n.name)
     };
   }
 
-  /**
-   * 执行 AI 返回的工具调用
-   * @returns {Array<{id: string, content: string}>} 工具执行结果列表
-   */
-  async executeToolCalls(toolCalls) {
-    const app = window.__app;
-    if (!app) {
-      this.addMessage('system', '❌ 应用未初始化');
-      return toolCalls.map(tc => ({ id: tc.id, content: '应用未初始化' }));
-    }
+  /* ================================================================
+     确认卡片（危险操作二次确认）
+     ================================================================ */
 
-    const results = [];
+  _renderConfirmCard(pending) {
+    const el = document.createElement('div');
+    el.className = 'ai-message system ai-confirm-card';
+    el.innerHTML = `
+      <div class="ai-confirm-text">⚠️ ${this._escapeHtml(pending.message || '请确认此操作')}</div>
+      <div class="ai-confirm-actions">
+        <button class="ai-confirm-btn ok">确认执行</button>
+        <button class="ai-confirm-btn cancel">取消</button>
+      </div>`;
+    this.messagesEl.appendChild(el);
+    this.scrollToBottom();
 
-    for (const tc of toolCalls) {
-      const { name, arguments: args } = tc;
-      let resultContent = '';
-
-      switch (name) {
-        case 'get_tree_state': {
-          resultContent = '树状态已提供。';
-          break;
-        }
-
-        case 'create_node': {
-          app.saveHistory();
-          const parentNode = args.parent_name
-            ? app.nodes.find(n => n.name === args.parent_name)
-            : null;
-
-          let x = 200, y = 200;
-          if (parentNode) {
-            const parentCenter = app.renderer.getNodeCenter(parentNode);
-            x = parentCenter.cx + 180;
-            y = parentCenter.cy + (app.connections.filter(c => c.from === parentNode.id).length - 0) * 80 + 40;
-          } else if (app.nodes.length > 0) {
-            x = app.nodes[0].x;
-            y = Math.max(...app.nodes.map(n => n.y)) + 100;
-          }
-
-          const node = app.createNode(x, y, {
-            name: args.name || '新节点',
-            icon: args.icon || '📚',
-            color: args.color || '#2a2a4a',
-            description: args.description || '',
-            tags: args.tags || [],
-            priority: args.priority || 'none',
-          });
-
-          if (parentNode) {
-            app.addConnection(parentNode.id, node.id);
-            app.renderConnections();
-          }
-          app.renderAll();
-          resultContent = `已创建节点"${node.name}"，ID: ${node.id}。`;
-          break;
-        }
-
-        case 'update_node': {
-          const node = app.nodes.find(n => n.name === args.name);
-          if (node) {
-            app.saveHistory();
-            const changes = args.changes || {};
-            Object.keys(changes).forEach(key => {
-              if (key in node && key !== 'id') {
-                node[key] = changes[key];
-              }
-            });
-            app.renderNode(node);
-            app.renderConnections();
-            app.checkDuplicateNames();
-            app._updatePublishButtons();
-            resultContent = `已更新节点"${args.name}"。`;
-          } else {
-            resultContent = `未找到节点"${args.name}"。当前节点列表: ${app.nodes.map(n => n.name).join(', ')}`;
-          }
-          break;
-        }
-
-        case 'delete_node': {
-          const node = app.nodes.find(n => n.name === args.name);
-          if (node) {
-            app.saveHistory();
-            app.deleteNode(node.id);
-            app.renderConnections();
-            app.checkDuplicateNames();
-            app._updatePublishButtons();
-            resultContent = `已删除节点"${args.name}"。`;
-          } else {
-            resultContent = `未找到节点"${args.name}"。当前节点列表: ${app.nodes.map(n => n.name).join(', ')}`;
-          }
-          break;
-        }
-
-        case 'add_connection': {
-          const fromNode = app.nodes.find(n => n.name === args.from);
-          const toNode = app.nodes.find(n => n.name === args.to);
-          if (fromNode && toNode) {
-            app.saveHistory();
-            app.addConnection(fromNode.id, toNode.id);
-            app.renderConnections();
-            resultContent = `已建立连线：${args.from} → ${args.to}。`;
-          } else {
-            const missing = !fromNode ? args.from : args.to;
-            resultContent = `未找到节点"${missing}"。当前节点列表: ${app.nodes.map(n => n.name).join(', ')}`;
-          }
-          break;
-        }
-
-        case 'delete_connection': {
-          const fromNode = app.nodes.find(n => n.name === args.from);
-          const toNode = app.nodes.find(n => n.name === args.to);
-          if (fromNode && toNode) {
-            app.saveHistory();
-            app.connections = app.connections.filter(
-              c => !(c.from === fromNode.id && c.to === toNode.id)
-            );
-            app.renderConnections();
-            resultContent = `已删除连线：${args.from} → ${args.to}。`;
-          } else {
-            resultContent = `未找到相关节点。`;
-          }
-          break;
-        }
-
-        case 'move_node': {
-          const node = app.nodes.find(n => n.name === args.name);
-          if (node) {
-            app.saveHistory();
-            node.x = args.x;
-            node.y = args.y;
-            const el = app.renderer.nodeEls.get(node.id);
-            if (el) el.style.transform = `translate(${node.x}px, ${node.y}px)`;
-            app.renderer.updateConnectionPaths(app.connections, app.nodes);
-            resultContent = `已移动节点"${args.name}"到 (${args.x}, ${args.y})。`;
-          } else {
-            resultContent = `未找到节点"${args.name}"。`;
-          }
-          break;
-        }
-
-        case 'replace_tree': {
-          app.replaceTree(args.nodes || [], []);
-          app.checkDuplicateNames();
-          app._updatePublishButtons();
-          resultContent = `已生成知识树，共 ${(args.nodes || []).length} 个节点。`;
-          break;
-        }
-
-        case 'send_message': {
-          // AI 想发消息给用户，在 data.content 中会包含
-          resultContent = '消息已展示给用户。';
-          break;
-        }
-
-        default: {
-          resultContent = `未知工具: ${name}`;
-        }
-      }
-
-      results.push({ id: tc.id, content: resultContent });
-    }
-
-    // 将工具执行结果展示给用户
-    const summary = results.map(r => r.content).join('\n');
-    this.addMessage('assistant', `🔧 已执行操作:\n${summary}`);
-
-    return results;
+    const remove = () => el.remove();
+    el.querySelector('.ok').addEventListener('click', () => {
+      remove();
+      this.addMessage('user', '确认执行');
+      this.resume(true);
+    });
+    el.querySelector('.cancel').addEventListener('click', () => {
+      remove();
+      this.addMessage('user', '取消该操作');
+      this.resume(false, '用户取消了该操作，请不要执行它');
+    });
   }
 
-  /* ---- UI ---- */
+  /* ================================================================
+     会话管理
+     ================================================================ */
+
+  /** 重置会话（切换树/新建树时调用）：丢弃 thread_id 并清空消息区 */
+  resetSession() {
+    this.threadId = null;
+    if (this.messagesEl) this.messagesEl.innerHTML = '';
+  }
+
+  /* ================================================================
+     UI
+     ================================================================ */
 
   addMessage(role, content) {
     const el = document.createElement('div');
@@ -341,16 +275,16 @@ class AIBridge {
   }
 
   setLoading(loading) {
+    this.isLoading = loading;
     this.sendBtn.disabled = loading;
+    const old = document.getElementById('ai-loading');
+    if (old) old.remove();
     if (loading) {
       const el = document.createElement('div');
       el.className = 'ai-message loading';
       el.id = 'ai-loading';
       this.messagesEl.appendChild(el);
       this.scrollToBottom();
-    } else {
-      const el = document.getElementById('ai-loading');
-      if (el) el.remove();
     }
   }
 
@@ -359,8 +293,24 @@ class AIBridge {
     chat.scrollTop = chat.scrollHeight;
   }
 
+  /**
+   * 从右键菜单触发的 AI 扩展：自动打开面板并发送
+   */
   async expandNode(nodeName) {
-    this.inputEl.value = `为节点"${nodeName}"扩展3-5个子节点`;
-    this.sendMessage();
+    // 确保面板可见
+    const panel = document.getElementById('ai-panel');
+    const toggleBtn = document.getElementById('btn-toggle-ai');
+    if (panel && panel.classList.contains('panel-closed')) {
+      panel.classList.remove('panel-closed');
+      if (toggleBtn) toggleBtn.classList.add('active');
+    }
+    this.inputEl.value = `请为节点「${nodeName}」扩展3-5个子节点`;
+    await this.sendMessage();
+  }
+
+  _escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
   }
 }

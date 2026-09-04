@@ -406,6 +406,10 @@ class InteractionManager {
       this.tempLine.setAttribute('fill', 'none');
       this.app.renderer.connectionLayer.appendChild(this.tempLine);
     }
+    // renderConnections 会整体重建图层，临时线若被移除则重新挂载
+    if (!this.tempLine.isConnected) {
+      this.app.renderer.connectionLayer.appendChild(this.tempLine);
+    }
     this.tempLine.setAttribute('d', bezierPath(fc.cx, fc.cy, x, y));
   }
 
@@ -451,7 +455,15 @@ class InteractionManager {
       case 'add-child': this.app.addChildNode(node.id); break;
       case 'connect': this.startConnecting(node.id); break;
       case 'expand-ai': this.app.aiExpandNode(node.id); break;
-      case 'delete': this.app.deleteNode(node.id); break;
+      case 'delete':
+        // 与 deleteSelectedNodes 保持一致的完整删除流程：删除后压栈（改后快照）+ 刷新连线/统计
+        this.app.deleteNode(node.id);
+        this.app.saveHistory();
+        this.app.checkDuplicateNames();
+        this.app._updatePublishButtons();
+        this.app.sidebar.refreshStats();
+        showToast(`已删除节点：${node.name}`);
+        break;
     }
   }
 

@@ -102,4 +102,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     console.log('🌱 个人成长系统 - Self Grow System 已就绪');
     console.log('💡 使用 Ctrl+1~8 快速切换页面');
+
+    // 拉取全局版本号（右下角）
+    fetchGlobalVersion();
 });
+
+/** 拉取并显示系统版本号（右下角，跟随 git 记录） */
+async function fetchGlobalVersion() {
+    const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
+    try {
+        const resp = await fetch(`${API_BASE}/api/health`);
+        if (resp.ok) {
+            const data = await resp.json();
+            const el = document.getElementById('global-version');
+            if (el && data.version) el.textContent = data.version;
+        }
+    } catch (e) {
+        // 版本号获取失败，保持默认 "--"
+    }
+}

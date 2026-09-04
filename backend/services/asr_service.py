@@ -71,8 +71,13 @@ class ASRConnection:
         asr.stop()
     """
 
-    def __init__(self, model="paraformer-realtime-v2", sample_rate=16000):
-        self.model = model
+    def __init__(self, model="paraformer-realtime-v2", sample_rate=16000, user_id=None):
+        # 动态读取启用 ASR 配置（model_configs 表，无配置则回退参数/.env）
+        from db.model_configs import get_active_config
+        cfg = get_active_config(user_id or 1, "asr")
+        self.model = (cfg or {}).get("model") or model
+        self.api_key = (cfg or {}).get("api_key") or DASHSCOPE_API_KEY
+        self.base_url = (cfg or {}).get("base_url") or DASHSCOPE_WS_URL
         self.sample_rate = sample_rate
         self.recognition = None
         self.result_queue = queue.Queue()
@@ -80,12 +85,12 @@ class ASRConnection:
 
     def start(self):
         """启动 ASR 识别会话（建立 WebSocket 连接）"""
-        if not DASHSCOPE_API_KEY:
-            raise RuntimeError("DASHSCOPE_API_KEY 未设置，无法使用语音识别")
+        if not self.api_key:
+            raise RuntimeError("ASR API Key 未设置，无法使用语音识别")
 
         # 配置 DashScope
-        dashscope.api_key = DASHSCOPE_API_KEY
-        dashscope.base_websocket_api_url = DASHSCOPE_WS_URL
+        dashscope.api_key = self.api_key
+        dashscope.base_websocket_api_url = self.base_url
 
         # 创建回调
         callback = ASRCallback(self.result_queue, self.state_queue)
