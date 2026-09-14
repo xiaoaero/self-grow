@@ -22,6 +22,23 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# ── 时区（很关键，别删）─────────────────────────────────────
+# 容器默认是 UTC，而本项目**大量使用本地时间**：
+#   · SQLite 的 `datetime('now','localtime')`（建表默认值）
+#   · Python 的 `datetime.date.today()`（每日归档/统计按它算「今天」）
+#   · APScheduler 的 `CronTrigger(hour=3)`（每日 03:00 刷新）
+#
+# 不设时区的后果：
+#   1. 定时任务在 UTC 03:00 触发 = 北京时间 11:00 才跑
+#   2. 北京时间 00:00~08:00 期间「今天」仍是前一天 → 打卡日期错位
+#   3. 数据库里存的时间戳比实际早 8 小时
+#
+# Debian slim 需显式装 tzdata，否则 /usr/share/zoneinfo 可能缺失
+ENV TZ=Asia/Shanghai
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
 # ── 依赖层（变化频率低，放前面以命中缓存）──────────────────
 # requirements.txt 由 `pixi run export-reqs` 从 pixi 锁定版本导出，
 # 与开发环境版本完全一致（改依赖请改 pixi.toml 后重新导出，不要手工编辑）

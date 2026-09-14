@@ -26,6 +26,10 @@ services:
 
     environment:
       PORT: 3001
+      # 时区：容器默认 UTC，而本项目大量依赖本地时间
+      # （SQLite 的 datetime('now','localtime')、date.today()、APScheduler 的 hour=3）
+      # 不设的后果：定时任务在 UTC 03:00 = 北京时间 11:00 才跑；凌晨 0~8 点「今天」算成前一天
+      TZ: ${TZ:-Asia/Shanghai}
       # 数据目录：必须与下面的卷挂载点一致，否则 data.db 会写进容器层（删容器即丢）
       SELF_GROW_DATA_DIR: /data
       # 前端目录：留空则后端只提供 API
