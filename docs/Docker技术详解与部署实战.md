@@ -592,6 +592,14 @@ docker compose exec app python tools/init_password.py
 默认写入 `test / test123456`（普通用户）与 `admin / admin123456`（管理员）。
 **上线后第一件事就是改掉这两个密码**。
 
+> 这两个账号不是空号：`db/init.py` 的 `DEFAULT_DEMO_USERS` / `DEFAULT_DEMO_DIMENSIONS`
+> 带了**与本地开发库一致的初始进度**（等级、8 维等级与经验、连续天数），
+> 所以新部署一份空库，打开就是有数据的样子。
+>
+> 想换成自己的数据：改这两处常量即可，**但三个字段必须配套** ——
+> `0 ≤ xp < xp_to_next` 且 `xp_to_next == exp_for_level(level)`，
+> 否则页面会显示"Lv1 却有 5625 经验、进度 100%"这种自相矛盾的数据。
+
 ## 5.5 验证清单
 
 - [ ] `curl http://localhost:3001/api/health` 返回版本号

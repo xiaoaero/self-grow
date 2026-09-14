@@ -7,16 +7,82 @@ Self Grow — 数据库初始化
 import json
 import datetime
 
+from config import log
 from db.connection import get_conn
 from db.dimensions import get_total_exp_from_dimensions
 from models.constants import DIMENSION_KEYS, DEFAULT_DIMENSIONS
-from models.level import level_from_total_exp, total_exp_for_level
+from models.level import exp_for_level, level_from_total_exp, total_exp_for_level
+
+# 维度等级上限（与 db/dimensions.py::upsert_dimension 的 `level < 140` 保持一致）
+MAX_DIM_LEVEL = 140
 
 
-def init_default_dimensions(user_id: int, conn=None):
-    """为指定用户插入 8 维默认数据（如果还不存在）"""
+# ================================================================
+# 空库时的初始账号与初始进度
+#
+# 数据来源：**本地开发库 backend/data.db 里 test / admin 的真实状态，原样搬过来**。
+# 这样新部署一份空库，看到的就是本地那套真实进度，而不是演示用的占位数字。
+#
+# ⚠️ 三个字段必须**配套**，这是踩过坑的：
+#    · level      当前等级
+#    · xp         当前等级内的进度（不是累计！）
+#    · xp_to_next 从 level 升到 level+1 所需经验
+#    不变式： 0 <= xp < xp_to_next  且  xp_to_next == exp_for_level(level)
+#
+#    违反不变式的后果（真实踩过）：以前这里写死 level=1 / xp_to_next=150，
+#    却把 total_exp//8 当成 xp 塞进去，于是库里出现「Lv1 却有 5625 经验、
+#    还差 150 就升级」这种自相矛盾的行；前端 min(xp/xp_to_next,1) 渲染成 100%，
+#    看着像进度满了，其实是脏数据，一直要到该维度被记录一次才会自愈。
+#
+# 累计经验 = total_exp_for_level(level) + xp（db/dimensions.py::get_total_exp_from_dimensions）
+# ================================================================
+
+# (name, role, level, exp=本级进度, total_exp, streak, joined)
+# 注：users.total_exp 是**遗留字段**，真值一律以 8 维反推为准（见上面公式），
+#     这里填的就是反推之和，避免两处对不上。
+DEFAULT_DEMO_USERS = [
+    ("test", "user", 188, 145356, 12230686, 21, "2026-01-15"),
+    ("admin", "admin", 99, 46923, 1795043, 7, "2026-06-01"),
+]
+
+# name -> [(dimension_key, level, xp, xp_to_next), ...]
+DEFAULT_DEMO_DIMENSIONS = {
+    "test": [
+        ("health", 98, 51311.5, 52644),
+        ("study", 99, 4565.0, 53729),
+        ("relation", 91, 40666.0, 45362),
+        ("work", 105, 8231.0, 60472),
+        ("create", 91, 40666.0, 45362),
+        ("finance", 83, 19295.0, 37707),
+        ("hobby", 87, 37551.0, 41445),
+        ("soul", 95, 27655.0, 49456),
+    ],
+    "admin": [
+        ("health", 52, 2324.0, 14770),
+        ("study", 52, 2381.0, 14770),
+        ("relation", 48, 4631.0, 12589),
+        ("work", 55, 7403.0, 16522),
+        ("create", 48, 4711.0, 12589),
+        ("finance", 43, 8925.0, 10113),
+        ("hobby", 46, 2572.0, 11565),
+        ("soul", 50, 4460.0, 13657),
+    ],
+}
+
+
+def default_dimensions_for(name: str):
+    """取该用户名的初始 8 维数据；没有专门配置就退回全 0 的默认值"""
+    return DEFAULT_DEMO_DIMENSIONS.get(name, DEFAULT_DIMENSIONS)
+
+
+def init_default_dimensions(user_id: int, conn=None, dimensions=None):
+    """为指定用户插入 8 维数据（如果还不存在）
+
+    dimensions 不传时用全 0 的 DEFAULT_DIMENSIONS；传了就按传入的（带真实进度）。
+    """
+    rows = dimensions if dimensions is not None else DEFAULT_DIMENSIONS
     if conn:
-        for key, lv, xp, xpn in DEFAULT_DIMENSIONS:
+        for key, lv, xp, xpn in rows:
             conn.execute(
                 """INSERT OR IGNORE INTO user_dimensions (user_id, dimension_key, level, xp, xp_to_next)
                    VALUES (?, ?, ?, ?, ?)""",
@@ -24,7 +90,7 @@ def init_default_dimensions(user_id: int, conn=None):
             )
     else:
         conn2 = get_conn()
-        for key, lv, xp, xpn in DEFAULT_DIMENSIONS:
+        for key, lv, xp, xpn in rows:
             conn2.execute(
                 """INSERT OR IGNORE INTO user_dimensions (user_id, dimension_key, level, xp, xp_to_next)
                    VALUES (?, ?, ?, ?, ?)""",
@@ -318,21 +384,19 @@ def init_db():
         )
     """)
 
-    # 插入默认用户
+    # 插入默认用户（含真实初始进度，见文件上方 DEFAULT_DEMO_USERS 的说明）
     existing = cursor.execute("SELECT id FROM users").fetchall()
     if not existing:
-        users = [
-            ("test", "user", 188, 136388, 6682, 21, "2026-01-15"),
-            ("admin", "admin", 99, 45000, 45000, 7, "2026-06-01"),
-        ]
         cursor.executemany(
             "INSERT INTO users (name, role, level, exp, total_exp, streak, joined) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            users,
+            DEFAULT_DEMO_USERS,
         )
 
-        # 为默认用户初始化 8 维数据
-        for u in cursor.execute("SELECT id FROM users").fetchall():
-            init_default_dimensions(u["id"], conn=conn)
+        # 为默认用户初始化 8 维数据（带真实进度，与本地开发库保持一致）
+        for u in cursor.execute("SELECT id, name FROM users").fetchall():
+            init_default_dimensions(
+                u["id"], conn=conn, dimensions=default_dimensions_for(u["name"])
+            )
 
         # 注意：不再为默认用户插入默认奖励，奖励商城从空开始
         # 用户可自行创建自定义奖励，互相隔离
@@ -361,6 +425,11 @@ def init_db():
 
     # 数据迁移：检测现有用户的 total_exp 是否已经分配到维度
     migrate_total_exp_to_dimensions()
+
+    # 自愈：把历史上写坏（违反 xp < xp_to_next）的维度行一次性修回来
+    fixed_rows = normalize_dimension_rows()
+    if fixed_rows:
+        log.warning(f"⚠️ 修正了 {fixed_rows} 条不自洽的维度数据（历史遗留）")
 
     # 迁移：action_logs 增加 sub_type / sleep_start / sleep_end（幂等）
     # migrate_total_exp_to_dimensions() 可能关闭了 conn，需要重新获取
@@ -475,8 +544,60 @@ def migrate_users_auth_columns():
     conn.close()
 
 
+def split_total_exp(total_exp: float):
+    """把某维度的「累计经验」拆成 (等级, 本级进度, 升级所需)
+
+    这是**唯一**能保证不变式 `0 <= 本级进度 < 升级所需` 与
+    `升级所需 == exp_for_level(等级)` 同时成立的地方。
+    任何直接写 user_dimensions 的代码都应该走它，别自己拼三个数字。
+    """
+    level = min(level_from_total_exp(total_exp), MAX_DIM_LEVEL)
+    current = total_exp - total_exp_for_level(level)
+    return level, current, exp_for_level(level)
+
+
+def normalize_dimension_rows() -> int:
+    """自愈：修正违反不变式的维度行，返回修正条数（幂等，每次启动跑）
+
+    判据：`xp_to_next != exp_for_level(level)` 或 `xp >= xp_to_next`。
+
+    历史背景：migrate_total_exp_to_dimensions() 曾经写死 `level=1 / xp_to_next=150`，
+    在库里留下「Lv1 却有 5625 经验、还差 150 就升级」这种自相矛盾的行 ——
+    前端会把进度渲染成 100%，看着像满级。这些行原本只在「该维度被记录一次」时
+    才靠进位循环自愈；这里启动时一次性全修掉。
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT user_id, dimension_key, level, xp, xp_to_next FROM user_dimensions"
+    ).fetchall()
+
+    fixed = 0
+    for r in rows:
+        level, xp = r["level"], r["xp"]
+        if level >= MAX_DIM_LEVEL:
+            continue                        # 已到维度上限，不再参与升级
+        need = exp_for_level(level)
+        if need > 0 and xp < need and r["xp_to_next"] == need:
+            continue                        # 本来就是对的
+        new_level, new_cur, new_need = split_total_exp(total_exp_for_level(level) + xp)
+        conn.execute(
+            "UPDATE user_dimensions SET level = ?, xp = ?, xp_to_next = ? "
+            "WHERE user_id = ? AND dimension_key = ?",
+            (new_level, new_cur, new_need, r["user_id"], r["dimension_key"]),
+        )
+        fixed += 1
+
+    conn.commit()
+    conn.close()
+    return fixed
+
+
 def migrate_total_exp_to_dimensions():
-    """将 users.total_exp 按比例分配到 8 维（仅在维度 SUM 为 0 时执行一次）"""
+    """将 users.total_exp 平均分配到 8 维（仅在维度 SUM 为 0 时执行一次）
+
+    ⚠️ 拆分一律走 split_total_exp()，不要自己拼 level/xp/xp_to_next 三个数字 ——
+    曾经写死 level=1 / xp_to_next=150，留下的脏行见 normalize_dimension_rows() 的说明。
+    """
     conn = get_conn()
     users = conn.execute("SELECT id, total_exp FROM users").fetchall()
     for u in users:
@@ -490,14 +611,19 @@ def migrate_total_exp_to_dimensions():
         per_dim = total // len(DIMENSION_KEYS)
         remainder = total % len(DIMENSION_KEYS)
         for i, key in enumerate(DIMENSION_KEYS):
-            xp = per_dim + (1 if i < remainder else 0)
-            if xp > 0:
-                conn.execute(
-                    """INSERT INTO user_dimensions (user_id, dimension_key, level, xp, xp_to_next)
-                       VALUES (?, ?, 1, ?, 150)
-                       ON CONFLICT(user_id, dimension_key) DO UPDATE SET xp = xp + ?""",
-                    (u["id"], key, xp, xp),
-                )
+            dim_total = per_dim + (1 if i < remainder else 0)
+            if dim_total <= 0:
+                continue
+            lv, cur, need = split_total_exp(dim_total)
+            conn.execute(
+                """INSERT INTO user_dimensions (user_id, dimension_key, level, xp, xp_to_next)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(user_id, dimension_key) DO UPDATE
+                       SET level = excluded.level,
+                           xp = excluded.xp,
+                           xp_to_next = excluded.xp_to_next""",
+                (u["id"], key, lv, cur, need),
+            )
         new_total = total
         new_level = level_from_total_exp(new_total)
         new_current = new_total - total_exp_for_level(new_level)
