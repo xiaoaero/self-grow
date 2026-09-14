@@ -543,10 +543,19 @@ docker compose version
 ```bash
 git clone <你的仓库> self_grow_system && cd self_grow_system
 
-# 生成密钥并写入 .env
-echo "SELF_GROW_JWT_SECRET=$(openssl rand -hex 32)" >> .env
-# 公网访问时补 CORS 来源
-echo "SELF_GROW_CORS_ORIGINS=https://你的域名" >> .env
+# 从模板生成 .env（模板里已有各键名与说明）
+cp .env.example .env
+
+# ⚠️ 用 sed「替换」而不是 echo「追加」——
+#    模板里已经有 SELF_GROW_JWT_SECRET= 这一行，追加会产生重复键
+#    （重复键虽然多数实现是后者生效，但 compose 与 python-dotenv 行为不完全一致，容易踩坑）
+sed -i "s|^SELF_GROW_JWT_SECRET=.*|SELF_GROW_JWT_SECRET=$(openssl rand -hex 32)|" .env
+
+# 公网访问必须填 CORS 来源（默认只放行 localhost）
+sed -i "s|^SELF_GROW_CORS_ORIGINS=.*|SELF_GROW_CORS_ORIGINS=https://你的域名|" .env
+
+# 不用启动就能检查解析结果（缺密钥会直接报错）
+docker compose config | grep -E "SELF_GROW_JWT_SECRET|CORS"
 ```
 
 ## 5.3 构建并启动
