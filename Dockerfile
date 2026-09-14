@@ -33,11 +33,14 @@ WORKDIR /app
 #   2. 北京时间 00:00~08:00 期间「今天」仍是前一天 → 打卡日期错位
 #   3. 数据库里存的时间戳比实际早 8 小时
 #
-# Debian slim 需显式装 tzdata，否则 /usr/share/zoneinfo 可能缺失
+# 不需要 apt-get 装 tzdata：Debian 的 tzdata 是 required 优先级包，slim 基底同样自带。
+# 实测 python:3.12-slim 里 /usr/share/zoneinfo/Asia/Shanghai 存在，
+# `TZ=Asia/Shanghai date` 直接输出 CST，一条 ENV 就够。
+#
+# 早先为"保险"写过 `apt-get update && apt-get install tzdata`，代价是每次构建都要
+# 从 deb.debian.org 拉 9.6MB 索引（国内实测 4 分钟以上，比装 129 个依赖还慢），
+# 还给构建多引入一个网络失败点 —— 已移除。
 ENV TZ=Asia/Shanghai
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends tzdata \
-    && rm -rf /var/lib/apt/lists/*
 
 # ── 依赖层（变化频率低，放前面以命中缓存）──────────────────
 # requirements.txt 由 `pixi run export-reqs` 从 pixi 锁定版本导出，

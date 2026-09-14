@@ -425,6 +425,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# 时区（很关键）：容器默认 UTC，而本项目大量使用本地时间
+#   · SQLite 的 datetime('now','localtime')   · Python 的 date.today()
+#   · APScheduler 的 CronTrigger(hour=3)
+# 不设的后果：UTC 03:00 触发 = 北京 11:00 才跑；凌晨 0~8 点「今天」算成前一天
+# 不需要 apt-get install tzdata —— Debian 的 tzdata 是 required 优先级包，slim 基底自带，
+# 而 apt-get update 要从 deb.debian.org 拉 9.6MB 索引（国内实测 4 分钟以上）
+ENV TZ=Asia/Shanghai
+
 # 先只拷依赖清单 —— 利用层缓存：改代码不会重装依赖
 COPY backend/requirements.txt ./backend/requirements.txt
 
@@ -704,6 +712,58 @@ RUN pip install --no-cache-dir --retries 5 --timeout 60 \
 2. 导出脚本必须**打日志说明剔除了什么**，否则换个环境你不知道自己少了什么
 3. 构建期的失败要**在本地提前拦截**（dry-run 一条命令的事），别等服务器上跑 6 分钟才失败
 
+## 5.9 复盘：一个"保险起见"的步骤拖慢了整个构建
+
+### 现象
+
+本地构建卡在第 5 步（`RUN apt-get update && apt-get install tzdata`）**四分钟没动静**，日志停在这行：
+
+```
+Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9678 kB]
+```
+
+9.6MB 的包索引，从 `deb.debian.org` 拉 —— 这是整个 Dockerfile 里**唯一一个连海外源的步骤**，
+成了最慢的一层。
+
+### 验证（10 秒就能做）
+
+怀疑"这条 apt 是不是根本没必要"，不要查资料，直接起一个纯净基础镜像实测：
+
+```bash
+docker run --rm python:3.12-slim sh -c \
+  'ls -l /usr/share/zoneinfo/Asia/Shanghai; TZ=Asia/Shanghai date'
+```
+
+```
+-rw-r--r-- 1 root root 561 Apr 28 18:45 /usr/share/zoneinfo/Asia/Shanghai   ← 本来就有
+Tue Sep 15 00:11:37 CST 2026                                               ← 直接就是 CST
+```
+
+### 结论与修正
+
+Debian 里 `tzdata` 是 **required 优先级**包，`slim` 只裁掉文档、编译器这类东西，裁不掉它。
+所以 `ENV TZ=Asia/Shanghai` **一条就够**，apt 那两行是白加的：
+
+```dockerfile
+ENV TZ=Asia/Shanghai          # 就这一行
+```
+
+删掉后：整个镜像构建 **约 100 秒**（原来光 apt 一步就 4 分钟以上）。
+实测确认时区仍然正确：
+
+```bash
+docker exec <容器> date       # Tue Sep 15 00:16:17 CST 2026 ✅
+```
+
+### 通用教训
+
+1. **"保险起见"加的东西是有维护成本的**：多一个外部源依赖、多一条失败路径、
+   多 4 分钟构建时间。加之前先问一句"真的需要吗"
+2. **可疑假设花 10 秒实测掉** —— `docker run --rm <基础镜像> <命令>` 比翻资料快得多，
+   而且结论是这台机器上的事实，不是别人的博客
+3. **但别顺手把真正的"保险"也删掉**：`ENV TZ` 必须留（删了时区就回 UTC），
+   删的只是多余的 apt。判断依据是**实测结果**，不是"看着像多余"
+
 ---
 
 # 第六部分：排障速查
@@ -721,7 +781,8 @@ RUN pip install --no-cache-dir --retries 5 --timeout 60 \
 | 改了代码没生效 | 镜像未重建 | `docker compose build` 后再 `up -d` |
 | `pip install` 报 `No matching distribution found for pywin32==312` | 依赖清单里混进了 Windows 专属包 | 重新 `pixi run export-reqs`；**别手工注释掉了事**（见 5.8） |
 | `pip install` 报 `Invalid requirement: '_openmp_mutex==4.5'` | 清单来自 conda 视角 | 重新导出，读 Python 元数据（见 5.8） |
-| 构建极慢（几分钟且容易断） | 直连 pypi.org；或上下文太大 | 配国内镜像源（见 5.8）；检查 `.dockerignore` 是否排除了 `.pixi/`、`.git/` |
+| 构建极慢（几分钟且容易断） | 直连 pypi.org / deb.debian.org；或上下文太大 | 配国内镜像源（见 5.8）；**去掉不必要的 `apt-get`**（见 5.9）；检查 `.dockerignore` 是否排除了 `.pixi/`、`.git/` |
+| 定时任务晚 8 小时、日期算成前一天 | 容器时区是 UTC | `ENV TZ=Asia/Shanghai`（slim 基底自带 zoneinfo，见 5.9） |
 
 ---
 
@@ -751,6 +812,8 @@ RUN pip install --no-cache-dir --retries 5 --timeout 60 \
 | 怎么瘦身镜像？ | slim 基础镜像、多阶段构建、`.dockerignore`、`--no-cache-dir` |
 | 依赖怎么保证线上线下一致？ | pixi 锁版本 → 导出 pip 清单。注意 **conda 解析会忽略 PyPI 的 `sys_platform` 标记**，Windows 专属包（pywin32）会漏进来，必须按包名显式剔除（见 5.8） |
 | 构建失败怎么快速定位？ | 看失败发生在**哪一层**：`pip install` 层失败是清单问题，`COPY` 层失败是上下文问题；跨平台问题本地 dry-run 就能提前拦（见 5.8） |
+| 怎么判断一条 Dockerfile 指令该不该留？ | **先实测再决定**：`docker run --rm <基础镜像> <命令>`。我曾为"保险"加了 `apt-get install tzdata`，实测基底自带 zoneinfo，白等 4 分钟（见 5.9） |
+| 构建时间怎么优化？ | 分三层看：基础镜像层（slim）、依赖层（国内镜像源 + 层缓存前置）、代码层（`.dockerignore`）。**先量再优化**，本项目的瓶颈是海外 apt/pypi 源 |
 
 ---
 
