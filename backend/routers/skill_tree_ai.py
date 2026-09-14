@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from db.skill_tree import get_skill_tree_by_tree_id
-from routers.deps import get_current_user
+from routers.deps import get_current_user, require_admin
 from services.skill_tree_ai import run_skill_tree_chat, resume_skill_tree_chat
 from services.skill_tree_ai.graph import get_skill_tree_chat_graph
 
@@ -32,15 +32,20 @@ class ResumeRequest(BaseModel):
     thread_id: str = Field(..., description="会话 ID")
     message: str = Field(default="", description="用户输入")
     confirm: bool = Field(default=False, description="是否确认待处理的操作")
+    tree: dict | None = Field(
+        None,
+        description="当前树状态（可选）。传入时用它刷新会话中的树，"
+                    "避免 AI 基于旧的 checkpoint 快照继续编辑，覆盖掉用户手动改动。",
+    )
 
 
 @router.post("/{tree_id}/chat")
 async def chat(
     tree_id: str,
     req: ChatRequest,
-    user=Depends(get_current_user),
+    user=Depends(require_admin),
 ):
-    """启动或继续技能树 AI 编辑对话（非流式）。"""
+    """启动或继续技能树 AI 编辑对话（非流式）。仅管理员可用。"""
     # 校验用户是否拥有该技能树
     tree_record = get_skill_tree_by_tree_id(tree_id, user["id"])
     if not tree_record:
@@ -65,9 +70,9 @@ async def chat(
 async def resume(
     tree_id: str,
     req: ResumeRequest,
-    user=Depends(get_current_user),
+    user=Depends(require_admin),
 ):
-    """恢复对话：用户回答反问或确认操作。"""
+    """恢复对话：用户回答反问或确认操作。仅管理员可用。"""
     # 校验归属
     tree_record = get_skill_tree_by_tree_id(tree_id, user["id"])
     if not tree_record:
@@ -78,6 +83,7 @@ async def resume(
             thread_id=req.thread_id,
             user_message=req.message,
             confirm=req.confirm,
+            tree=req.tree,
         )
         return result
     except Exception as e:

@@ -12,54 +12,20 @@ Self Grow — 统一 AI 调用客户端
 
 import logging
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGenerationChunk
 
-from config import AI_BASE_URL, AI_API_KEY, AI_MODEL
+from config import AI_API_KEY, AI_MODEL
 from db.model_configs import get_active_config
+from services.llm import get_llm
 
 log = logging.getLogger(__name__)
 
 # 显式请求超时（秒）。推理模型长文本生成可达数分钟，避免 httpx 默认 5s 触发重试。
 REQUEST_TIMEOUT = 300
-# 生成类任务超时重试收益低、还放大延迟，统一关闭
-MAX_RETRIES = 0
 # 输出上限：推理模型（qwen3.x-max 等）的 max_tokens 含思考部分，
 # 若设置过小正文会被截断/为空，故给足空间（1024 正文 ≈ 约 700 token）
 DEFAULT_MAX_TOKENS = 4096
-
-# 模块级单例：复用 TCP/TLS 连接，避免每次调用重建
-_llm_instance: ChatOpenAI | None = None
-_llm_cache_key: tuple | None = None
-
-
-def _get_llm(temperature: float = 0.7, max_tokens: int = DEFAULT_MAX_TOKENS,
-             user_id: int = None) -> ChatOpenAI:
-    """获取（缓存的）LLM 实例。模型配置或参数变化时重建实例。
-
-    动态读取当前启用的 LLM 配置（model_configs 表），切换启用模型后
-    cache_key 变化 → 重建实例，实现「切换模型即时生效」。
-    """
-    global _llm_instance, _llm_cache_key
-    cfg = get_active_config(user_id or 1, "llm")
-    model = (cfg or {}).get("model") or AI_MODEL
-    api_key = (cfg or {}).get("api_key") or AI_API_KEY
-    base_url = (cfg or {}).get("base_url") or AI_BASE_URL
-
-    cache_key = (temperature, max_tokens, model, base_url, api_key)
-    if _llm_instance is None or _llm_cache_key != cache_key:
-        _llm_instance = ChatOpenAI(
-            model=model,
-            api_key=api_key,
-            base_url=base_url,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            request_timeout=REQUEST_TIMEOUT,
-            max_retries=MAX_RETRIES,
-        )
-        _llm_cache_key = cache_key
-    return _llm_instance
 
 
 async def call_ai_text(
@@ -90,7 +56,7 @@ async def call_ai_text(
     if not effective_key:
         raise RuntimeError("AI_API_KEY 未配置")
 
-    llm = _get_llm(temperature=temperature, max_tokens=max_tokens, user_id=user_id)
+    llm = get_llm(temperature=temperature, max_tokens=max_tokens, timeout=REQUEST_TIMEOUT, user_id=user_id)
 
     messages = [
         SystemMessage(content=system_prompt),
@@ -139,7 +105,7 @@ async def call_ai_text_stream(
     if not effective_key:
         raise RuntimeError("AI_API_KEY 未配置")
 
-    llm = _get_llm(temperature=temperature, max_tokens=max_tokens, user_id=user_id)
+    llm = get_llm(temperature=temperature, max_tokens=max_tokens, timeout=REQUEST_TIMEOUT, user_id=user_id)
 
     messages = [
         SystemMessage(content=system_prompt),

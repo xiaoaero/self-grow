@@ -986,3 +986,66 @@ textarea {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
+
+/* ================================================================
+   无权限拦截页（仅管理员可进入编辑器）
+   2026-09-11 安全改造：普通用户手敲编辑器地址时展示，且不初始化 App
+   ================================================================ */
+#skill-tree-denied {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary, #15171c);
+  z-index: 9999;
+}
+
+#skill-tree-denied .denied-card {
+  text-align: center;
+  padding: 40px 48px;
+  border: 1px solid var(--border, #2a2a4a);
+  border-radius: 12px;
+  background: var(--bg-secondary, #1e2028);
+  max-width: 90vw;
+}
+
+#skill-tree-denied .denied-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+#skill-tree-denied h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  color: var(--text-primary, #e6e6f0);
+  font-weight: 600;
+}
+
+#skill-tree-denied .denied-reason {
+  margin: 0 0 24px;
+  font-size: 13px;
+  color: var(--text-muted, #666680);
+}
+
+#skill-tree-denied .denied-btn {
+  padding: 9px 22px;
+  border: none;
+  border-radius: var(--radius, 8px);
+  background: var(--accent, #4fc3f7);
+  color: #000;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#skill-tree-denied .denied-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* 角色校验中：先隐藏编辑 UI，避免工具栏/侧边栏在校验完成前闪现 */
+body.role-checking #toolbar,
+body.role-checking #main-container,
+body.role-checking #ai-panel {
+  display: none !important;
+}

@@ -19,7 +19,7 @@ router = APIRouter()
 
 
 @router.get("/api/habits")
-async def list_habits(user=Depends(get_current_user)):
+def list_habits(user=Depends(get_current_user)):
     """获取用户所有习惯 + 本周打卡数据"""
     user_id = user["id"]
     habits = get_habits(user_id)
@@ -83,7 +83,7 @@ async def list_habits(user=Depends(get_current_user)):
 
 
 @router.post("/api/habits")
-async def create_new_habit(req: CreateHabitRequest, user=Depends(get_current_user)):
+def create_new_habit(req: CreateHabitRequest, user=Depends(get_current_user)):
     """创建新习惯"""
     user_id = user["id"]
     new_id = create_habit(
@@ -116,7 +116,7 @@ async def create_new_habit(req: CreateHabitRequest, user=Depends(get_current_use
 
 
 @router.put("/api/habits/{habit_id}")
-async def update_existing_habit(habit_id: int, req: UpdateHabitRequest):
+def update_existing_habit(habit_id: int, req: UpdateHabitRequest):
     """更新习惯"""
     habit = get_habit(habit_id)
     if not habit:
@@ -138,14 +138,14 @@ async def update_existing_habit(habit_id: int, req: UpdateHabitRequest):
 
 
 @router.delete("/api/habits")
-async def delete_habits_batch(req: DeleteHabitsRequest, user=Depends(get_current_user)):
+def delete_habits_batch(req: DeleteHabitsRequest, user=Depends(get_current_user)):
     """批量删除习惯"""
     delete_habits(req.ids)
     return {"deleted": len(req.ids)}
 
 
 @router.post("/api/habits/{habit_id}/toggle")
-async def toggle_habit_checkin(habit_id: int):
+def toggle_habit_checkin(habit_id: int):
     """打卡三态切换：done → skipped → pending → done"""
     habit = get_habit(habit_id)
     if not habit:
@@ -172,7 +172,7 @@ async def toggle_habit_checkin(habit_id: int):
 
 
 @router.get("/api/habits/stats")
-async def habit_stats(user=Depends(get_current_user)):
+def habit_stats(user=Depends(get_current_user)):
     """统计卡片数据：今日完成/最长连续/本周完成率/本月估算/活跃数 + 上周对比"""
     user_id = user["id"]
     habits = get_habits(user_id)
@@ -289,7 +289,7 @@ async def habit_stats(user=Depends(get_current_user)):
 
 
 @router.get("/api/habits/insights")
-async def habit_insights(user=Depends(get_current_user)):
+def habit_insights(user=Depends(get_current_user)):
     """简单版习惯洞察（规则计算，无 AI）"""
     user_id = user["id"]
     habits = get_habits(user_id)
@@ -349,7 +349,7 @@ async def habit_ai_icon(req: HabitAIIconRequest, user=Depends(get_current_user))
 
 
 @router.get("/api/habits/last-week")
-async def last_week_habits(user=Depends(get_current_user)):
+def last_week_habits(user=Depends(get_current_user)):
     """上周打卡数据"""
     user_id = user["id"]
     habits = get_habits(user_id)

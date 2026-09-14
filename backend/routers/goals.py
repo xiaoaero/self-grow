@@ -12,14 +12,14 @@ router = APIRouter()
 
 
 @router.get("/api/goals")
-async def list_goals(user=Depends(get_current_user)):
+def list_goals(user=Depends(get_current_user)):
     """获取目标列表"""
     goals = get_goals(user["id"])
     return {"goals": goals}
 
 
 @router.post("/api/goals")
-async def create_new_goal(req: CreateGoalRequest, user=Depends(get_current_user)):
+def create_new_goal(req: CreateGoalRequest, user=Depends(get_current_user)):
     """创建目标"""
     new_id = create_goal(
         user["id"], req.title, req.intro, req.category,
@@ -31,7 +31,7 @@ async def create_new_goal(req: CreateGoalRequest, user=Depends(get_current_user)
 
 
 @router.put("/api/goals/{goal_id}")
-async def update_existing_goal(goal_id: int, req: UpdateGoalRequest):
+def update_existing_goal(goal_id: int, req: UpdateGoalRequest):
     """更新目标"""
     goal = get_goal(goal_id)
     if not goal:
@@ -51,7 +51,7 @@ async def update_existing_goal(goal_id: int, req: UpdateGoalRequest):
 
 
 @router.delete("/api/goals/{goal_id}")
-async def delete_existing_goal(goal_id: int):
+def delete_existing_goal(goal_id: int):
     """删除目标"""
     goal = get_goal(goal_id)
     if not goal:
@@ -61,7 +61,7 @@ async def delete_existing_goal(goal_id: int):
 
 
 @router.post("/api/goals/{goal_id}/claim")
-async def claim_goal(goal_id: int):
+def claim_goal(goal_id: int):
     """领取目标 EXP 奖励"""
     goal = get_goal(goal_id)
     if not goal:

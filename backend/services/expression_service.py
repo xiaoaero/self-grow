@@ -8,7 +8,8 @@ import json
 import logging
 import re
 
-from config import AI_BASE_URL, AI_API_KEY, AI_MODEL
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from services.llm import get_llm
 from prompts.expression import (
     EXPRESSION_QUESTION_SYSTEM_PROMPT,
     EXPRESSION_EVALUATE_SYSTEM_PROMPT,
@@ -37,16 +38,13 @@ QUESTION_TYPES = {
 }
 
 
-async def generate_question(types: list[str]) -> dict:
+async def generate_question(types: list[str], user_id: int = 1) -> dict:
     """
     生成题目 + 3 条思考提示。
 
     调用 LLM（Tool Use 模式），先查历史题目防重复，再生成新题。
     当前热搜搜索工具预留，暂不实现。
     """
-    if not AI_API_KEY:
-        return _fallback_question(types)
-
     # 查询已有题目（用于查重）
     existing = get_existing_questions(types=types if types else None, limit=30)
     existing_text = "\n".join(
@@ -68,6 +66,7 @@ async def generate_question(types: list[str]) -> dict:
             system_prompt=EXPRESSION_QUESTION_SYSTEM_PROMPT,
             user_message=user_message,
             tools=EXPRESSION_QUESTION_TOOLS,
+            user_id=user_id,
         )
         # 从 result 中解析出 question 和 hints
         question_data = _parse_question_result(result)
@@ -93,7 +92,7 @@ async def generate_question(types: list[str]) -> dict:
         return _fallback_question(types)
 
 
-async def evaluate_answer(question_id: int, answer_id: int, answer_text: str, filler_words: dict = None) -> dict:
+async def evaluate_answer(question_id: int, answer_id: int, answer_text: str, filler_words: dict = None, user_id: int = 1) -> dict:
     """
     对用户的回答进行 AI 评分，并保存到数据库。
     """
@@ -118,6 +117,7 @@ async def evaluate_answer(question_id: int, answer_id: int, answer_text: str, fi
             system_prompt=EXPRESSION_EVALUATE_SYSTEM_PROMPT,
             user_message=user_message,
             temperature=0.5,
+            user_id=user_id,
         )
         evaluation = _parse_evaluation_result(result)
     except Exception as e:
@@ -137,14 +137,11 @@ async def evaluate_answer(question_id: int, answer_id: int, answer_text: str, fi
     return evaluation
 
 
-async def generate_hints(question_id: int, question: str, question_type: str) -> list:
+async def generate_hints(question_id: int, question: str, question_type: str, user_id: int = 1) -> list:
     """
     异步生成提示（表达方向 + 例子），不阻塞答题流程。
     调用 LLM 纯文本模式，解析 JSON 返回。
     """
-    if not AI_API_KEY:
-        return _fallback_hints()
-
     user_message = f"""题目（{question_type}）：{question}
 
 请为这道表达训练题目生成 3 条思考提示，每条包含表达方向和具体例子。"""
@@ -154,6 +151,7 @@ async def generate_hints(question_id: int, question: str, question_type: str) ->
             system_prompt=EXPRESSION_HINTS_SYSTEM_PROMPT,
             user_message=user_message,
             temperature=0.7,
+            user_id=user_id,
         )
         hints = _parse_hints_result(result)
     except Exception as e:
@@ -168,144 +166,67 @@ async def generate_hints(question_id: int, question: str, question_type: str) ->
     return hints
 
 
-async def _call_llm_with_tools(system_prompt: str, user_message: str, tools: list) -> dict:
-    """调用 LLM（支持 Tool Use 模式）"""
-    import httpx
+async def _call_llm_with_tools(system_prompt: str, user_message: str, tools: list, user_id: int = 1) -> dict:
+    """调用 LLM（支持 Tool Use 模式），复用 get_llm（用户配置优先 + env 兜底）"""
+    llm = get_llm(temperature=0.8, user_id=user_id)
+    # tools 是 OpenAI function 格式，直接 bind 原样传给 API
+    llm_with_tools = llm.bind(tools=tools, tool_choice="auto")
 
     messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_message},
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_message),
     ]
 
     max_rounds = 5  # 防止无限循环
-    current_round = 0
+    for current_round in range(max_rounds):
+        log.info(f"→ 出题 AI 请求 ({current_round + 1})")
+        resp = await llm_with_tools.ainvoke(messages)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        while current_round < max_rounds:
-            current_round += 1
-            payload = {
-                "model": AI_MODEL,
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": "auto",
-                "temperature": 0.8,
-                "max_tokens": 4096,
-            }
+        # 处理工具调用
+        if resp.tool_calls:
+            # 保存含 tool_calls 的 AIMessage，维持对话上下文
+            messages.append(resp)
 
-            log.info(f"→ 出题 AI 请求 ({current_round})")
-            resp = await client.post(
-                f"{AI_BASE_URL}/chat/completions",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {AI_API_KEY}",
-                },
-                json=payload,
-            )
+            for tc in resp.tool_calls:
+                name = tc["name"]
+                args = tc["args"] or {}
 
-            if resp.status_code != 200:
-                log.error(f"← AI 错误 {resp.status_code}: {resp.text[:300]}")
-                raise RuntimeError(f"AI API 错误 {resp.status_code}")
+                if name == "query_history_questions":
+                    # 查询历史题目
+                    q_types = args.get("types", [])
+                    limit = args.get("limit", 20)
+                    existing = get_existing_questions(types=q_types if q_types else None, limit=limit)
+                    result_text = json.dumps(existing, ensure_ascii=False)
+                elif name == "search_hot_events":
+                    # 预留：联网搜索，暂不可用
+                    result_text = "【该工具暂不可用】联网搜索功能尚未接入，请基于已有知识生成题目。"
+                else:
+                    result_text = "未知工具"
 
-            data = resp.json()
-            msg = data["choices"][0]["message"]
-
-            # 处理工具调用：保存完整的 assistant 消息（含 tool_calls）
-            if "tool_calls" in msg and msg["tool_calls"]:
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": msg.get("content") or "",
-                    "tool_calls": [
-                        {
-                            "id": tc["id"],
-                            "type": "function",
-                            "function": {
-                                "name": tc["function"]["name"],
-                                "arguments": tc["function"]["arguments"],
-                            },
-                        }
-                        for tc in msg["tool_calls"]
-                    ],
-                }
-                messages.append(assistant_msg)
-
-                for tc in msg["tool_calls"]:
-                    name = tc["function"]["name"]
-                    try:
-                        args = json.loads(tc["function"]["arguments"])
-                    except json.JSONDecodeError:
-                        args = {}
-
-                    if name == "query_history_questions":
-                        # 查询历史题目
-                        q_types = args.get("types", [])
-                        limit = args.get("limit", 20)
-                        existing = get_existing_questions(types=q_types if q_types else None, limit=limit)
-                        result_text = json.dumps(existing, ensure_ascii=False)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": result_text,
-                        })
-                    elif name == "search_hot_events":
-                        # 预留：联网搜索，暂不可用
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": "【该工具暂不可用】联网搜索功能尚未接入，请基于已有知识生成题目。",
-                        })
-                    else:
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": "未知工具",
-                        })
-            else:
-                # 没有工具调用，返回最终结果
-                return {"content": msg.get("content") or ""}
+                messages.append(ToolMessage(content=result_text, tool_call_id=tc["id"]))
+        else:
+            # 没有工具调用，返回最终结果
+            return {"content": resp.content or ""}
 
     return {"content": ""}
 
 
-async def _call_llm_direct(system_prompt: str, user_message: str, temperature: float = 0.5) -> str:
-    """调用 LLM（纯文本模式，无工具调用）"""
-    import httpx
+async def _call_llm_direct(system_prompt: str, user_message: str, temperature: float = 0.5, user_id: int = 1) -> str:
+    """调用 LLM（纯文本模式，无工具调用），复用 get_llm（用户配置优先 + env 兜底）"""
+    llm = get_llm(temperature=temperature, user_id=user_id)
 
     messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_message},
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_message),
     ]
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        payload = {
-            "model": AI_MODEL,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": 4096,
-        }
-
-        log.info("→ 评分 AI 请求")
-        resp = await client.post(
-            f"{AI_BASE_URL}/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {AI_API_KEY}",
-            },
-            json=payload,
-        )
-
-        if resp.status_code != 200:
-            log.error(f"← AI 错误 {resp.status_code}: {resp.text[:300]}")
-            raise RuntimeError(f"AI API 错误 {resp.status_code}")
-
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
+    log.info("→ AI 请求")
+    resp = await llm.ainvoke(messages)
+    return resp.content or ""
 
 
-async def beautify_question(text: str) -> str:
+async def beautify_question(text: str, user_id: int = 1) -> str:
     """调用 AI 将用户模糊的问题美化为更具体的问题"""
-    if not AI_API_KEY:
-        return text
-
     user_message = f"请将以下表达训练题目美化为更具体、更有讨论空间的问题：\n\n{text}"
 
     try:
@@ -313,6 +234,7 @@ async def beautify_question(text: str) -> str:
             system_prompt=EXPRESSION_BEAUTIFY_SYSTEM_PROMPT,
             user_message=user_message,
             temperature=0.7,
+            user_id=user_id,
         )
         beautified = result.strip().strip('"').strip("'").strip()
         return beautified if beautified else text

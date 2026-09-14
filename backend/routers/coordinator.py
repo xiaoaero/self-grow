@@ -189,7 +189,7 @@ async def resume(request: ResumeRequest, user=Depends(get_current_user)):
 
 
 @router.get("/status/{thread_id}")
-async def get_status(thread_id: str, user=Depends(get_current_user)):
+def get_status(thread_id: str, user=Depends(get_current_user)):
     """查询对话编排状态"""
     state = _get_state(thread_id)
     if not state:
@@ -209,7 +209,7 @@ async def get_status(thread_id: str, user=Depends(get_current_user)):
 
 
 @router.get("/stream/{thread_id}")
-async def stream_events(thread_id: str):
+def stream_events(thread_id: str):
     """SSE 流式推送事件（占位）"""
     async def event_generator():
         state = _get_state(thread_id)

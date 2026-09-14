@@ -6,7 +6,7 @@ Self Grow — 主图结果整合节点
 
 import logging
 from services.coordinator.state import CoordinatorState
-from services.coordinator.llm import get_llm
+from services.llm import get_llm
 
 log = logging.getLogger(__name__)
 

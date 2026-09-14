@@ -9,5 +9,5 @@ router = APIRouter()
 
 
 @router.get("/api/health")
-async def health():
+def health():
     return {"status": "ok", "version": get_version(), "model": AI_MODEL, "base_url": AI_BASE_URL}

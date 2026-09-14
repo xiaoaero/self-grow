@@ -65,7 +65,7 @@ def _update_streak_logic(current_streak: int, has_protection: bool,
 
 
 @router.post("/api/actions")
-async def create_action(req: CreateActionRequest, user=Depends(get_current_user)):
+def create_action(req: CreateActionRequest, user=Depends(get_current_user)):
     """提交行动记录 — 按新规则计算 EXP、更新等级和今日统计"""
     user_id = user["id"]
 
@@ -163,7 +163,7 @@ async def create_action(req: CreateActionRequest, user=Depends(get_current_user)
 
 
 @router.get("/api/actions")
-async def list_actions(
+def list_actions(
     user=Depends(get_current_user),
     page: int = 1,
     page_size: int = 20,
@@ -183,7 +183,7 @@ async def list_actions(
 
 
 @router.get("/api/actions/export")
-async def export_actions_csv(
+def export_actions_csv(
     user=Depends(get_current_user),
     category: str = "",
     date_from: str = "",
@@ -249,7 +249,7 @@ async def export_actions_csv(
 
 
 @router.get("/api/actions/today-stats")
-async def today_action_stats(user=Depends(get_current_user)):
+def today_action_stats(user=Depends(get_current_user)):
     """今日行动统计（分类分布 + 最近行动）"""
     user_id = user["id"]
     today = datetime.now().strftime('%Y-%m-%d')
@@ -269,7 +269,7 @@ async def today_action_stats(user=Depends(get_current_user)):
 
 
 @router.get("/api/actions/routine-status")
-async def routine_status(user=Depends(get_current_user)):
+def routine_status(user=Depends(get_current_user)):
     """获取当前用户的作息规律状态"""
     user_id = user["id"]
     info = get_routine_streak(user_id)
@@ -284,7 +284,7 @@ async def routine_status(user=Depends(get_current_user)):
 
 
 @router.get("/api/actions/finance-review-status")
-async def finance_review_status(user=Depends(get_current_user)):
+def finance_review_status(user=Depends(get_current_user)):
     """获取当前半月是否已记录财务复盘"""
     user_id = user["id"]
     has_review = has_finance_review_this_half(user_id)
@@ -292,7 +292,7 @@ async def finance_review_status(user=Depends(get_current_user)):
 
 
 @router.get("/api/activities/feed")
-async def activity_feed(user=Depends(get_current_user)):
+def activity_feed(user=Depends(get_current_user)):
     """动态播报列表"""
     user_id = user["id"]
     activities = get_activity_feed(user_id)
@@ -305,16 +305,16 @@ async def activity_feed(user=Depends(get_current_user)):
 
 
 @router.post("/api/actions/ai-chat")
-async def ai_chat_action(req: AIChatActionRequest):
+async def ai_chat_action(req: AIChatActionRequest, user=Depends(get_current_user)):
     """AI 行动解析对话：支持多轮交互，AI 可反问用户"""
-    result = await call_action_ai(req.messages)
+    result = await call_action_ai(req.messages, user_id=user["id"])
     if "tool_calls" in result:
         return {"tool_calls": result["tool_calls"]}
     return {"content": result.get("content", "")}
 
 
 @router.post("/api/actions/ai-submit")
-async def ai_submit_actions(req: AISubmitActionsRequest, user=Depends(get_current_user)):
+def ai_submit_actions(req: AISubmitActionsRequest, user=Depends(get_current_user)):
     """
     批量提交 AI 解析后的行动记录。
     后端用 calculate_exp() 二次校验 EXP，确保与手动记录一致。

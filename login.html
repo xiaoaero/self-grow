@@ -4,9 +4,46 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Self Grow - 登录</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40' fill='none'><circle cx='20' cy='20' r='18' stroke='%234fc3f7' stroke-width='2'/><path d='M12 28 L20 12 L28 28' stroke='%234fc3f7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><circle cx='20' cy='18' r='3' fill='%234fc3f7'/></svg>">
     <link rel="stylesheet" href="frontend/css/variables.css">
     <link rel="stylesheet" href="frontend/css/layout.css">
     <link rel="stylesheet" href="frontend/css/pages.css">
+    <style>
+        /* 登录表单（2026-09-13 JWT 改造） */
+        .login-form { width: 100%; margin-top: 4px; }
+        .login-field { margin-bottom: 14px; text-align: left; }
+        .login-field label {
+            display: block; font-size: 12px; color: var(--text-muted, #8888a0);
+            margin-bottom: 6px; letter-spacing: .5px;
+        }
+        .login-field input {
+            width: 100%; padding: 11px 14px;
+            border: 1px solid var(--border, #2a2a4a); border-radius: 8px;
+            background: var(--bg-tertiary, #16161f); color: var(--text-primary, #e6e6f0);
+            font-size: 14px; outline: none; transition: border-color .15s;
+            box-sizing: border-box;
+        }
+        .login-field input:focus { border-color: var(--accent, #4fc3f7); }
+        .login-submit {
+            width: 100%; padding: 12px; margin-top: 4px;
+            border: none; border-radius: 8px;
+            background: var(--accent, #4fc3f7); color: #06070a;
+            font-size: 15px; font-weight: 600; cursor: pointer;
+            transition: filter .15s;
+        }
+        .login-submit:hover:not(:disabled) { filter: brightness(1.1); }
+        .login-submit:disabled { opacity: .6; cursor: not-allowed; }
+        .login-error-msg {
+            min-height: 18px; margin: 8px 0 0; font-size: 13px; color: #ef5350; text-align: center;
+        }
+        .login-user-card--active { border-color: var(--accent, #4fc3f7) !important; }
+        .login-trusted-badge {
+            display: inline-block; margin-bottom: 10px; padding: 4px 10px;
+            border-radius: 20px; font-size: 12px;
+            background: rgba(240, 160, 32, .15); color: #f0a020;
+            border: 1px solid rgba(240, 160, 32, .3);
+        }
+    </style>
 </head>
 <body>
 
@@ -24,14 +61,33 @@
             <p class="login-subtitle">个人成长系统</p>
         </div>
 
-        <p class="login-prompt">选择用户身份</p>
+        <div id="trusted-badge-slot"></div>
+
+        <p class="login-prompt" id="login-prompt">选择用户身份</p>
 
         <div class="login-users" id="login-users">
             <!-- 由 JS 动态渲染 -->
             <div class="login-loading">加载中...</div>
         </div>
 
-        <p class="login-hint">💡 后续版本将支持用户名密码登录</p>
+        <!-- 用户名密码登录 -->
+        <form class="login-form" id="login-form" autocomplete="on">
+            <div class="login-field">
+                <label for="login-username">用户名</label>
+                <input type="text" id="login-username" name="username"
+                       placeholder="输入用户名，或点击上方卡片选择"
+                       autocomplete="username" required>
+            </div>
+            <div class="login-field">
+                <label for="login-password">密码</label>
+                <input type="password" id="login-password" name="password"
+                       placeholder="请输入密码" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="login-submit" id="login-submit">登 录</button>
+            <p class="login-error-msg" id="login-error"></p>
+        </form>
+
+        <p class="login-hint" id="login-hint">💡 忘记密码？在后端执行 <code>pixi run init-password 用户名 新密码</code> 重置</p>
     </div>
 </div>
 
@@ -40,17 +96,23 @@
 <div class="bg-orb bg-orb--2"></div>
 <div class="bg-orb bg-orb--3"></div>
 
+<!-- 后端 /api/config.js 动态注入 API_BASE（前端独立服务器时取不到 → 回落默认端口） -->
+<script src="/api/config.js" onerror="/* 开发模式静默失败 */"></script>
+<script src="frontend/js/auth.js"></script>
 <script>
 // 动态获取 API_BASE：优先使用后端注入的配置，否则使用默认值
-const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
-</script>
-<!-- API 配置：由后端 /api/config.js 动态注入 API_BASE（同源模式由后端 serve，开发模式静默失败） -->
-<script src="/api/config.js" onerror="/* 开发模式下 config.js 不可用，使用上面定义的默认值 */"></script>
-<script>
+const API_BASE = (window.Auth && window.Auth.API_BASE)
+    || window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
+const TRUSTED_MODE = window.__SELF_GROW_TRUSTED_MODE__ === true;
 
+const usernameInput = document.getElementById('login-username');
+const passwordInput = document.getElementById('login-password');
+const errorEl = document.getElementById('login-error');
+const submitBtn = document.getElementById('login-submit');
+
+/** 加载用户列表（该接口无需登录，供选择用户名用） */
 async function loadUsers() {
     const container = document.getElementById('login-users');
-
     try {
         const resp = await fetch(`${API_BASE}/api/users`);
         if (!resp.ok) throw new Error('API 不可用');
@@ -62,7 +124,10 @@ async function loadUsers() {
             const isAdmin = user.role === 'admin';
             const card = document.createElement('div');
             card.className = 'login-user-card';
-            card.onclick = () => loginUser(user);
+            card.dataset.userId = user.id;
+            card.dataset.userName = user.name;
+            // 点击卡片 = 填入用户名（TRUSTED_MODE 下才直接登录，见下）
+            card.onclick = () => selectUser(user, card);
 
             card.innerHTML = `
                 <div class="login-user-card__icon">${isAdmin ? '⚙️' : '👤'}</div>
@@ -72,27 +137,85 @@ async function loadUsers() {
                 </div>
                 <div class="login-user-card__arrow">→</div>
             `;
-
             container.appendChild(card);
         });
     } catch (e) {
+        // 把真实原因展示出来：多数情况下是 CORS 而非"后端没启动"
+        console.error('[login] 加载用户列表失败', e, 'API_BASE =', API_BASE);
         container.innerHTML = `
             <div class="login-error">
                 <p>❌ 无法连接到后端服务</p>
-                <p style="font-size:12px;color:#666">请确保后端已启动：<br>cd backend && pixi run python server.py</p>
+                <p style="font-size:12px;color:#888;margin:8px 0">
+                    目标地址：<code>${API_BASE}</code><br>
+                    当前页面：<code>${location.origin}</code>
+                </p>
+                <p style="font-size:12px;color:#666;margin:8px 0">
+                    ${location.protocol === 'file:'
+                        ? '⚠️ 当前是 file:// 打开，浏览器会禁止跨域请求。<br>请用本地服务器访问：npx http-server -p 3000'
+                        : '请确认：① 后端已启动（cd backend &amp;&amp; pixi run start）<br>② 后端已允许该来源（默认放行 localhost / 127.0.0.1 的任意端口）'}
+                </p>
                 <button onclick="loadUsers()" class="login-retry-btn">重试</button>
             </div>
         `;
     }
 }
 
-function loginUser(user) {
-    setCurrentUser({ id: user.id, name: user.name, role: user.role });
+function selectUser(user, card) {
+    document.querySelectorAll('.login-user-card').forEach(c => c.classList.remove('login-user-card--active'));
+    if (card) card.classList.add('login-user-card--active');
+    usernameInput.value = user.name;
+    errorEl.textContent = '';
+    passwordInput.focus();
+
+    // 本地免鉴权模式：点卡片直接进（开发 / 演示用）
+    if (TRUSTED_MODE) {
+        localStorage.setItem('sg_user', JSON.stringify({ id: user.id, name: user.name, role: user.role }));
+        // 免鉴权标记：让主应用知道当前没有 token 是"预期行为"，不要把用户踢回登录页
+        localStorage.setItem('sg_trusted', '1');
+        window.location.href = 'frontend/index.html';
+    }
+}
+
+/** 用户名 + 密码登录 */
+async function submitLogin(e) {
+    e.preventDefault();
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+
+    if (!username || !password) {
+        errorEl.textContent = '请输入用户名和密码';
+        return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '登录中...';
+    errorEl.textContent = '';
+
+    const result = await window.Auth.login(username, password);
+
+    if (!result.ok) {
+        errorEl.textContent = result.detail || '登录失败';
+        submitBtn.disabled = false;
+        submitBtn.textContent = '登 录';
+        passwordInput.select();
+        return;
+    }
+
     window.location.href = 'frontend/index.html';
 }
 
-function setCurrentUser(user) {
-    localStorage.setItem('sg_user', JSON.stringify(user));
+document.getElementById('login-form').addEventListener('submit', submitLogin);
+
+// 免鉴权模式下给出醒目提示，并说明此时无需密码
+if (TRUSTED_MODE) {
+    document.getElementById('trusted-badge-slot').innerHTML =
+        '<div class="login-trusted-badge">⚠️ 本地免鉴权模式已开启：点击卡片可直接进入</div>';
+    document.getElementById('login-prompt').textContent = '选择用户身份（免密）';
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('login-hint').textContent =
+        '生产环境请关闭 SELF_GROW_TRUSTED_MODE，使用用户名密码登录';
+} else {
+    document.getElementById('login-prompt').textContent = '选择账号或输入用户名';
 }
 
 loadUsers();

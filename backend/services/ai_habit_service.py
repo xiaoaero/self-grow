@@ -11,7 +11,6 @@ from xml.etree import ElementTree
 
 from fastapi import HTTPException
 
-from config import AI_API_KEY
 from prompts import HABIT_ICON_SYSTEM_PROMPT
 from services.ai_client import call_ai_text
 
@@ -67,9 +66,6 @@ def validate_svg(svg: str) -> bool:
 
 async def call_ai_for_icon(name: str, intro: str, category: str, user_id: int = None) -> str:
     """根据习惯名称、简介、维度分类，调用 AI 生成 SVG 图标"""
-    if not AI_API_KEY:
-        raise HTTPException(status_code=500, detail="AI_API_KEY 未配置")
-
     # 构建用户消息
     user_message = (
         f"为一个习惯设计 SVG 图标。\n"

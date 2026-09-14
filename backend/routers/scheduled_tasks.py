@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("/api/scheduled-tasks")
-async def list_scheduled_tasks(user=Depends(get_current_user)):
+def list_scheduled_tasks(user=Depends(get_current_user)):
     """获取定时任务模板列表"""
     templates = get_scheduled_tasks(user["id"])
     daily = [t for t in templates if t["type"] == "daily"]
@@ -21,7 +21,7 @@ async def list_scheduled_tasks(user=Depends(get_current_user)):
 
 
 @router.post("/api/scheduled-tasks")
-async def create_new_scheduled_task(req: CreateScheduledTaskRequest, user=Depends(get_current_user)):
+def create_new_scheduled_task(req: CreateScheduledTaskRequest, user=Depends(get_current_user)):
     """创建定时任务模板"""
     new_id = create_scheduled_task(
         user["id"], req.type, req.title, req.category,
@@ -31,14 +31,14 @@ async def create_new_scheduled_task(req: CreateScheduledTaskRequest, user=Depend
 
 
 @router.put("/api/scheduled-tasks/{task_id}")
-async def update_scheduled_task_route(task_id: int, req: UpdateScheduledTaskRequest):
+def update_scheduled_task_route(task_id: int, req: UpdateScheduledTaskRequest):
     """更新定时任务模板"""
     update_scheduled_task(task_id, **{k: v for k, v in req.dict().items() if v is not None})
     return {"updated": True}
 
 
 @router.delete("/api/scheduled-tasks/{task_id}")
-async def delete_scheduled_task_route(task_id: int):
+def delete_scheduled_task_route(task_id: int):
     """删除定时任务模板"""
     delete_scheduled_task(task_id)
     return {"deleted": True}

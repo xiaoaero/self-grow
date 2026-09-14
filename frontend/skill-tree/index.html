@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Skill Tree - 智能知识树生成器</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40' fill='none'><circle cx='20' cy='20' r='18' stroke='%234fc3f7' stroke-width='2'/><path d='M12 28 L20 12 L28 28' stroke='%234fc3f7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><circle cx='20' cy='18' r='3' fill='%234fc3f7'/></svg>">
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="css/sidebar.css" />
   <link rel="stylesheet" href="css/detail-panel.css" />
@@ -41,14 +42,132 @@
   </style>
 </head>
 <body class="">
+  <!-- 后端 /api/config.js 动态注入 API_BASE（跨域开发时取不到 → 回落默认端口） -->
+  <script src="/api/config.js" onerror="/* 开发模式静默失败 */"></script>
+  <!-- 共享鉴权模块：包装 window.fetch 自动带 Authorization，并统一处理 401 -->
+  <script src="../js/auth.js"></script>
   <script>
-    // 从 URL 读取 role 参数
-    var SKILL_TREE_ROLE = new URLSearchParams(location.search).get('role') || 'admin';
-    var SKILL_TREE_PREVIEW = new URLSearchParams(location.search).get('preview') === 'true';
-    var bodyClasses = [];
-    if (SKILL_TREE_PREVIEW) bodyClasses.push('role-preview');
-    if (SKILL_TREE_ROLE === 'user') bodyClasses.push('role-user');
-    document.body.className = bodyClasses.join(' ');
+    /* ================================================================
+       角色判定 —— 安全改造（2026-09-11）
+
+       旧实现：`?role=` 参数且默认 'admin'，任何人手敲地址即可获得
+       管理员能力（垂直越权）。
+
+       新规则：
+       1. 角色一律以后端 /api/auth/me 返回为准。URL 的 role 参数只用来区分
+          「查看模式」还是「编辑模式」，不再用来决定权限
+       2. 编辑模式（默认 / role=admin）必须是 admin，否则拦截
+       3. 查看模式（role=user / role=viewer / preview=true）人人可进
+       4. 被拦截时不初始化 App —— 不请求、不暴露任何草稿数据
+
+       注意：本脚本在 </body> 之前执行，此时 js/utils.js 尚未加载，
+       因此下面直接读 localStorage，不能调用 getCurrentUserId()。
+       ================================================================ */
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var roleParam = (params.get('role') || '').toLowerCase();
+      var isPreview = params.get('preview') === 'true';
+      // 查看模式：显式声明 user/viewer，或预览模式
+      var isViewMode = isPreview || roleParam === 'user' || roleParam === 'viewer';
+
+      window.SKILL_TREE_PREVIEW = isPreview;
+      window.SKILL_TREE_ROLE_READY = false;   // 角色校验是否完成（完成才允许启动 App）
+      window.SKILL_TREE_IS_ADMIN = false;
+      window.SKILL_TREE_DENIED = false;
+
+      var bodyClasses = [];
+      if (isPreview) bodyClasses.push('role-preview');
+      if (isViewMode) {
+        bodyClasses.push('role-user');
+        document.body.className = bodyClasses.join(' ');
+        // 查看模式无需管理员校验，直接放行
+        window.SKILL_TREE_ROLE = 'user';
+        window.SKILL_TREE_ROLE_READY = true;
+        return;
+      }
+
+      // 编辑模式：先隐藏编辑 UI，等校验通过再放开（避免闪现工具栏）
+      bodyClasses.push('role-checking');
+      document.body.className = bodyClasses.join(' ');
+
+      // 直接读 localStorage（utils.js 此时还未加载）
+      function readUserId() {
+        if (params.get('userId')) return params.get('userId');
+        try {
+          var raw = localStorage.getItem('sg_user') || localStorage.getItem('currentUser');
+          var u = raw ? JSON.parse(raw) : null;
+          return u ? u.id : null;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function buildDeniedCard(reason) {
+        var box = document.createElement('div');
+        box.id = 'skill-tree-denied';
+        box.innerHTML =
+          '<div class="denied-card">' +
+          '<div class="denied-icon">🔒</div>' +
+          '<h2>仅管理员可进入技能树编辑器</h2>' +
+          '<p class="denied-reason">' + (reason || '当前账号没有编辑权限') + '</p>' +
+          '<button class="denied-btn" onclick="window.__deniedBack && window.__deniedBack()">返回技能库</button>' +
+          '</div>';
+        return box;
+      }
+
+      window.__deniedBack = function () {
+        if (window.opener) { window.close(); }
+        else if (document.referrer) { location.href = document.referrer; }
+        else { location.href = '../../index.html'; }
+      };
+
+      function denyAccess(reason) {
+        window.SKILL_TREE_DENIED = true;
+        window.SKILL_TREE_ROLE_READY = false;
+        window.SKILL_TREE_ROLE = 'user';
+        window.__deniedCard = buildDeniedCard(reason);
+        // 页面尚未解析完，真正的渲染放在 DOMContentLoaded（见页尾脚本）
+      }
+
+      var userId = readUserId();
+      var API_BASE = (window.Auth && window.Auth.API_BASE)
+        || window.__SELF_GROW_API_BASE__ || window.API_BASE || 'http://localhost:3001';
+
+      // JWT 改造（2026-09-13）：凭证由 auth.js 的 fetch 包装自动附加。
+      // 完全没有 token 时直接引导去登录，不再弹"仅管理员"这种误导性提示。
+      if (window.Auth && !window.Auth.isAuthenticated() && !window.Auth.isTrustedMode()) {
+        window.Auth.redirectToLogin();
+        return;
+      }
+
+      if (!userId) {
+        denyAccess('未获取到登录身份，请先从首页登录');
+        return;
+      }
+
+      fetch(API_BASE + '/api/auth/me?user_id=' + encodeURIComponent(userId))
+        .then(function (r) {
+          if (r.status === 404 || r.status === 401) throw new Error('登录状态无效，请重新登录');
+          if (!r.ok) throw new Error('身份校验失败（' + r.status + '）');
+          return r.json();
+        })
+        .then(function (me) {
+          if (me && me.is_admin) {
+            window.SKILL_TREE_IS_ADMIN = true;
+            window.SKILL_TREE_ROLE = 'admin';
+            window.SKILL_TREE_ROLE_READY = true;
+            document.body.classList.remove('role-checking');
+            if (typeof window.__startSkillTreeApp === 'function') window.__startSkillTreeApp();
+          } else {
+            denyAccess('当前账号「' + ((me && me.name) || '') + '」为普通用户，无编辑器访问权限');
+            window.__renderDeniedIfNeeded && window.__renderDeniedIfNeeded();
+          }
+        })
+        .catch(function (e) {
+          denyAccess(e && e.message ? e.message : '身份校验失败');
+          window.__renderDeniedIfNeeded && window.__renderDeniedIfNeeded();
+        });
+    })();
   </script>
 
   <!-- ==================== 顶部工具栏 ==================== -->
@@ -272,8 +391,36 @@
   <script src="js/detail-panel.js"></script>
   <script src="js/app.js"></script>
   <script>
-    document.addEventListener('DOMContentLoaded', function() {
-      var app = new App(SKILL_TREE_ROLE);
+    /* ================================================================
+       启动编辑器 —— 必须等角色校验通过
+
+       - 查看模式：SKILL_TREE_ROLE_READY 已在头部脚本置为 true，直接启动
+       - 编辑模式：由 /api/auth/me 校验通过后回调本函数启动
+       - 被拦截（SKILL_TREE_DENIED）：永不启动，页面已替换为无权限提示
+       ================================================================ */
+    window.__startSkillTreeApp = function () {
+      if (window.SKILL_TREE_DENIED || window.__app) return;
+      window.__app = new App(window.SKILL_TREE_ROLE || 'user');
+    };
+
+    // 校验完成且被拒绝时渲染拦截页（此时页面已解析完毕，可安全清空 body）
+    window.__renderDeniedIfNeeded = function () {
+      if (!window.SKILL_TREE_DENIED || !window.__deniedCard) return;
+      if (document.getElementById('skill-tree-denied')) return;
+      document.body.innerHTML = '';
+      document.body.className = 'role-denied';
+      document.body.appendChild(window.__deniedCard);
+    };
+
+    document.addEventListener('DOMContentLoaded', function () {
+      if (window.SKILL_TREE_DENIED) {
+        window.__renderDeniedIfNeeded();
+        return;
+      }
+      // 查看模式直接启动；编辑模式等 /api/auth/me 回调后再启动
+      if (window.SKILL_TREE_ROLE_READY) {
+        window.__startSkillTreeApp();
+      }
     });
   </script>
 </body>

@@ -62,6 +62,27 @@ function renderUserCenter() {
 
         <div class="card usercenter-card">
             <div class="usercenter-card__header">
+                <span class="usercenter-card__header-icon">🔐</span> 账户安全
+            </div>
+            <div class="usercenter-info-list" style="padding:0 4px">
+                <div class="usercenter-info-row">
+                    <span class="usercenter-info-row__label">登录凭证</span>
+                    <span class="usercenter-info-row__value">JWT · Access 2 小时 / Refresh 30 天</span>
+                </div>
+                <div class="usercenter-info-row">
+                    <span class="usercenter-info-row__label">登录状态</span>
+                    <span class="usercenter-info-row__value" id="uc-auth-status">—</span>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+                <button class="btn btn--sm" onclick="openChangePasswordModal()">修改密码</button>
+                <button class="btn btn--sm" onclick="openApiKeysModal()">API Key（MCP）</button>
+                <button class="btn btn--sm" onclick="doLogout()">退出登录</button>
+            </div>
+        </div>
+
+        <div class="card usercenter-card">
+            <div class="usercenter-card__header">
                 <span class="usercenter-card__header-icon">🤖</span> 模型信息
             </div>
             <div id="usercenter-models" class="usercenter-models">
@@ -70,7 +91,169 @@ function renderUserCenter() {
         </div>
     `;
 
+    refreshAuthStatus();
     loadModelInfo();
+}
+
+/* ================================================================
+   账户安全：登录状态 / 修改密码 / API Key / 退出登录
+   （2026-09-13 JWT 改造）
+   ================================================================ */
+
+async function refreshAuthStatus() {
+    const el = document.getElementById('uc-auth-status');
+    if (!el) return;
+    if (!window.Auth || !window.Auth.isAuthenticated()) {
+        el.textContent = '未登录';
+        el.style.color = '#ef5350';
+        return;
+    }
+    try {
+        const resp = await fetch(`${API_BASE}/api/auth/me`);
+        if (!resp.ok) throw new Error('401');
+        const me = await resp.json();
+        el.textContent = `已登录 · ${me.name}（${me.is_admin ? '管理员' : '普通用户'}）`;
+        el.style.color = '#66bb6a';
+    } catch (e) {
+        el.textContent = '凭证已失效';
+        el.style.color = '#ef5350';
+    }
+}
+
+function doLogout() {
+    showConfirm('确定要退出登录吗？', async () => {
+        await window.Auth.logout();
+        window.location.href = '../../login.html';
+    });
+}
+
+function openChangePasswordModal() {
+    const content = `
+        <div style="display:flex;flex-direction:column;gap:14px">
+            <div>
+                <label class="action-form__label">当前密码</label>
+                <input class="input" type="password" id="pw-old" autocomplete="current-password">
+            </div>
+            <div>
+                <label class="action-form__label">新密码（至少 8 位）</label>
+                <input class="input" type="password" id="pw-new" autocomplete="new-password">
+            </div>
+            <div>
+                <label class="action-form__label">确认新密码</label>
+                <input class="input" type="password" id="pw-new2" autocomplete="new-password">
+            </div>
+            <p style="font-size:12px;color:var(--text-muted);margin:0">
+                修改成功后所有设备的登录状态都会失效，需要重新登录。
+            </p>
+        </div>
+        <div class="modal__actions">
+            <button class="btn btn--ghost" onclick="closeModal()">取消</button>
+            <button class="btn btn--primary" onclick="submitChangePassword()">确认修改</button>
+        </div>
+    `;
+    openModal('修改密码', content, false);
+}
+
+async function submitChangePassword() {
+    const oldPw = document.getElementById('pw-old').value;
+    const newPw = document.getElementById('pw-new').value;
+    const newPw2 = document.getElementById('pw-new2').value;
+
+    if (!oldPw || !newPw) { showToast('请填写完整', 'error'); return; }
+    if (newPw.length < 8) { showToast('新密码至少 8 位', 'error'); return; }
+    if (newPw !== newPw2) { showToast('两次输入的新密码不一致', 'error'); return; }
+
+    try {
+        const resp = await fetch(`${API_BASE}/api/auth/password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ old_password: oldPw, new_password: newPw }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) { showToast(data.detail || '修改失败', 'error'); return; }
+
+        showToast('密码已修改，请重新登录', 'success');
+        await window.Auth.logout();
+        setTimeout(() => { window.location.href = '../../login.html'; }, 800);
+    } catch (e) {
+        showToast('网络错误：' + e.message, 'error');
+    }
+}
+
+async function openApiKeysModal() {
+    let keys = [];
+    try {
+        const resp = await fetch(`${API_BASE}/api/auth/api-keys`);
+        if (resp.ok) keys = (await resp.json()).keys || [];
+    } catch (e) { /* 忽略，按空列表渲染 */ }
+
+    const listHtml = keys.length
+        ? keys.map(k => `
+            <div class="usercenter-info-row">
+                <span class="usercenter-info-row__label">${escapeHtml(k.name)}</span>
+                <span class="usercenter-info-row__value">
+                    ${k.revoked
+                        ? '<span style="color:#ef5350">已撤销</span>'
+                        : (k.last_used_at ? '最近使用 ' + k.last_used_at : '未使用')}
+                    ${k.revoked ? '' : `<button class="usercenter-model-btn usercenter-model-btn--danger" onclick="revokeApiKey(${k.id})">撤销</button>`}
+                </span>
+            </div>`).join('')
+        : '<p style="font-size:13px;color:var(--text-muted)">暂无 API Key</p>';
+
+    const content = `
+        <div style="display:flex;flex-direction:column;gap:14px">
+            <p style="font-size:13px;color:var(--text-muted);margin:0">
+                用于 MCP 插件 / 脚本以非交互方式访问本系统。请求头：<code>X-API-Key: sgk_...</code>
+            </p>
+            <div>
+                <label class="action-form__label">用途备注</label>
+                <input class="input" id="ak-name" placeholder="例如：Claude Desktop">
+            </div>
+            <div id="ak-list">${listHtml}</div>
+            <div id="ak-result"></div>
+        </div>
+        <div class="modal__actions">
+            <button class="btn btn--ghost" onclick="closeModal()">关闭</button>
+            <button class="btn btn--primary" onclick="createApiKey()">创建</button>
+        </div>
+    `;
+    openModal('API Key 管理', content, false);
+}
+
+async function createApiKey() {
+    const name = (document.getElementById('ak-name').value || 'default').trim();
+    try {
+        const resp = await fetch(`${API_BASE}/api/auth/api-keys`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) { showToast(data.detail || '创建失败', 'error'); return; }
+
+        const box = document.getElementById('ak-result');
+        if (box) {
+            box.innerHTML = `
+                <p style="font-size:12px;color:#f0a020;margin:0 0 6px">⚠️ 明文仅此一次显示，请立即复制保存</p>
+                <code style="display:block;word-break:break-all;background:var(--bg-tertiary);padding:8px;border-radius:6px;font-size:12px">${data.api_key}</code>
+            `;
+        }
+        showToast('已创建 API Key', 'success');
+    } catch (e) {
+        showToast('网络错误：' + e.message, 'error');
+    }
+}
+
+async function revokeApiKey(keyId) {
+    try {
+        const resp = await fetch(`${API_BASE}/api/auth/api-keys/${keyId}`, { method: 'DELETE' });
+        if (!resp.ok) { showToast('撤销失败', 'error'); return; }
+        showToast('已撤销', 'success');
+        closeModal();
+        openApiKeysModal();
+    } catch (e) {
+        showToast('网络错误：' + e.message, 'error');
+    }
 }
 
 /** 加载模型配置列表 */

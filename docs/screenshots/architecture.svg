@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 620" width="980" height="620" font-family="Inter, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7b8794"/>
+    </marker>
+    <style>
+      .t      { fill:#1f2933; font-size:15px; font-weight:600; }
+      .t-sub  { fill:#52606d; font-size:11.5px; }
+      .t-sm   { fill:#52606d; font-size:11px; }
+      .t-box  { fill:#1f2933; font-size:13px; font-weight:600; }
+      .t-cap  { fill:#7b8794; font-size:10.5px; }
+      .layer  { fill:#f7f8f9; stroke:#dde1e6; stroke-width:1; rx:8; }
+      .box    { fill:#ffffff; stroke:#cbd2d9; stroke-width:1.2; rx:6; }
+      .box-a  { fill:#fffaf0; stroke:#d49a3e; stroke-width:1.4; rx:6; }
+      .box-g  { fill:#f0f9f4; stroke:#2e9e6b; stroke-width:1.4; rx:6; }
+      .line   { stroke:#7b8794; stroke-width:1.4; fill:none; marker-end:url(#arrow); }
+      .line-d { stroke:#9aa5b1; stroke-width:1.2; fill:none; stroke-dasharray:4 3; marker-end:url(#arrow); }
+    </style>
+  </defs>
+
+  <text class="t" x="24" y="30">Self Grow 系统架构</text>
+  <text class="t-sub" x="24" y="50">原生 JS 前端 · FastAPI 后端 · SQLite · 两套 LangGraph Agent · JWT 鉴权</text>
+
+  <!-- ── 客户端层 ── -->
+  <rect class="layer" x="24" y="66" width="932" height="82"/>
+  <text class="t-cap" x="36" y="84">客户端</text>
+
+  <rect class="box" x="44" y="92" width="180" height="42"/>
+  <text class="t-box" x="134" y="112" text-anchor="middle">主应用 SPA</text>
+  <text class="t-sm"  x="134" y="127" text-anchor="middle">10 页面 · 零框架原生 JS</text>
+
+  <rect class="box" x="240" y="92" width="180" height="42"/>
+  <text class="t-box" x="330" y="112" text-anchor="middle">技能树编辑器</text>
+  <text class="t-sm"  x="330" y="127" text-anchor="middle">DOM+SVG 画布 · 仅管理员</text>
+
+  <rect class="box" x="436" y="92" width="180" height="42"/>
+  <text class="t-box" x="526" y="112" text-anchor="middle">AI 悬浮球</text>
+  <text class="t-sm"  x="526" y="127" text-anchor="middle">自然语言直达协调 Agent</text>
+
+  <rect class="box" x="632" y="92" width="150" height="42"/>
+  <text class="t-box" x="707" y="112" text-anchor="middle">MCP 客户端</text>
+  <text class="t-sm"  x="707" y="127" text-anchor="middle">Claude / Cursor</text>
+
+  <rect class="box" x="798" y="92" width="140" height="42"/>
+  <text class="t-box" x="868" y="112" text-anchor="middle">移动端浏览器</text>
+  <text class="t-sm"  x="868" y="127" text-anchor="middle">局域网访问</text>
+
+  <!-- ── 鉴权层 ── -->
+  <rect class="layer" x="24" y="164" width="932" height="60"/>
+  <text class="t-cap" x="36" y="182">统一鉴权（routers/deps.py — 73 个业务端点零改动接入）</text>
+
+  <rect class="box-a" x="44" y="188" width="288" height="28"/>
+  <text class="t-box" x="188" y="206" text-anchor="middle">浏览器：JWT Access 2h + Refresh 30d（轮换）</text>
+
+  <rect class="box-a" x="348" y="188" width="270" height="28"/>
+  <text class="t-box" x="483" y="206" text-anchor="middle">MCP / 脚本：X-API-Key（可撤销）</text>
+
+  <rect class="box-a" x="634" y="188" width="304" height="28"/>
+  <text class="t-box" x="786" y="206" text-anchor="middle">角色授权 require_admin → 技能树写操作与 AI 编辑</text>
+
+  <!-- ── 路由层 ── -->
+  <rect class="layer" x="24" y="240" width="932" height="72"/>
+  <text class="t-cap" x="36" y="258">API 路由层（102 个端点）</text>
+
+  <rect class="box" x="44" y="266" width="120" height="34"/>
+  <text class="t-box" x="104" y="287" text-anchor="middle">/api/auth</text>
+
+  <rect class="box" x="176" y="266" width="120" height="34"/>
+  <text class="t-box" x="236" y="287" text-anchor="middle">/api/users</text>
+
+  <rect class="box" x="308" y="266" width="110" height="34"/>
+  <text class="t-box" x="363" y="287" text-anchor="middle">/api/habits</text>
+
+  <rect class="box" x="430" y="266" width="110" height="34"/>
+  <text class="t-box" x="485" y="287" text-anchor="middle">/api/tasks</text>
+
+  <rect class="box" x="552" y="266" width="110" height="34"/>
+  <text class="t-box" x="607" y="287" text-anchor="middle">/api/goals</text>
+
+  <rect class="box" x="674" y="266" width="122" height="34"/>
+  <text class="t-box" x="735" y="287" text-anchor="middle">/api/rewards</text>
+
+  <rect class="box-g" x="808" y="266" width="130" height="34"/>
+  <text class="t-box" x="873" y="287" text-anchor="middle">/api/skill-trees</text>
+
+  <!-- ── 服务层 ── -->
+  <rect class="layer" x="24" y="328" width="932" height="128"/>
+  <text class="t-cap" x="36" y="346">业务逻辑与 AI 编排（services/）</text>
+
+  <rect class="box" x="44" y="356" width="200" height="46"/>
+  <text class="t-box" x="144" y="376" text-anchor="middle">exp_service</text>
+  <text class="t-sm"  x="144" y="393" text-anchor="middle">经验编排 · 占位 0 回写幂等</text>
+
+  <rect class="box" x="256" y="356" width="200" height="46"/>
+  <text class="t-box" x="356" y="376" text-anchor="middle">ai_action / habit</text>
+  <text class="t-sm"  x="356" y="393" text-anchor="middle">行动解析 · 习惯洞察</text>
+
+  <rect class="box" x="468" y="356" width="200" height="46"/>
+  <text class="t-box" x="568" y="376" text-anchor="middle">expression_service</text>
+  <text class="t-sm"  x="568" y="393" text-anchor="middle">表达训练出题 / 评分</text>
+
+  <rect class="box" x="680" y="356" width="132" height="46"/>
+  <text class="t-box" x="746" y="376" text-anchor="middle">asr_service</text>
+  <text class="t-sm"  x="746" y="393" text-anchor="middle">paraformer 转写</text>
+
+  <rect class="box" x="824" y="356" width="114" height="46"/>
+  <text class="t-box" x="881" y="376" text-anchor="middle">auth_service</text>
+  <text class="t-sm"  x="881" y="393" text-anchor="middle">JWT / bcrypt</text>
+
+  <!-- LangGraph 两套 -->
+  <rect class="box-g" x="44" y="416" width="440" height="30"/>
+  <text class="t-box" x="264" y="436" text-anchor="middle">统一协调 Agent（LangGraph）· 主图路由 → 6 子 Agent · ask_user 反问</text>
+
+  <rect class="box-g" x="498" y="416" width="440" height="30"/>
+  <text class="t-box" x="718" y="436" text-anchor="middle">技能树 AI（LangGraph）· 9 工具按节点 ID 操作 · 危险操作确认卡片</text>
+
+  <!-- ── 数据层 ── -->
+  <rect class="layer" x="24" y="472" width="932" height="86"/>
+  <text class="t-cap" x="36" y="490">数据层（SQLite · WAL）</text>
+
+  <rect class="box" x="44" y="500" width="290" height="44"/>
+  <text class="t-box" x="189" y="520" text-anchor="middle">业务表（18）</text>
+  <text class="t-sm"  x="189" y="537" text-anchor="middle">users · habits · tasks · goals · rewards · dimensions …</text>
+
+  <rect class="box" x="348" y="500" width="290" height="44"/>
+  <text class="t-box" x="493" y="520" text-anchor="middle">AI 与技能树（2）</text>
+  <text class="t-sm"  x="493" y="537" text-anchor="middle">skill_trees · user_skills · model_configs</text>
+
+  <rect class="box" x="652" y="500" width="286" height="44"/>
+  <text class="t-box" x="795" y="520" text-anchor="middle">鉴权表（2）</text>
+  <text class="t-sm"  x="795" y="537" text-anchor="middle">refresh_tokens · api_keys（只存 SHA-256）</text>
+
+  <!-- ── 连接线 ── -->
+  <path class="line" d="M 134 148 L 134 164"/>
+  <path class="line" d="M 330 148 L 330 164"/>
+  <path class="line" d="M 526 148 L 526 164"/>
+  <path class="line" d="M 707 148 L 707 164"/>
+  <path class="line" d="M 868 148 L 868 164"/>
+
+  <path class="line" d="M 490 224 L 490 240"/>
+  <path class="line" d="M 490 312 L 490 328"/>
+
+  <path class="line" d="M 490 456 L 490 472"/>
+
+  <!-- 外部 AI 服务 -->
+  <rect class="box" x="24" y="576" width="932" height="30" fill="#fbf7ef" stroke="#d49a3e" stroke-width="1.2" rx="6"/>
+  <text class="t-sm" x="490" y="595" text-anchor="middle">外部：OpenAI 兼容 LLM（多模型热切换，用户中心可改）· DashScope paraformer ASR · FastMCP（24 工具暴露给 MCP 客户端）</text>
+  <path class="line-d" d="M 264 446 L 120 576"/>
+  <path class="line-d" d="M 718 446 L 900 576"/>
+</svg>

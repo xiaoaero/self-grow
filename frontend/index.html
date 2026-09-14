@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>个人成长系统 - Self Grow</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40' fill='none'><circle cx='20' cy='20' r='18' stroke='%234fc3f7' stroke-width='2'/><path d='M12 28 L20 12 L28 28' stroke='%234fc3f7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><circle cx='20' cy='18' r='3' fill='%234fc3f7'/></svg>">
     <link rel="stylesheet" href="css/variables.css">
     <link rel="stylesheet" href="css/layout.css">
     <link rel="stylesheet" href="css/sidebar.css">
@@ -248,6 +248,9 @@
     <div class="global-version" id="global-version" title="系统版本">--</div>
 
     <!-- Core scripts (always loaded) -->
+    <!-- auth.js 必须最先加载：它包装 window.fetch 自动附带凭证，
+         之后的 52 处 fetch(...) 调用无需任何修改即可带上 Authorization -->
+    <script src="js/auth.js"></script>
     <script src="js/data.js"></script>
     <script src="js/router.js"></script>
     <script src="js/utils.js"></script>

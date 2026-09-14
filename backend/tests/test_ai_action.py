@@ -23,6 +23,11 @@ from main import app
 
 TEST_USER_ID = 1  # test 用户，由 init_db() 创建
 
+# JWT 改造后所有端点都需凭证
+def _auth():
+    from helpers import get_auth_headers
+    return get_auth_headers('user')
+
 
 # ================================================================
 # 辅助函数
@@ -80,7 +85,7 @@ def test_ai_chat_normal(mock_ai_service):
                 {"role": "user", "content": "今天下午学习了2小时React"}
             ]
         }
-        resp = client.post(f"/api/actions/ai-chat?user_id={TEST_USER_ID}", json=payload)
+        resp = client.post(f"/api/actions/ai-chat?user_id={TEST_USER_ID}", json=payload, headers=_auth())
         assert resp.status_code == 200
         data = resp.json()
         assert "content" in data
@@ -96,7 +101,7 @@ def test_ai_chat_empty_messages(mock_ai_service):
     """TC-02: 发送空消息列表，AI 应返回引导消息"""
     with TestClient(app) as client:
         payload = {"messages": []}
-        resp = client.post(f"/api/actions/ai-chat?user_id={TEST_USER_ID}", json=payload)
+        resp = client.post(f"/api/actions/ai-chat?user_id={TEST_USER_ID}", json=payload, headers=_auth())
         assert resp.status_code == 200
         data = resp.json()
         assert "content" in data
@@ -111,7 +116,7 @@ def test_ai_chat_multi_turn(mock_ai_service):
     with TestClient(app) as client:
         # 第1轮：模糊描述
         messages = [{"role": "user", "content": "今天好累"}]
-        resp1 = client.post(f"/api/actions/ai-chat?user_id={TEST_USER_ID}", json={"messages": messages})
+        resp1 = client.post(f"/api/actions/ai-chat?user_id={TEST_USER_ID}", json={"messages": messages}, headers=_auth())
         assert resp1.status_code == 200
         data1 = resp1.json()
         assert "content" in data1
@@ -122,7 +127,7 @@ def test_ai_chat_multi_turn(mock_ai_service):
         # 第2轮：补充细节
         messages.append({"role": "assistant", "content": data1["content"]})
         messages.append({"role": "user", "content": "下午学了2小时React，晚上跑了30分钟步"})
-        resp2 = client.post(f"/api/actions/ai-chat?user_id={TEST_USER_ID}", json={"messages": messages})
+        resp2 = client.post(f"/api/actions/ai-chat?user_id={TEST_USER_ID}", json={"messages": messages}, headers=_auth())
         assert resp2.status_code == 200
         data2 = resp2.json()
         # 第2轮应该返回 tool_calls
@@ -147,7 +152,7 @@ def test_ai_submit_single():
                 }
             ]
         }
-        resp = client.post(f"/api/actions/ai-submit?user_id={TEST_USER_ID}", json=payload)
+        resp = client.post(f"/api/actions/ai-submit?user_id={TEST_USER_ID}", json=payload, headers=_auth())
         assert resp.status_code == 200
         data = resp.json()
         assert "records" in data
@@ -185,7 +190,7 @@ def test_ai_submit_multi():
                 },
             ]
         }
-        resp = client.post(f"/api/actions/ai-submit?user_id={TEST_USER_ID}", json=payload)
+        resp = client.post(f"/api/actions/ai-submit?user_id={TEST_USER_ID}", json=payload, headers=_auth())
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["records"]) == 2
@@ -203,7 +208,7 @@ def test_ai_submit_empty():
     """TC-06: 提交空列表"""
     with TestClient(app) as client:
         payload = {"actions": []}
-        resp = client.post(f"/api/actions/ai-submit?user_id={TEST_USER_ID}", json=payload)
+        resp = client.post(f"/api/actions/ai-submit?user_id={TEST_USER_ID}", json=payload, headers=_auth())
         assert resp.status_code == 200
         data = resp.json()
         assert data["records"] == []
@@ -225,7 +230,7 @@ def test_ai_submit_invalid_category():
                 }
             ]
         }
-        resp = client.post(f"/api/actions/ai-submit?user_id={TEST_USER_ID}", json=payload)
+        resp = client.post(f"/api/actions/ai-submit?user_id={TEST_USER_ID}", json=payload, headers=_auth())
         assert resp.status_code == 200
         data = resp.json()
         # 无效维度被跳过，records 为空
@@ -249,7 +254,7 @@ def test_ai_submit_exp_override():
                 }
             ]
         }
-        resp = client.post(f"/api/actions/ai-submit?user_id={TEST_USER_ID}", json=payload)
+        resp = client.post(f"/api/actions/ai-submit?user_id={TEST_USER_ID}", json=payload, headers=_auth())
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["records"]) == 1

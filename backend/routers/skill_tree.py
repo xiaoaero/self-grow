@@ -12,24 +12,24 @@ from db.skill_tree import (
     save_learner_progress, delete_skill_tree,
     get_user_skill_ids, save_user_skill_ids,
 )
-from routers.deps import get_current_user
+from routers.deps import get_current_user, require_admin
 
 router = APIRouter()
 
 
 @router.get("/api/skill-trees")
-async def list_skill_trees(user=Depends(get_current_user)):
+def list_skill_trees(user=Depends(get_current_user)):
     """获取用户所有技能树（索引列表）"""
     trees = get_skill_trees(user["id"])
     return {"trees": trees}
 
 
 @router.post("/api/skill-trees")
-async def create_new_skill_tree(
+def create_new_skill_tree(
     tree_id: str = Body(...),
     name: str = Body(...),
     description: str = Body(""),
-    user=Depends(get_current_user),
+    user=Depends(require_admin),
 ):
     """创建新技能树"""
     try:
@@ -40,7 +40,7 @@ async def create_new_skill_tree(
 
 
 @router.get("/api/skill-trees/{tree_id}")
-async def get_skill_tree(tree_id: str, user=Depends(get_current_user)):
+def get_skill_tree(tree_id: str, user=Depends(get_current_user)):
     """获取单个技能树草稿数据"""
     tree = get_skill_tree_by_tree_id(tree_id, user["id"])
     if not tree:
@@ -49,7 +49,7 @@ async def get_skill_tree(tree_id: str, user=Depends(get_current_user)):
 
 
 @router.put("/api/skill-trees/{tree_id}")
-async def update_skill_tree(
+def update_skill_tree(
     tree_id: str,
     name: str = Body(...),
     description: str = Body(""),
@@ -58,7 +58,7 @@ async def update_skill_tree(
     completed_count: int = Body(0),
     image: str = Body(""),
     remark: str = Body(""),
-    user=Depends(get_current_user),
+    user=Depends(require_admin),
 ):
     """保存技能树草稿"""
     save_skill_tree_draft(
@@ -69,12 +69,12 @@ async def update_skill_tree(
 
 
 @router.put("/api/skill-trees/{tree_id}/publish")
-async def publish_skill_tree_endpoint(
+def publish_skill_tree_endpoint(
     tree_id: str,
     published_data: dict = Body(...),
     node_count: int = Body(0),
     completed_count: int = Body(0),
-    user=Depends(get_current_user),
+    user=Depends(require_admin),
 ):
     """发布/更新技能树"""
     publish_skill_tree(tree_id, user["id"], published_data, node_count, completed_count)
@@ -82,7 +82,7 @@ async def publish_skill_tree_endpoint(
 
 
 @router.get("/api/skill-trees/{tree_id}/published")
-async def get_published_tree(tree_id: str):
+def get_published_tree(tree_id: str):
     """获取已发布的技能树（含学习进度，无需登录）"""
     tree = get_published_skill_tree(tree_id)
     if not tree:
@@ -91,7 +91,7 @@ async def get_published_tree(tree_id: str):
 
 
 @router.put("/api/skill-trees/{tree_id}/learner")
-async def update_learner_progress(
+def update_learner_progress(
     tree_id: str,
     learner: dict = Body(...),
     user=Depends(get_current_user),
@@ -102,21 +102,21 @@ async def update_learner_progress(
 
 
 @router.delete("/api/skill-trees/{tree_id}")
-async def delete_skill_tree_endpoint(tree_id: str, user=Depends(get_current_user)):
+def delete_skill_tree_endpoint(tree_id: str, user=Depends(require_admin)):
     """删除技能树"""
     delete_skill_tree(tree_id, user["id"])
     return {"success": True}
 
 
 @router.get("/api/skill-trees/user-skills/list")
-async def list_user_skills(user=Depends(get_current_user)):
+def list_user_skills(user=Depends(get_current_user)):
     """获取用户已添加的技能 ID 列表"""
     skill_ids = get_user_skill_ids(user["id"])
     return {"skill_ids": skill_ids}
 
 
 @router.put("/api/skill-trees/user-skills/list")
-async def save_user_skills(
+def save_user_skills(
     skill_ids: list = Body(..., embed=True),
     user=Depends(get_current_user),
 ):

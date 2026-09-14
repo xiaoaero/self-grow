@@ -1,11 +1,28 @@
-# 统一协调 Agent（Coordinator Agent）设计方案
+# 统一协调 Agent（Coordinator Agent）设计与实现
 
 > 项目：Self Grow 个人成长系统
-> 文档状态：设计方案（含落地指引）
-> 关联文档：[前端浏览器缓存与存储详解](./前端浏览器缓存与存储详解.md) · [数据库知识深入学习指南](./数据库知识深入学习指南.md)
->
-> **v2 架构调整**：由单一大 Agent + 一套工具 → **主 Agent（Router）+ 一组无状态次 Agent 并行**。
-> **v3 技术选型**：引入 LangGraph 实现多智能体编排，替代手写 tool-call 循环与反问队列。
+> 文档状态：**已落地实现**（v4）。本文同时保留历史设计决策，供对照。
+> 最后核实：2026-09-04，逐项对照 `backend/services/coordinator/` 与 `frontend/js/chat.js`
+
+---
+
+## 0. 设计稿 vs 实际实现 · 差异速查
+
+原始设计方案写于实现之前，落地时有多处偏离。**以本表右列为准。**
+
+| 设计项 | v3 设计稿 | **v4 实际实现** | 偏离原因 |
+|---|---|---|---|
+| 主流程编排 | LangGraph StateGraph | **三段式线性编排**（普通 async 函数） | 主流程无分支/循环，`operator.add` 会跨轮累积消息 |
+| 子图编排 | `create_react_agent` | **StateGraph 单节点 + 自研 ReAct 循环** | 需要窗口截断与反问降级，`create_react_agent` 管不了 |
+| 反问机制 | `interrupt()` + `Command(resume)` | **`ask_user` 工具 + `needs_user` 标志 + resume 追加消息** | 见 §3.2，三条理由 |
+| 意图路由 | 正则 + 关键词，LLM 兜底 | **全部 LLM 语义判断** | 关键词维护成本高，LLM 足够快 |
+| 领域构成 | action / habit / task / query / skill_tree / expression | **action / query / goal / task / habit / reward** | 技能树、表达训练未纳入协调层 |
+| 会话持久化 | SQLite checkpoint | **`MemorySaver`（内存）** | 见 §7 技术债 |
+| 主图上下文 | LangGraph checkpoint | **近 5 条记录 FIFO（内存 dict，TTL 30 分钟）** | 够用且可控 |
+| 前端传输 | SSE 推送中断事件 | **POST 同步请求 + 前端 interruptQueue** | SSE 端点仅占位未实装 |
+| 写操作确认 | interrupt 确认卡片 | **未实现** | 当前直接写库 |
+| 依赖声明 | `pyproject.toml` | **`pixi.toml`** | 项目实际用 pixi 管理 |
+| 前端文件 | `frontend/js/pages/coordinator.js` | **`frontend/js/chat.js`（472 行）** | 命名调整 |
 
 ---
 
@@ -13,482 +30,306 @@
 
 ### 1.1 现状痛点
 
-当前系统是一个「多表单孤岛」结构：
-
-| 模块 | 输入方式 | 示例 |
-|------|----------|------|
-| 行动记录 | 行动页表单 | 记一笔"跑了30分钟" |
-| 习惯打卡 | 习惯页按钮 | 打勾"早睡" |
-| 任务 | 任务页表单 | 新增"明天交报告" |
-| 技能树 | 技能树编辑器 | 加一个节点 |
-| 表达训练 | 独立对话 | 出题 → 答题 |
-
-用户想完成一件事，必须先**找到正确的页面 → 找对表单 → 逐项填写**。系统没有统一的对话入口。
+系统原本是「多表单孤岛」：行动记录、习惯打卡、任务、技能树、表达训练各有独立入口，用户想完成一件事必须先**找到正确的页面 → 找对表单 → 逐项填写**。
 
 ### 1.2 解决方案
 
-给整个系统装一个 **统一协调 Agent**：用户用自然语言在侧边栏输入，主 Agent 先理解意图并调度，再由对应模块的**次 Agent** 完成操作，最后返回结果。
-
-例如，同样是记一笔行动，原来是：
+装一个**统一协调 Agent**：用户用自然语言输入，主 Agent 理解意图并调度，对应领域的子 Agent 完成操作。
 
 ```
-打开行动页 → 选维度"健康" → 选子类型"运动" → 填时长"30" → 填备注 → 提交
+打开行动页 → 选维度"健康" → 选子类型"运动" → 填时长"30" → 填备注 → 提交     ← 原来
+输入："我下午跑了半小时步" → 自动写库 + 返回 "+15 EXP，健康维度"              ← 现在
 ```
 
-现在是：
+### 1.3 面试叙事版本（已按实现校准）
 
-```
-输入："我下午跑了半小时步"
-→ 主 Agent 识别 [记录行动] → 派发行动次 Agent → 自动写库 + 返回"+15 EXP，健康维度"
-```
-
-### 1.3 面试叙事版本
-
-> **我构建了一个基于 Tool-Use 的多智能体网关：主 Agent 负责任意输入的路由与跨任务关联，并按运行时为每个次 Agent 动态生成定制指令；次 Agent 无状态、可并行，各自维护独立上下文并通过全局反问题队列与用户交互。**
+> **我做了一个基于 Tool-Use 的多智能体协调系统：主 Agent 用 LLM 做语义路由，为命中的每个领域动态生成定制指令；6 个领域子 Agent 并行执行，各自通过 checkpointer 维护独立会话，缺参数时通过工具级反问接回原上下文继续。**
 
 四层递进的技术亮点：
-1. **Tool-Use 工程**：手动实现 OpenAI 式多工具轮询协议，非简单调 API。
-2. **多智能体协调**：从 3 个单域 Agent 抽象出「主 Agent 路由 + 次 Agent 并行执行」架构。
-3. **上下文架构**：次 Agent 无状态（任务完即清）、主 Agent 唯一长上下文、关联耦合由主 Agent 负责。
+
+1. **编排分层**：主流程是线性的，就不用状态图；子 Agent 内部有循环，才用 LangGraph 状态图。按形状选工具，而不是一律上框架。
+2. **反问机制的取舍**：主动放弃框架原生的 `interrupt()`，选择"反问即正常结束 + 消息追加恢复"，换来单一状态源和零成本放弃。
+3. **防失控设计**：ReAct 循环上限、反问轮次上限（超限自动移除反问工具降级）、消息窗口截断，三道闸。
 4. **产品 sense**：理解"用户不填表单，用户说话"。
 
 ---
 
-## 2. 核心架构（v3 LangGraph）
+## 2. 核心架构（v4 实际实现）
 
-### 2.1 角色分工
+### 2.1 三段式主流程
 
-| 角色 | 职责 | 上下文 | 状态 |
-|------|------|--------|------|
-| **主图（Coordinator Graph）** | 意图识别、路由、并行派发子图、整合结果、处理跨任务关联 | **唯一长上下文**（LangGraph checkpoint 持久化） | 有状态 |
-| **子图（各域 SubGraph）** | 专注单一数据域。吃主图给的定制指令 → 判定参数是否齐 → `interrupt` 反问或执行工具 → 返回 | **单次任务生命周期**，任务完即清 | **无状态** |
-
-### 2.2 核心流程
+`services/coordinator/graph.py` 的 `run_coordinator()` 是**普通 async 函数**，不是 StateGraph：
 
 ```
 用户输入
   ▼
-主图 router_node：解析意图，决定调用 N 个子图
-   · 延续上一任务？→ 相关历史摘要塞进指令
-   · 新任务？     → 写一份干净的新指令
+阶段一  router_node        LLM 语义路由 → pending_tasks（含每域定制指令）
   ▼
-并行派发（LangGraph 自动并行执行匹配的子图）
+阶段二  dispatch_subgraphs  asyncio.gather 并行派发各子图
   ▼
-子图_i：{ 判定参数 → interrupt 反问 | 执行工具 }
-  ├─ interrupt → 前端渲染反问卡片 → Command(resume) 恢复
-  └─ 完成 → 任务结束，清除该子图上下文
-  ▼
-主图 synthesize_node：收集 N 个结果 → 整合成一句回复
+阶段三  synthesize_node     （仅当全部域完成）整合所有结果生成一句回复
 ```
 
-**关键分工原则**：
-- **子图不背业务逻辑，也不背跨任务上下文** —— 每次被调用时只拿主图提炼过的「本次任务的定制指令」，而非整个对话历史。
-- **上下文传递＝主图运行时榨取** —— 主图把相关历史压缩进任务 prompt 传给子图，子图因此可以**完全无状态**。
-- **边界判断上移主图** —— "用户这一句是延续某域未完成的任务，还是开新任务？"由主图语义判断。
-- **interrupt 天然解决反问** —— 子图遇到缺参数直接 `interrupt`，框架自动管理中断/恢复，无需手写队列。
+**为什么主流程不用 StateGraph？**
 
-由此自动推论：**「任务完成即清子图上下文」完全正确** —— 因为关联性已由主图保证，子图没有保留上下文的必要（省 token、防串味、防无限堆积）。
+主流程是线性的三段，没有分支、没有循环。`StateGraph` 默认的 `operator.add` 状态合并语义会把每次节点的返回值**追加**累积，多轮对话下 `messages` 会无限膨胀。用普通 async 函数编排，状态完全可控。
+
+**LangGraph 用在哪？** 子 Agent 内部的 ReAct 循环 + 会话持久化——那里确实有循环和状态需求。见 §4。
+
+### 2.2 六域子图
+
+`services/coordinator/agents/` 下 6 个域，由 `SUBGRAPH_BUILDERS` 统一注册：
+
+| 域 | 文件 | 职责 |
+|---|---|---|
+| `action` | `action_agent.py` | 行动记录与经验结算 |
+| `query` | `query_agent.py` | 只读统计查询 |
+| `goal` | `goal_agent.py` | 目标与里程碑 |
+| `task` | `task_agent.py` | 任务增删改与领取奖励 |
+| `habit` | `habit_agent.py` | 习惯创建与打卡 |
+| `reward` | `reward_agent.py` | 奖励商城与兑换 |
+
+> 技能树（`services/skill_tree_ai/`）和表达训练（`services/expression_service.py`）**未纳入协调层**，仍走各自的独立链路。
+
+### 2.3 thread_id 设计
+
+- 主会话：`thread_id`（UUID，前端 sessionStorage 持久化）
+- 子图会话：`{main_thread_id}:{domain}`
+
+主会话与每个子域各有独立 checkpoint，多域并行时消息互不污染。路由层用 `sub_thread_id.split(":")[-1]` 反解域名。
 
 ---
 
 ## 3. 关键设计
 
-### 3.1 主图派发指令的动态生成
+### 3.1 路由：全部交给 LLM
 
-主图在派发子图时的 Prompt 里执行两件事（伪代码）：
+`router_node.py` 的 docstring 第一句就写明「**全部使用 LLM 语义判断路由，取消正则+关键词路由**」。
 
-```
-1. 边界判断：
-   "本次用户输入，是延续之前未完成的某域任务，还是开新任务?"
-   ├─ 延续 → 把相关历史摘要塞进该子图的指令
-   └─ 新任务 → 干净利落写一份新指令
+- 温度 `temperature=0.1`，追求稳定
+- 输入 = 用户消息 + 近 5 条历史记录（用户消息 + 主 agent 总结），用于判断"是延续还是新任务"
+- 输出 = 结构化路由决策（域名 + 理由 + **为该域动态生成的定制指令**）
 
-2. 提炼定制指令：
-   "根据整个对话历史，为用户这条『记跑步』提炼一份子图专用指令，
-   包括：维度、可能缺的参数、用户偏好的表述习惯"
-```
-
-这样，跨任务关联的边界担忧落地为**主图的一次决策**，而非散落在各子图里。
-
-### 3.2 子图反问机制（LangGraph interrupt）
-
-LangGraph 原生支持 human-in-the-loop，子图遇到缺参数直接调用 `interrupt`：
+**JSON 解析三级降级**（LLM 经常夹带解释文本）：
 
 ```python
-from langgraph.types import interrupt
-
-def action_subgraph(state):
-    # ... 执行中发现缺参数
-    answer = interrupt({
-        "question": "跑了多久?",
-        "type": "parameter_missing"
-    })
-    # answer = 前端通过 Command(resume) 传回的用户回答
+1. 去掉 markdown 代码块围栏          # ```json ... ```
+2. json.loads(cleaned)              # 直接解析
+3. 正则提取最外层 { ... } 再解析      # _JSON_OBJECT_RE
+全部失败 → 返回空 pending_tasks（不派发，不报错）
 ```
 
-**对比手写队列的优势**：
-| 手写 FIFO 队列 | LangGraph interrupt |
-|---------------|---------------------|
-| 手动维护队列入队/出队 | 框架自动管理 |
-| 前端轮询检查状态 | 后端推送中断事件 |
-| 需要 task_id 关联 | `Command(resume)` 自动关联 |
-| 并发控制复杂 | 框架天然支持并行中断 |
+**动态定制指令是核心**：主 Agent 不只是说"交给行动域"，而是根据整个对话历史，为子图写一份包含维度、可能缺的参数、用户表述习惯的专用指令。所以子图不需要读全部历史。
 
-### 3.3 主图路由（轻量）
+### 3.2 反问：为什么不用 `interrupt()`
 
-主图 `router_node` 用正则 + 关键词快速分类，模糊语义交给 LLM 兜底：
+**这是本项目最值得讲的一个决策。**
+
+LangGraph 原生支持 human-in-the-loop，按理说子图缺参数时直接 `interrupt()` 最省事。实现时主动放弃，改成了：
 
 ```
-输入 → 快速分类（正则 + 关键词，非重活）
-  ├─ 行动记录域：  含 记/跑了/睡了/运动/工作/创作/复盘 → 行动子图
-  ├─ 习惯域：      含 打卡/习惯/坚持/每天              → 习惯子图
-  ├─ 任务域：      含 任务/待办/今天做/安排             → 任务子图
-  ├─ 统计查询域：  含 怎么/怎么样/报告/统计/进度        → 只读查询，免确认
-  ├─ 技能树域：    含 技能树/节点/技能                  → 技能树子图
-  ├─ 纯聊天域：    闲聊 / 无系统操作意图                → 纯文本回复，不进子图
-  └─ 关键词全不中： → 交 LLM 语义判断兜底
+LLM 调用 ask_user 工具
+  ▼
+子图把问题写成 ToolMessage 持久化进 checkpoint
+  ▼
+返回 result.needs_user = True，子图【正常结束】，不挂起
+  ▼
+前端渲染反问卡片（push 进 interruptQueue）
+  ▼
+用户回答 → POST /api/coordinator/resume { sub_thread_id, answer }
+  ▼
+resume_subgraph 把回答作为 HumanMessage 追加到【该子图的 checkpoint】
+  ▼
+重新 ainvoke —— LLM 在完整上下文（instruction + 反问 + 回答）中继续
 ```
 
-**价值**：
-- 简单指令直接走轻路径短路，省 token。
-- 模糊语义交给 LLM 兜底，保证灵活。
-- 用户输入可能**同时命中多个域**（如"记跑步 + 加个明天交报告的任务"）→ 并行派发多个子图。
+**三条理由**（见 `agents/base.py` 模块 docstring）：
 
-### 3.4 并行多意图
+| 维度 | `interrupt()` 方案 | 本项目的 ask_user 方案 |
+|---|---|---|
+| 状态源 | 挂起状态 + 额外线程存储 | checkpointer 单一状态源 |
+| 放弃成本 | 需处理各种 resume 分支 | 无需处理，零成本 |
+| 问题留存 | 需自行管理 | 作为普通消息持久化，resume 时不丢、不重问 |
 
-一个用户输入可能包含多个意图，主图判断后**并行派发多个子图**，各子图独立补齐参数。前端通过来源标注（agent_id）区分各自的答案。
+**`interrupt()` 适合什么场景？** 人工审批那种强阻塞的 human-in-the-loop 流程。本项目是"补个参数"，用户随时可能放弃，挂起反而是负担。
 
-### 3.5 写操作确认
+### 3.3 防失控：三道闸
 
-写库操作（记行动/打卡/建任务/改技能树）默认**先确认后执行**：
+`agents/base.py` 顶部三个常量，是这套系统敢放 LLM 自己跑的前提：
 
-```
-子图: 识别到「跑步 30 分钟 · 健康维度 +15 EXP」，是否提交？
-用户: 确认 → 走业务层写库 → 回显经验/等级变化
-```
+| 闸门 | 常量 | 值 | 行为 |
+|---|---|---|---|
+| ReAct 循环上限 | `MAX_ITERS` | 8 | 工具失败重试不超过 8 轮 |
+| 反问轮次上限 | `MAX_ASK_ROUNDS` | 3 | 超过 3 轮**把 `ask_user` 从 `bind_tools` 里移除**，逼 LLM 用已有信息执行或直接放弃 |
+| 消息窗口 | `MAX_HISTORY` | 10 | 保留首条 instruction + 最近 9 条，`1 + MAX_ASK_ROUNDS * 3` |
 
-实现：子图调用 `interrupt` 发起确认，用户通过 `Command(resume)` 传回确认结果。可提供"免确认模式"开关。
+反问超限降级还留了保险分支：万一 LLM 仍然调用了已被移除的 `ask_user`，工具返回"信息不足，本次放弃"的失败结果，而不是真的再问一轮。
+
+### 3.4 主 Agent 上下文
+
+`finalize_record()` 维护近 5 条记录的 FIFO：
+
+- **压入时机**：仅当三阶段全部走完（`final_reply` 非空）。有 pending 反问时 `final_reply` 为空 → 不压入
+- **存储内容**：`{用户说的话, 主 agent 总结}`——不是原始对话，是压缩后的摘要
+
+设计意图：主 Agent 只需要知道"最近做过什么"来判断本次是否延续，不需要背完整历史。
 
 ---
 
-## 4. 技术选型：LangGraph 多智能体编排
+## 4. 技术选型与演进
 
-**结论：引入 LangGraph 实现主图 + 子图编排，替代手写 tool-call 循环与反问队列。**
+### 4.1 LangGraph 用在哪、没用在哪
 
-### 4.1 选型理由
+| 位置 | 是否用 LangGraph | 理由 |
+|---|---|---|
+| 主流程编排 | ❌ | 线性三段，用普通 async 函数更可控 |
+| 子图 ReAct 循环 | ✅ | 有循环、需要状态合并 |
+| 会话持久化 | ✅ `checkpointer` | 按 `sub_thread_id` 隔离各子域会话 |
+| 反问机制 | ❌ | 见 §3.2 |
 
-| 维度 | 裸 httpx（原方案） | LangGraph（新方案） |
-|------|-------------------|---------------------|
-| tool-call 循环 | 手写 while loop | `create_react_agent` 内置 |
-| 反问队列 | 手写 FIFO + 前端滑动窗口 | `interrupt/resume` 原生支持 |
-| 并行执行 | 手动 async/await 编排 | 声明式并行节点 |
-| 状态管理 | 手动传递 dict | `TypedDict` + `operator.add` 自动合并 |
-| 可观测性 | 无 | checkpoint + 回放 |
-| 代码量 | ~800 行 | ~480 行（减少约 40%） |
+**子图结构**（`build_subgraph`）：单节点 StateGraph + 全局 `MemorySaver`，入口即出口。
 
-### 4.2 与项目现有代码的集成
+```python
+graph = StateGraph(state_class)
+graph.add_node("agent", make_agent_node(tools, domain, domain_label, system_prompt))
+graph.set_entry_point("agent")
+graph.add_edge("agent", END)
+return graph.compile(checkpointer=get_checkpointer())
+```
 
-| 现有资产 | LangGraph 对接方式 |
-|----------|-------------------|
-| `ai_action_service.py` | 包装成 `action_agent` 子图，工具函数复用业务层 |
-| `ai_service.py`（技能树） | 包装成 `skill_tree_agent` 子图 |
-| `expression_service.py` | 包装成 `expression_agent` 子图 |
-| `_call_llm_with_tools` | 替换为 `create_react_agent`，LangGraph 内部处理 tool-call 循环 |
-| `call_ai_text_stream` | 用 LangChain 的 `ChatOpenAI.stream()` 替代 |
+**为什么不用 `create_react_agent`？** 需要在循环内做两件框架管不了的事：消息窗口截断、反问轮次超限后动态摘除工具。自研循环约 120 行，换来完全的控制权。
 
-### 4.3 依赖变更
+### 4.2 工具参数约束
+
+工具层做了三层防护，防止 LLM 乱传参：
+
+1. **类型约束**：`@tool` 装饰器 + 类型注解自动生成 JSON Schema；`user_id` 由 `agent_node` 统一注入（`args["user_id"] = state.get("user_id")`），不让模型自己填
+2. **异常兜底**：工具执行包 try/catch，异常转成 `{"success": false, "message": ...}` 回灌给 LLM，让它自己重试或换参数，而不是整条链路崩掉
+3. **并行隔离**：各子图用 `asyncio.gather(..., return_exceptions=True)` 派发，单域失败不影响其他域，失败结果以 `{error: true}` 参与最终汇总
+
+### 4.3 依赖
+
+`backend/pixi.toml`：
 
 ```toml
-# backend/pyproject.toml 新增
 langgraph = ">=0.2.0"
-langchain-openai = ">=0.2.0"  # 已有
+langchain-openai = ">=1.3.5,<2"
+langchain-core = ">=0.3.0"
 ```
-
-**LangChain 定位调整**：不再仅用于纯文本流式，而是作为 LangGraph 的底层 LLM 接口统一使用。
 
 ---
 
-## 5. 项目现状盘点（可复用资产）
+## 5. 落地文件清单（实际）
 
-已有 3 套成熟的 AI 引擎可复用为次 Agent 子图：
+| 层 | 文件 | 内容 |
+|---|---|---|
+| 编排 | `services/coordinator/graph.py` | 三段式主编排 `run_coordinator` / `resume_subgraph` |
+| 路由 | `services/coordinator/router_node.py` | LLM 语义路由 + JSON 三级降级解析 |
+| 汇总 | `services/coordinator/synthesize_node.py` | 多域结果整合 |
+| 状态 | `services/coordinator/state.py` | `CoordinatorState` / `SubgraphTask` |
+| 持久化 | `services/coordinator/checkpointer.py` | 全局 `MemorySaver` 单例 |
+| LLM | `services/coordinator/llm.py` | 多模型热切换（四元组缓存 key） |
+| 子图基座 | `services/coordinator/agents/base.py` | ReAct 循环 + 反问 + 防失控三闸 |
+| 子图 | `services/coordinator/agents/{action,query,goal,task,habit,reward}_agent.py` | 6 个域 |
+| 提示词 | `backend/prompts/coordinator.py` | 路由系统提示词 + 各域子图提示词 |
+| 接口 | `routers/coordinator.py` | 4 个端点，见 §6 |
+| 前端 | `frontend/js/chat.js` | 对话面板 + interruptQueue + 反问卡片 |
 
-| 引擎 | 文件 | 现状 | 复用为 |
-|------|------|------|--------|
-| 技能树 AI | `backend/services/ai_service.py` + `prompts/skill_tree.py` | 9 工具多工具轮询 | 技能树次 Agent 子图 |
-| 行动解析 AI | `backend/services/ai_action_service.py` + `prompts/action_parse.py` | 对话提取 + 批量提交 | 行动次 Agent 子图 |
-| 表达训练 AI | `expression_service.py` 的 `_call_llm_with_tools` | 分轮执行工具 + 容错 | 表达训练次 Agent 子图 |
+---
 
-### 5.1 LangGraph 子图化改造路径
+## 6. 接口与前端交互
 
-现有引擎的 tool-call 循环 → `create_react_agent` 替换：
+### 6.1 四个端点
+
+| 方法 | 路径 | 用途 | 用户校验 |
+|---|---|---|---|
+| POST | `/api/coordinator/chat` | 发送消息：路由 → 并行派发 →（全部完成时）总结 | `get_current_user` |
+| POST | `/api/coordinator/resume` | 回答反问：接回指定子图继续，**不重新路由** | `get_current_user` + 归属校验 |
+| GET | `/api/coordinator/status/{thread_id}` | 查询编排状态 | `get_current_user` + 归属校验 |
+| GET | `/api/coordinator/stream/{thread_id}` | SSE 流式推送（**占位，未实装**） | ❌ 无 |
+
+> ⚠️ **注意：`get_current_user` 不是真正的身份认证。** 它的实现（`routers/deps.py`）只是校验 URL 上的 `user_id` 参数是否存在于 users 表：
 
 ```python
-# 原：手写 while loop（expression_service.py:171-266）
-messages = [system_msg, user_msg]
-while rounds < max_rounds:
-    resp = call_llm_with_tools(messages, tools)
-    if resp.tool_calls:
-        # 手动执行工具、回填结果...
-    else:
-        return resp.content
-
-# 新：LangGraph 内置
-agent = create_react_agent(
-    model=ChatOpenAI(model="gpt-4o-mini"),
-    tools=[record_action, ask_user, ...],
-    prompt="你是行动记录次 Agent...",
-)
-result = agent.invoke({"messages": [user_msg]})
+async def get_current_user(user_id: int = Query(...)):
+    user = get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return user
 ```
 
-次 Agent 子图在其上加两层：① 接受主 Agent 的定制指令作为 system prompt；② 缺失参数时用 `interrupt` 反问而非直接放弃。
+> `user_id` 来自 query 字符串，客户端可任意指定。`resume` / `status` 里的 `state["user_id"] != user["id"] → 403` 归属校验，同样因为 `user_id` 可被伪造而**形同虚设**——攻击者只需传正确的 `user_id` 即可通过。**这是整个项目最严重的安全缺口**，改进方向是 JWT/session 鉴权。
 
----
+**`resume` 的幂等保护**：若该域已完成且无待处理反问，直接返回当前状态，不重复执行。
 
-## 6. 前端交互设计（LangGraph interrupt 机制）
+### 6.2 前端（`frontend/js/chat.js`）
 
-LangGraph 原生支持 **human-in-the-loop**，通过 `interrupt` + `Command(resume)` 实现反问队列：
+- **不用 SSE**，走 POST 同步请求，流式能力尚未实装
+- 反问用 `interruptQueue` 队列管理，可同时挂多个域的反问卡片
+- `thread_id` 存 `sessionStorage`（key：`self_grow_coordinator_thread_id`）——刷新不丢，关闭浏览器才丢
+- 恢复时携带 `sub_thread_id`，精确指定恢复哪个子图
 
-### 6.1 反问流程
+### 6.3 编排状态存储
 
-```
-用户输入
-  ▼
-主图 router → 并行派发子图
-  ▼
-子图执行中... 遇到缺参数
-  ▼
-interrupt({ question: "跑了多久?", type: "parameter_missing" })
-  ▼
-前端收到中断事件 → 渲染反问卡片
-  ▼
-用户回答 → POST /api/coordinator/resume { answer: "30分钟" }
-  ▼
-LangGraph Command(resume="30分钟") → 子图继续执行
+`routers/coordinator.py` 用进程内 dict：
+
+```python
+_THREAD_TTL_SECONDS = 30 * 60   # 30 分钟
+_thread_store: dict[str, dict] = {}
 ```
 
-### 6.2 前端渲染
+写入时打过期时间戳，读取时判过期并删除，**活跃访问自动续期**。
 
-```
-┌────────────────────────────┐
-│ 🤖 行动域 · "跑了多久?"      │  ← interrupt 事件（含 agent_id）
-│ [输入框]  [提交]            │
-└────────────────────────────┘
-│ 🤖 任务域 · "明天几点?"      │  ← 另一个子图的 interrupt
-│ [输入框]  [提交]            │
-└────────────────────────────┘
-（最多同时展示 2 格；提交一个 → 恢复对应子图）
-```
-
-### 6.3 关键优势
-
-| 手写队列（原方案） | LangGraph interrupt（新方案） |
-|-------------------|------------------------------|
-| 手动维护 FIFO 队列 | 框架自动管理中断/恢复 |
-| 前端轮询检查队列状态 | 后端推送 interrupt 事件 |
-| 需要 task_id 关联 | `Command(resume)` 自动关联子图 |
-| 并发控制复杂 | 框架天然支持并行中断 |
-
-### 6.4 状态流转
-
-每格卡片状态：
-- `waiting` — 等待用户输入
-- `submitting` — 已提交，等待子图恢复执行
-- `completed` — 子图执行完毕，显示结果
-
-用户回答能覆盖多个面的理想情况（"跑了半小时，报告明天交"）作为 **M 后期增强**：MVP 阶段各问各的。
+> ⚠️ 这是内存存储，进程重启即失、多实例不共享。见 §7。
 
 ---
 
-## 7. 落地改动清单（点对点）
+## 7. 已知限制与技术债
 
-按项目 CLAUDE.md 的分层约定（prompts/services/routers + 前端 pages）：
+按优先级排列，面试时主动说出来比被问出来好：
 
-| 层 | 文件 | 动作 | 工作量 |
-|----|------|------|--------|
-| state | 新建 `backend/services/coordinator/state.py` | 定义 `CoordinatorState` TypedDict + 各子图状态 | 小 |
-| graph | 新建 `backend/services/coordinator/graph.py` | 主图定义（StateGraph + 条件路由 + 编译） | 中 |
-| router | 新建 `backend/services/coordinator/router.py` | 路由节点：意图识别 + 动态生成子 Agent 指令 | 中 |
-| agents | 新建 `backend/services/coordinator/agents/` | 各域子图：`action_agent.py` / `task_agent.py` / `habit_agent.py` / `query_agent.py` | 大 |
-| prompts | 新建 `backend/prompts/coordinate.py` | 主 Agent 系统提示词 + 各子 Agent 指令模板 | 中 |
-| routers | 新建 `backend/routers/coordinator.py` | `POST /api/coordinator/chat` + `POST /api/coordinator/resume` | 中 |
-| routers | `backend/main.py` | 注册新路由 | 小 |
-| frontend | 新建 `frontend/js/pages/coordinator.js` | 对话面板 + interrupt 事件处理 + 反问卡片渲染 | 中 |
-| frontend | `frontend/css/pages.css` | 新增 `.coord__*` 样式，风格对齐 `.expr__*` | 小 |
-| deps | `backend/pyproject.toml` | 新增 `langgraph` 依赖 | 小 |
-| tests | `backend/tests/` | 新增协调服务 + 子图单元测试 | 中 |
-
-**核心工作量集中在两块**：`agents/`（各域子图封装）和 `router.py`（主 Agent 路由 + 指令动态生成）。
+| # | 问题 | 影响 | 改进方向 |
+|---|---|---|---|
+| 1 | 编排状态 `_thread_store` 在进程内存 | 重启丢失、多实例不共享 | 迁 Redis，或落库 |
+| 2 | checkpointer 用 `MemorySaver` | 重启后所有子图会话历史丢失 | 换 `AsyncSqliteSaver` / `PostgresSaver` |
+| 3 | ~~子图工具同步调用~~ **✅ 已修复**（2026-09-08） | 原 `tool_fn.invoke(args)` 在 async 节点里阻塞事件循环，`gather` 的"并行"实际串行 | 已改为 `await asyncio.to_thread(tool_fn.invoke, args)` 丢线程池 |
+| 4 | SSE 端点未实装且无鉴权 | 无法流式推送，且存在未授权访问 | 补齐或删除 |
+| 5 | 写操作确认流未实现 | AI 直接写库，无二次确认 | 写库前用 `ask_user` 发起确认（机制已具备，加提示词即可） |
+| 6 | 领域覆盖不全 | 技能树、表达训练未纳入协调层 | 各加一个子图 |
+| 7 | **无真正身份认证** | `get_current_user` 只校验 user_id 存在，可被伪造；越权读取/篡改他人数据 | 引入 JWT/session 鉴权（见 §6.1） |
 
 ---
 
-## 8. 里程碑规划
+## 8. 面试讲解对照表（已按实现校准）
 
-| 阶段 | 内容 | 验收 |
-|------|------|------|
-| **M1** | LangGraph 环境搭建 + 主图骨架 + 行动/统计查询 2 个子图 | 「两个子图并行 interrupt 反问」跑通 |
-| **M2** | interrupt 事件前端处理 + 反问卡片组件 | 多意图输入并行派发 + 前端双框渲染 |
-| **M3** | 补任务/习惯/技能树子图 | 5 个执行域子图全通 |
-| **M4** | 写操作确认流 + 免确认模式开关 | 写库前确认卡片 + 开关生效 |
-| **M5** | 主 Agent 上下文管理（LangGraph checkpoint + 摘要压缩） | 长对话跨任务关联正确 |
-| **M6** | 语音化操作（复用 agent.js ASR）+ 测试 + 整合 + 文档更新 | pytest 通过 |
-
----
-
-## 9. 待定项（已确认）
-
-1. **主 Agent 上下文管理** —— 采用 LangGraph 内置 SQLite checkpoint，MVP 阶段先不加摘要压缩，够用再优化。
-2. **跨任务延续的精确判定** —— "这一句是上一单延续还是新一单"的具体 Prompt 策略，M5 随主 Agent 上下文一起定。
-3. **主 Agent 是否流式** —— 纯路由判断可非流式（快省），最终长回复由命中的子图负责流式。
+| 面试官可能问 | 怎么答 |
+|---|---|
+| 做过什么 AI 相关 | "基于 LangGraph 的多智能体协调系统，主流程三段式编排，6 个领域子 Agent 并行" |
+| 为什么主流程不用 StateGraph | "主流程是线性的三段，没有分支和循环。StateGraph 的 operator.add 会跨轮累积，多轮对话下消息会膨胀。只有子 Agent 内部的循环才用状态图" |
+| 反问为什么不用 interrupt | "interrupt 适合强阻塞的人工审批。我这个是补参数，用户随时会放弃。改成反问即结束 + 消息追加恢复，换来单一状态源、零成本放弃、问题不丢不重问" |
+| 怎么防 LLM 失控 | "三道闸：循环上限 8 轮、反问上限 3 轮（超限摘掉反问工具逼它降级）、消息窗口截断到 10 条" |
+| 多智能体怎么分工 | "主 Agent 做语义路由，并为每个命中的域动态生成定制指令；子图只吃这份指令，不需要读全量历史" |
+| 多域并行怎么做 | "asyncio.gather 派发，单个域失败用 return_exceptions 兜住，失败结果照常参与最终汇总" |
+| thread_id 怎么设计 | "主会话 UUID，子图会话是 {主ID}:{域名}，各自独立 checkpoint，并行时消息不串味" |
+| AI 会不会乱写库 | "只决定调哪个工具传什么参数，写库统一走业务层；user_id 由工具层注入不让模型填；工具异常转成失败结果回灌给模型自愈" |
+| 有什么不足 | "编排状态和 checkpointer 都在内存，重启即失；子图工具是同步调用，并行实际会串行；写操作还没做二次确认" |
 
 ---
 
-## 10. 技术决策记录
+## 附录 A：历史设计稿（v3，部分已废弃）
 
-| 决策项 | 结论 | 理由 |
-|--------|------|------|
-| **主图上下文存储** | LangGraph 内置 SQLite checkpoint | 开箱即用，MVP 够用，后续可迁移到 PostgreSQL |
-| **子图并行上限** | 无限制（框架自动调度） | LangGraph 默认 cap 16，项目最多 5 个域，足够 |
-| **LLM 模型选择** | 复用项目现有 AI_API_KEY 配置 | 保持一致，不引入新依赖 |
-| **子图复用方式** | 预编译子图，运行时传不同指令 | 性能更好，避免重复构建图 |
-| **前端 interrupt 传输** | SSE 推送中断事件 | 与项目现有 SSE 风格一致 |
-| **手写 tool-call 处理** | 保留现有 3 个 AI 服务不动，新功能用 LangGraph | 渐进式迁移，降低风险 |
+以下内容为早期设计，**仅供对照，实现请以正文为准**：
 
----
+- ❌ 主流程用 StateGraph —— 已改为三段式线性编排
+- ❌ 用 `interrupt()` + `Command(resume)` 实现反问 —— 已改为 ask_user 工具方案
+- ❌ 路由用正则 + 关键词 —— 已改为全 LLM 语义判断
+- ❌ 领域含 skill_tree / expression —— 实际为 goal / reward
+- ❌ 依赖写在 `pyproject.toml` —— 实际在 `pixi.toml`
+- ❌ 前端用 SSE 推送中断事件 —— 实际为 POST 同步 + 前端队列
+- ⏸ 写操作确认流 —— 未实现
 
-## 10. 面试讲解对照表
-
-| 面试官可能问 | 怎何答 |
-|--------------|--------|
-| 做过什么 AI 相关 | "基于 LangGraph 的多智能体协调系统，主图路由 + 5 个子图并行，跨 8 个数据域" |
-| 为什么用 LangGraph | "手写 tool-call 循环和反问队列太重，LangGraph 的 `create_react_agent` + `interrupt/resume` 天然解决，代码量减少 40%" |
-| 多智能体怎么分工 | "主图路由 + 动态写子图指令，子图无状态可并行，通过 `interrupt` 与用户交互" |
-| 并发反问用户怎么操作 | "LangGraph 原生 `interrupt` 机制，每个子图独立中断/恢复，前端按 agent_id 渲染反问卡片" |
-| 跨任务上下文怎么处理 | "边界判断上移主图，主图动态提炼指令传给子图，子图无状态，通过 checkpoint 持久化主图上下文" |
-| AI 会不会乱写库 | "AI 只决定调哪个工具传什么参数，写库统一走业务层，含经验结算和写前确认（interrupt 确认）" |
-| 如何演示 | "语音说『记一笔创作 + 加个明天交报告的任务』→ 双子图并行 interrupt 反问补齐 → 自动写库 + 等级变化回显" |
+原始工具 Schema 草稿（`route_to` / `record_action` / `set_habit_checkin` / `query_global_stats` / `ask_user`）已被 `@tool` 装饰器自动生成的 Schema 取代，不再单独维护。
 
 ---
 
-## 附录 A：主 Agent `route_to` 工具 Schema（草稿）
-
-```json
-[
-  {
-    "type": "function",
-    "function": {
-      "name": "route_to",
-      "description": "将用户输入路由到对应域的次 Agent 处理。可同时调用多个次 Agent 处理多意图输入。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "domains": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "domain": {
-                  "type": "string",
-                  "enum": ["action", "habit", "task", "query", "skill_tree", "expression", "chat"]
-                },
-                "reason": {"type": "string", "description": "为何路由至此域"},
-                "instruction": {
-                  "type": "string",
-                  "description": "根据对话历史动态编写的该次 Agent 定制指令（含维度、可能缺的参数、用户表述习惯等）"
-                }
-              },
-              "required": ["domain", "instruction"]
-            }
-          }
-        },
-        "required": ["domains"]
-      }
-    }
-  }
-]
-```
-
----
-
-## 附录 B：各域子图工具集（草稿）
-
-> 仅列核心工具，LangGraph 子图使用 `@tool` 装饰器定义，实现时精简到对应域。
-
-```json
-[
-  {
-    "type": "function",
-    "function": {
-      "name": "record_action",
-      "description": "记录一条用户行动。将识别到的维度、子类型、时长、备注提交入库并结算经验。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "object",
-            "properties": {
-              "category_id": {"type": "string", "description": "维度ID: health/study/relation/work/create/finance/hobby/soul"},
-              "sub_type": {"type": "string"},
-              "duration": {"type": "integer", "description": "时长分钟，固定值类型传0"},
-              "note": {"type": "string"},
-              "dimension_exp": {"type": "number", "description": "按计分规则计算的维度经验值"},
-              "sleep_start": {"type": "string", "description": "睡眠模式入睡 HH:MM"},
-              "sleep_end": {"type": "string", "description": "睡眠模式起床 HH:MM"}
-            },
-            "required": ["category_id", "note", "dimension_exp"]
-          },
-          "confirm": {"type": "boolean", "description": "用户是否已确认。默认 false。"}
-        },
-        "required": ["action", "confirm"]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "set_habit_checkin",
-      "description": "对某个习惯打卡或补打。参数含习惯名、日期、状态(done/skipped)。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "habit_name": {"type": "string"},
-          "date": {"type": "string", "description": "YYYY-MM-DD，默认今天"},
-          "status": {"type": "string", "enum": ["done", "skipped"]}
-        },
-        "required": ["habit_name", "status"]
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "query_global_stats",
-      "description": "查询用户整体数据：8维进度、净成绩、近期动态、热力图。只读，不改数据。",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "period": {"type": "string", "enum": ["today", "week", "month", "all"], "description": "统计范围"}
-        }
-      }
-    }
-  },
-  {
-    "type": "function",
-    "function": {
-      "name": "ask_user",
-      "description": "向用户发送一条消息并进入队列展示。用于询问缺失参数、确认写操作或解释结果。",
-      "parameters": {
-        "type": "object",
-        "properties": {"content": {"type": "string", "description": "消息内容"}},
-        "required": ["content"]
-      }
-    }
-  }
-]
-```
-
-> 附录 B 仅列核心 4 个工具；`create_task` / `update_task_status` / `query_skill_tree` 实现时按对应域补齐。LangGraph 子图通过 `interrupt` 实现反问，无需单独的 `ask_user` 工具。
-
----
-
-*文档结束。v3 方案基于 LangGraph 多智能体编排，复用项目现有业务数据层，核心工作量集中在 `coordinator/agents/`（各域子图封装）+ `coordinator/router.py`（主图路由 + 指令动态生成）。*
+*文档结束。当前实现位于 `backend/services/coordinator/`，核心是 `graph.py`（三段式编排）+ `agents/base.py`（子图基座与防失控三闸）。*

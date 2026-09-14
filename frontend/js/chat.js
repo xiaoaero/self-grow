@@ -164,7 +164,8 @@ const AIChat = {
 
         try {
             const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
-            const userId = AppData?.user?.id || 1;
+            // JWT 改造：身份由 Authorization 头决定，user_id 仅作参考，不再兜底为 1
+            const userId = AppData?.user?.id || getCurrentUser()?.id;
             const resp = await fetch(`${API_BASE}/api/coordinator/chat?user_id=${userId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -226,7 +227,8 @@ const AIChat = {
 
         try {
             const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
-            const userId = AppData?.user?.id || 1;
+            // JWT 改造：身份由 Authorization 头决定，user_id 仅作参考，不再兜底为 1
+            const userId = AppData?.user?.id || getCurrentUser()?.id;
             const resp = await fetch(`${API_BASE}/api/coordinator/resume?user_id=${userId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

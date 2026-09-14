@@ -49,14 +49,14 @@ class ModelConfigUpdate(BaseModel):
 
 
 @router.get("")
-async def list_configs(type: Optional[str] = None, user=Depends(get_current_user)):
+def list_configs(type: Optional[str] = None, user=Depends(get_current_user)):
     """获取模型配置列表（可按 type 过滤）"""
     cfgs = get_configs(user["id"], type=type)
     return [_to_public(c) for c in cfgs]
 
 
 @router.post("")
-async def add_config(req: ModelConfigCreate, user=Depends(get_current_user)):
+def add_config(req: ModelConfigCreate, user=Depends(get_current_user)):
     """新增模型配置"""
     if req.type not in ("llm", "asr"):
         raise HTTPException(status_code=400, detail="type 必须是 llm 或 asr")
@@ -65,7 +65,7 @@ async def add_config(req: ModelConfigCreate, user=Depends(get_current_user)):
 
 
 @router.put("/{config_id}")
-async def edit_config(config_id: int, req: ModelConfigUpdate, user=Depends(get_current_user)):
+def edit_config(config_id: int, req: ModelConfigUpdate, user=Depends(get_current_user)):
     """编辑模型配置"""
     cfg = get_config(config_id)
     if not cfg or cfg["user_id"] != user["id"]:
@@ -80,7 +80,7 @@ async def edit_config(config_id: int, req: ModelConfigUpdate, user=Depends(get_c
 
 
 @router.delete("/{config_id}")
-async def remove_config(config_id: int, user=Depends(get_current_user)):
+def remove_config(config_id: int, user=Depends(get_current_user)):
     """删除模型配置"""
     cfg = get_config(config_id)
     if not cfg or cfg["user_id"] != user["id"]:
@@ -90,7 +90,7 @@ async def remove_config(config_id: int, user=Depends(get_current_user)):
 
 
 @router.post("/{config_id}/activate")
-async def activate_config(config_id: int, user=Depends(get_current_user)):
+def activate_config(config_id: int, user=Depends(get_current_user)):
     """切换启用（同类型下互斥，只能有一个启用）"""
     cfg = get_config(config_id)
     if not cfg or cfg["user_id"] != user["id"]:

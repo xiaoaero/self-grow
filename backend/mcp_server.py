@@ -30,6 +30,7 @@ Self Grow — MCP Server（Model Context Protocol）
 
 import os
 import sys
+from contextvars import ContextVar
 from datetime import date
 from pathlib import Path
 from typing import Literal, Optional
@@ -44,6 +45,14 @@ from db.users import get_user  # noqa: E402
 from db.dimensions import get_user_dimensions  # noqa: E402
 from db.actions import get_action_logs  # noqa: E402
 from services.exp_service import create_action_and_award_exp  # noqa: E402
+
+# HTTP 传输鉴权（见文件底部 ApiKeyMiddleware）
+from starlette.middleware import Middleware  # noqa: E402
+from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
+from starlette.responses import JSONResponse  # noqa: E402
+
+from config import SELF_GROW_TRUSTED_MODE  # noqa: E402
+from services import auth_service  # noqa: E402
 
 from db.goals import (  # noqa: E402
     get_goals as db_get_goals,
@@ -80,6 +89,17 @@ from db.rewards import (  # noqa: E402
 # MCP 是工具协议，没有内置「用户」概念。个人使用固定一个 user_id，
 # 可通过环境变量 SELF_GROW_USER_ID 覆盖（默认 1 = test 用户）。
 DEFAULT_USER_ID = int(os.getenv("SELF_GROW_USER_ID", "1"))
+
+# ── 请求级用户身份（2026-09-13 鉴权改造）────────────────
+# stdio 模式：本地 spawn 的子进程本就可信，沿用 DEFAULT_USER_ID。
+# HTTP  模式：由 API Key 解析出真实用户写入 ContextVar，
+#             MCP 工具的身份随之变成「调用者本人」而不是固定值。
+_mcp_user_id: ContextVar[int | None] = ContextVar("mcp_user_id", default=None)
+
+
+def current_user_id() -> int:
+    """当前调用者的用户 ID：优先取 API Key 解析结果，否则回落环境变量默认值"""
+    return _mcp_user_id.get() or DEFAULT_USER_ID
 
 # ── 枚举类型约束（生成 JSON Schema 的 enum）──────────────
 CategoryId = Literal["health", "study", "relation", "work", "create", "finance", "hobby", "soul"]
@@ -126,7 +146,7 @@ def record_action(category: CategoryId, detail: str, duration: int,
         return {"success": False, "message": "时长不能为负数"}
 
     return create_action_and_award_exp(
-        user_id=DEFAULT_USER_ID,
+        user_id=current_user_id(),
         category=category,
         duration=duration,
         start_time=start_time,
@@ -142,7 +162,7 @@ def record_action(category: CategoryId, detail: str, duration: int,
 @mcp.tool()
 def query_user_stats() -> dict:
     """查询当前用户的等级、总经验、连续打卡天数等基本信息。"""
-    user = get_user(DEFAULT_USER_ID)
+    user = get_user(current_user_id())
     if not user:
         return {"error": "用户不存在"}
     return {
@@ -160,7 +180,7 @@ def query_dimension_stats(dimension_key: CategoryId) -> dict:
     Args:
         dimension_key: 维度ID（health/study/relation/work/create/finance/hobby/soul）
     """
-    dims = get_user_dimensions(DEFAULT_USER_ID)
+    dims = get_user_dimensions(current_user_id())
     for d in dims:
         if d.get("dimension_key") == dimension_key:
             return {
@@ -180,7 +200,7 @@ def query_action_history(limit: int = 10) -> list:
         limit: 返回条数（1~100），默认 10
     """
     limit = max(1, min(int(limit), 100))
-    result = get_action_logs(DEFAULT_USER_ID, page=1, page_size=limit)
+    result = get_action_logs(current_user_id(), page=1, page_size=limit)
     actions = result.get("records", [])
     return [
         {
@@ -222,7 +242,7 @@ def create_goal(title: str, intro: str, category: CategoryId, deadline: str,
 
     try:
         goal_id = db_create_goal(
-            user_id=DEFAULT_USER_ID,
+            user_id=current_user_id(),
             title=title,
             intro=intro,
             category=category,
@@ -240,7 +260,7 @@ def create_goal(title: str, intro: str, category: CategoryId, deadline: str,
 @mcp.tool()
 def list_goals() -> list:
     """查看所有目标及其里程碑。"""
-    goals = db_get_goals(DEFAULT_USER_ID)
+    goals = db_get_goals(current_user_id())
     return [
         {
             "id": g["id"],
@@ -332,7 +352,7 @@ def create_task(title: str, category: CategoryId, exp: int,
 
     try:
         task_id = db_create_task(
-            user_id=DEFAULT_USER_ID,
+            user_id=current_user_id(),
             title=title,
             category=category,
             priority=priority,
@@ -355,11 +375,11 @@ def list_tasks(source_type: TaskSourceType = "today") -> dict:
     """
     try:
         if source_type == "today":
-            return db_get_today_tasks(DEFAULT_USER_ID)
+            return db_get_today_tasks(current_user_id())
         elif source_type == "weekly":
-            return db_get_week_tasks(DEFAULT_USER_ID)
+            return db_get_week_tasks(current_user_id())
         else:
-            return db_get_tasks_paginated(DEFAULT_USER_ID, page=1, page_size=50).get("records", [])
+            return db_get_tasks_paginated(current_user_id(), page=1, page_size=50).get("records", [])
     except Exception as e:
         return {"error": str(e)}
 
@@ -444,7 +464,7 @@ def create_habit(name: str, category: CategoryId = "health", icon: str = "",
 
     try:
         habit_id = db_create_habit(
-            user_id=DEFAULT_USER_ID,
+            user_id=current_user_id(),
             name=name,
             icon=icon or "",
             intro=intro or "",
@@ -461,7 +481,7 @@ def create_habit(name: str, category: CategoryId = "health", icon: str = "",
 @mcp.tool()
 def list_habits() -> list:
     """查看所有习惯。"""
-    habits = db_get_habits(DEFAULT_USER_ID)
+    habits = db_get_habits(current_user_id())
     return [
         {
             "id": h["id"],
@@ -548,7 +568,7 @@ def create_reward(title: str, desc: str = "", icon: str = "🎁",
     """
     try:
         reward_id = db_create_reward(
-            user_id=DEFAULT_USER_ID,
+            user_id=current_user_id(),
             title=title,
             desc=desc or "",
             icon=icon or "🎁",
@@ -564,7 +584,7 @@ def create_reward(title: str, desc: str = "", icon: str = "🎁",
 @mcp.tool()
 def list_rewards() -> list:
     """查看所有奖励及其解锁/领取状态。"""
-    rewards = db_get_rewards(DEFAULT_USER_ID)
+    rewards = db_get_rewards(current_user_id())
     return [
         {
             "id": r["id"],
@@ -626,7 +646,7 @@ def claim_reward(reward_id: int) -> dict:
         reward_id: 奖励ID（先调 list_rewards 查询获取）
     """
     try:
-        result = db_claim_reward(reward_id, DEFAULT_USER_ID)
+        result = db_claim_reward(reward_id, current_user_id())
         if result:
             return {"success": True, "message": "奖励已领取"}
         return {"success": False, "message": "领取失败：条件未满足或已领取"}
@@ -635,6 +655,63 @@ def claim_reward(reward_id: int) -> dict:
 
 
 # ================================================================
+# HTTP 传输的鉴权中间件（2026-09-13）
+#
+# 为什么 stdio 不需要：本地 spawn 的子进程由用户自己启动，进程边界即信任边界，
+# 加 Key 只会让配置变麻烦（这也是 MCP 生态的通行做法）。
+#
+# 为什么 HTTP 必须要：一旦监听端口，任何能访问该端口的人都能调用 24 个业务工具
+# 读写数据库。所以用与 REST API 同一套 api_keys 表做校验 ——
+# 在「用户中心 → 账户安全 → API Key」生成，header 里带 X-API-Key 即可。
+# ================================================================
+
+# 免鉴权放行的路径（健康检查）
+_HTTP_PUBLIC_PATHS = {"/health", "/", "/docs", "/openapi.json"}
+
+
+def _extract_api_key(request) -> str:
+    """从 X-API-Key 头或 Authorization: Bearer 中提取密钥"""
+    key = request.headers.get("X-API-Key") or ""
+    if key:
+        return key.strip()
+    auth = request.headers.get("Authorization") or ""
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    """HTTP 传输下的 API Key 校验 + 请求级用户身份注入"""
+
+    async def dispatch(self, request, call_next):
+        # 本地免鉴权模式：方便开发/演示，生产务必关闭
+        if SELF_GROW_TRUSTED_MODE:
+            return await call_next(request)
+
+        if request.url.path.rstrip("/") in _HTTP_PUBLIC_PATHS or request.method == "OPTIONS":
+            return await call_next(request)
+
+        raw = _extract_api_key(request)
+        user = auth_service.resolve_api_key(raw) if raw else None
+        if not user:
+            return JSONResponse(
+                {"error": "unauthorized", "detail": "缺少或无效的 API Key（X-API-Key 头）"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # 注入身份：后续 MCP 工具调用会读到这个用户
+        token = _mcp_user_id.set(user["id"])
+        try:
+            return await call_next(request)
+        finally:
+            _mcp_user_id.reset(token)
+
+
+def build_http_app(transport: str):
+    """构造带鉴权的 ASGI 应用"""
+    return mcp.http_app(transport=transport, middleware=[Middleware(ApiKeyMiddleware)])
+
 
 if __name__ == "__main__":
     # 传输方式：默认 stdio（本地客户端 spawn 进程）；设 MCP_TRANSPORT 可切换为 HTTP
@@ -644,8 +721,17 @@ if __name__ == "__main__":
 
     if transport == "stdio":
         # stdio：WorkBuddy / Claude Desktop / Cursor 等本地客户端直接 spawn 本进程通信
+        # 本地进程可信，不做鉴权（身份由 SELF_GROW_USER_ID 决定）
         mcp.run()
     else:
+        import uvicorn
+
         host = os.getenv("MCP_HOST", "0.0.0.0")
         port = int(os.getenv("MCP_PORT", "8000"))
-        mcp.run(transport=transport, host=host, port=port)
+        print(
+            f"⚠️  MCP HTTP 模式已启用（{transport}）：所有请求必须带 X-API-Key 头。\n"
+            f"    请在「用户中心 → 账户安全 → API Key」生成密钥；"
+            f"本地开发可设 SELF_GROW_TRUSTED_MODE=1 关闭本校验。",
+            file=sys.stderr,
+        )
+        uvicorn.run(build_http_app(transport), host=host, port=port)

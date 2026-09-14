@@ -87,7 +87,9 @@ function getCurrentUserId() {
   const params = new URLSearchParams(window.location.search);
   if (params.get('userId')) return params.get('userId');
   try {
-    const user = JSON.parse(localStorage.getItem('currentUser'));
+    // 主应用登录后写入的是 'sg_user'（login.html:95），'currentUser' 为历史遗留 key，保留兜底
+    const raw = localStorage.getItem('sg_user') || localStorage.getItem('currentUser');
+    const user = raw ? JSON.parse(raw) : null;
     return user ? user.id : null;
   } catch (e) {
     return null;

@@ -48,3 +48,17 @@
 - [2026-09-01 工作记录](2026-09-01-work.md) — MCP插件(24业务工具暴露+Literal约束+参数校验) + 经验幂等bug修复 + 用户中心(基础信息/多模型管理) + 模型配置持久化与动态生效(git版本号)
 
 - [2026-09-03 工作记录](2026-09-03-work.md) — 技能树编辑器8项bug修复(跨树撤销污染/连线残留/参考线失效/redo时机等) + 技能树AI审查发现双轨架构 + 技能树AI重写为LangGraph全栈改造(thread_id隔离/checkpointer防累积/确认卡片/旧/api/chat无鉴权端点下线) + CLAUDE.md/README.md按实际架构全面重写
+
+- [2026-09-08 工作记录](2026-09-08-work.md) — 面试展示缺口分析：实测0截图/无Dockerfile/仅2测试/远程在Gitee，输出四道门槛模型 + P0-P2分级清单 + 两周排期 + 速赢8件事（docs/面试展示待补充清单.md）
+
+- [2026-09-09 工作记录](2026-09-09-work.md) — backend/services 代码学习顺序文档：按依赖拓扑排6阶段路线(exp_service→ai_client→旧范式httpx→coordinator→skill_tree_ai)，含读完自测、三条并行主线、通关6题
+
+- [2026-09-10 工作记录](2026-09-10-work.md) — 登录鉴权方案选型：9种登录方式适配度评级(JWT推荐/Session否决/OAuth不做) + MCP与技能树为何不能用Session + JWT四层落地方案 + 面试话术（docs/登录鉴权方案选型.md）
+
+- [2026-09-11 工作记录](2026-09-11-work.md) — 技能树编辑器权限管控落地(仅管理员可进入、普通用户无入口；三道防线 + require_admin + /api/auth/me + 11个权限测试) + 技能树剩余6项bug修复(点击节点全量重绘改updateNodeVisual/连线模式点空白取消/详情面板残留清理等)
+
+- [2026-09-12 工作记录](2026-09-12-work.md) — 技能树AI(Agent)专项复查修复7项：AI生成树叠在(0,0)加自动布局 / resume用旧树覆盖手动改动 / 纯聊天误刷画布 / AI改动不落盘 / 连线样式丢失 / 确认后参数被改写 / 会话失效兜底 + 新增9个工具测试(78 passed)
+
+- [2026-09-13 工作记录](2026-09-13-work.md) — JWT登录鉴权全栈落地S1~S6(101 passed)：passlib换bcrypt踩坑 / refresh_tokens+api_keys表 / auth_service(密钥强制校验·token_version·refresh轮换·API Key) / deps凭证解析链(73端点零改动) / routers/auth.py八个端点 / 前端auth.js包装window.fetch覆盖52处调用 / refresh双通道应对SameSite / CORS从*收紧 / 登录页密码表单+用户中心账户安全 / MCP HTTP传输加ApiKeyMiddleware(发现原HTTP模式裸奔)+ContextVar多用户身份 / docs/安全设计说明.md(威胁模型+已知风险10条)
+
+- [2026-09-14 工作记录](2026-09-14-work.md) — 鉴权上线后的启动排障与文档同步：favicon 404清理 / 点0.0.0.0打不开三原因(监听地址·根路由404·JWT密钥缺失→改为启动即校验) / CORS漏3000端口导致登录页误报"后端未启动"→改allow_origin_regex放行本机任意端口且登录页报错展示真实原因 / README(763行)+CLAUDE.md(275行)按实测全面重写(22表·102端点·101 passed)

@@ -88,18 +88,8 @@ class TreeRenderer {
     el.style.left = '0';
     el.style.top = '0';
 
-    // 选中态
-    el.classList.toggle('selected', node._selected || false);
-    el.classList.toggle('node-highlight', node._highlight || false);
-
-    // 名称重复
-    el.classList.toggle('node-name-duplicate', node._nameDuplicate || false);
-
-    // 学习状态
-    el.classList.toggle('node-locked', node._learningState === 'locked');
-    el.classList.toggle('node-available', node._learningState === 'available');
-    el.classList.toggle('node-learning', node._learningState === 'learning');
-    el.classList.toggle('node-completed', node._learningState === 'completed');
+    // 视觉状态（选中 / 高亮 / 重名 / 学习状态）
+    this._applyVisualState(el, node);
 
     const priorityHtml = node.priority && node.priority !== 'none'
       ? `<span class="node-priority ${node.priority}"></span>` : '';
@@ -117,6 +107,35 @@ class TreeRenderer {
     }
 
     return el;
+  }
+
+  /**
+   * 只更新节点的视觉状态（class 切换），不重建 innerHTML。
+   *
+   * 选中/学习状态变化非常频繁（syncSelection、onNodeClick 每次点击都会触发），
+   * 原来走 renderNode 会重建全部节点的 innerHTML，树一大就明显卡顿。
+   */
+  updateNodeVisual(node) {
+    const el = this.nodeEls.get(node.id);
+    if (!el) return this.renderNode(node);   // 尚未渲染过则完整渲染
+    this._applyVisualState(el, node);
+    return el;
+  }
+
+  /** 把节点状态映射到 DOM class（renderNode 与 updateNodeVisual 共用） */
+  _applyVisualState(el, node) {
+    // 选中态
+    el.classList.toggle('selected', node._selected || false);
+    el.classList.toggle('node-highlight', node._highlight || false);
+
+    // 名称重复
+    el.classList.toggle('node-name-duplicate', node._nameDuplicate || false);
+
+    // 学习状态
+    el.classList.toggle('node-locked', node._learningState === 'locked');
+    el.classList.toggle('node-available', node._learningState === 'available');
+    el.classList.toggle('node-learning', node._learningState === 'learning');
+    el.classList.toggle('node-completed', node._learningState === 'completed');
   }
 
   /** 为预览模式节点添加 hover 0.5s tooltip */

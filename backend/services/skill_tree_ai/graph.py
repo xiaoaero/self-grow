@@ -7,6 +7,7 @@ Self Grow — 技能树 AI 编辑图
 - resume_skill_tree_chat(): 恢复对话（用于用户确认/回答）
 """
 
+import json
 import logging
 import uuid
 
@@ -14,7 +15,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
 
 from services.coordinator.checkpointer import get_checkpointer
-from services.coordinator.llm import get_llm
+from services.llm import get_llm
 from services.skill_tree_ai.state import SkillTreeChatState
 from services.skill_tree_ai.node import make_agent_node
 from services.skill_tree_ai.tools import SKILL_TREE_AI_TOOLS
@@ -60,8 +61,9 @@ async def run_skill_tree_chat(
 ) -> dict:
     """启动一次新的 AI 编辑对话。"""
     graph = get_skill_tree_chat_graph()
-    # 每次新会话生成独立 thread_id；同一会话由前端回传 thread_id 续接
-    thread_id = thread_id or f"stc_{uuid.uuid4().hex[:16]}"
+    # 每次新会话生成独立 thread_id（编入 user_id，避免跨用户会话串号）；
+    # 同一会话由前端回传 thread_id 续接
+    thread_id = thread_id or f"stc_{user_id}_{uuid.uuid4().hex[:12]}"
     config = {"configurable": {"thread_id": thread_id}}
 
     initial_state = {
@@ -85,8 +87,14 @@ async def resume_skill_tree_chat(
     thread_id: str,
     user_message: str,
     confirm: bool = False,
+    tree: dict = None,
 ) -> dict:
-    """恢复对话：用户回答反问或确认操作。"""
+    """恢复对话：用户回答反问或确认操作。
+
+    Args:
+        tree: 前端当前的树状态（可选）。传入时会覆盖 checkpoint 里的旧树，
+              否则 AI 会基于旧快照继续编辑，把用户期间的手动改动覆盖掉。
+    """
     graph = get_skill_tree_chat_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -95,15 +103,22 @@ async def resume_skill_tree_chat(
     pending = state.values.get("pending_confirmation") if state else None
 
     if pending and confirm:
-        # 把确认信息和用户消息一起追加
-        content = f"[系统] 用户已确认操作：{pending['tool']}\n{user_message}"
+        # 把「操作 + 原始参数」一起回灌：不带上参数，LLM 重新调用时可能
+        # 生成与用户确认内容不一致的参数（确认的是删 A，结果删了 B）
+        args_text = json.dumps(pending.get("args") or {}, ensure_ascii=False)
+        content = (
+            f"[系统] 用户已确认执行「{pending['tool']}」，原始参数：{args_text}。"
+            f"请原样使用这些参数并附加 confirm=True 重新调用该工具。\n{user_message}"
+        )
     else:
         content = user_message
 
-    result = await graph.ainvoke(
-        {"messages": [HumanMessage(content=content)]},
-        config=config,
-    )
+    # tree 是普通字段（非 operator.add），放进 input 即整体覆盖
+    invoke_input = {"messages": [HumanMessage(content=content)]}
+    if tree is not None:
+        invoke_input["tree"] = tree
+
+    result = await graph.ainvoke(invoke_input, config=config)
     return _format_result(result, thread_id)
 
 

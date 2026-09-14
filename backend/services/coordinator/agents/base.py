@@ -22,6 +22,7 @@ Self Grow — 子 agent 共享基座
 - 单一状态源（checkpointer），不依赖额外线程存储
 """
 
+import asyncio
 import json
 import logging
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -58,7 +59,7 @@ def make_agent_node(tools, domain: str, domain_label: str, system_prompt: str):
     tools_by_name = {t.name: t for t in all_tools}
 
     async def agent_node(state):
-        from services.coordinator.llm import get_llm
+        from services.llm import get_llm
         llm = get_llm(temperature=0.3, user_id=state.get("user_id", 0))
 
         # 消息历史（checkpointer 持久化），读取时做窗口截断
@@ -131,7 +132,8 @@ def make_agent_node(tools, domain: str, domain_label: str, system_prompt: str):
                     tool_fn = tools_by_name.get(name)
                     if tool_fn:
                         try:
-                            tool_result = tool_fn.invoke(args)
+                            # 工具是同步的（内部是同步 sqlite3），丢线程池避免阻塞事件循环
+                            tool_result = await asyncio.to_thread(tool_fn.invoke, args)
                         except Exception as e:
                             log.error(f"工具 {name} 执行异常：{e}")
                             tool_result = {"success": False, "message": f"工具执行异常：{e}"}

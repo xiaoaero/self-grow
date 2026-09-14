@@ -62,6 +62,59 @@ def _validate_progress(progress: int) -> tuple[bool, str]:
     return True, ""
 
 
+def _has_valid_coords(node: dict) -> bool:
+    """节点是否带了有效坐标（LLM 经常省略 x/y，全 0 视为未指定）"""
+    try:
+        return not (float(node.get("x", 0) or 0) == 0 and float(node.get("y", 0) or 0) == 0)
+    except (TypeError, ValueError):
+        return False
+
+
+def _auto_layout(nodes: list, connections: list,
+                 start_x: int = 80, start_y: int = 80,
+                 gap_x: int = 200, gap_y: int = 110) -> None:
+    """按父子层级自动排布节点坐标。
+
+    LLM 生成整棵树时经常省略 x/y（默认 0），如果不处理，所有节点会全部
+    叠在 (0,0) 上。这里用 BFS 计算层级：根节点一列、子节点依次向右展开，
+    同层节点垂直排列。
+    """
+    if not nodes:
+        return
+
+    by_id = {n.get("id"): n for n in nodes}
+    child_ids = {c.get("to") for c in (connections or [])}
+    roots = [n for n in nodes if n.get("id") not in child_ids] or [nodes[0]]
+
+    visited = set()
+    level_count = {}
+    queue = [(r.get("id"), 0) for r in roots]
+
+    while queue:
+        nid, level = queue.pop(0)
+        if nid in visited:
+            continue
+        visited.add(nid)
+
+        idx = level_count.get(level, 0)
+        level_count[level] = idx + 1
+
+        node = by_id.get(nid)
+        if node is not None:
+            node["x"] = start_x + level * gap_x
+            node["y"] = start_y + idx * gap_y
+
+        for c in (connections or []):
+            if c.get("from") == nid and c.get("to") not in visited:
+                queue.append((c.get("to"), level + 1))
+
+    # 兜底：没有任何连线关系时按顺序垂直排列，避免重叠
+    for i, n in enumerate(nodes):
+        if n.get("id") not in visited:
+            n["x"] = start_x
+            n["y"] = start_y + i * gap_y
+
+
 def _ensure_unique_name(nodes: list, name: str, original_name: str = None) -> str:
     """如果名称重复，自动追加序号。"""
     existing_names = {n.get("name") for n in nodes if n.get("name") != original_name}
@@ -122,6 +175,16 @@ def create_node(
         parent = _find_node(state, parent_id)
         if not parent:
             return {"success": False, "message": f"未找到父节点 {parent_id}"}
+
+    # 未指定坐标时，相对父节点排布（否则会落在 (0,0) 与其他节点重叠）
+    if x == 0 and y == 0:
+        if parent:
+            siblings = sum(1 for c in _get_connections(state) if c["from"] == parent_id)
+            x = int(parent.get("x", 0) or 0) + 200
+            y = int(parent.get("y", 0) or 0) + siblings * 110
+        elif nodes:
+            x = 80
+            y = max(int(n.get("y", 0) or 0) for n in nodes) + 110
 
     final_name = _ensure_unique_name(nodes, name.strip())
 
@@ -278,6 +341,15 @@ def create_nodes_batch(
         }
         existing_connections.append(conn)
         conn_created.append(conn)
+
+    # LLM 省略坐标时自动布局，否则新节点会全部叠在 (0,0)
+    if created and not any(_has_valid_coords(n) for n in created):
+        if parent:
+            _auto_layout(created, conn_created,
+                         start_x=int(parent.get("x", 0) or 0) + 200,
+                         start_y=int(parent.get("y", 0) or 0))
+        else:
+            _auto_layout(created, conn_created)
 
     return {
         "success": True,
@@ -598,6 +670,10 @@ def replace_tree(
         }
         tree["connections"].append(conn)
         conn_created.append(conn)
+
+    # LLM 省略坐标时自动布局（否则整棵树会叠在 (0,0) 一个点上）
+    if created and not any(_has_valid_coords(n) for n in created):
+        _auto_layout(created, conn_created)
 
     # 更新树名
     if created:

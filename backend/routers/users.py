@@ -12,14 +12,23 @@ from db.dimensions import upsert_dimension, get_total_exp_from_dimensions
 from models.level import exp_for_level, total_exp_for_level, level_from_total_exp
 from models.constants import get_rank_info
 from schemas.api import LoginRequest, StatsSyncRequest, ExpAddRequest
+from config import SELF_GROW_TRUSTED_MODE
 from routers.deps import get_current_user
 
 router = APIRouter()
 
 
 @router.post("/api/users/login")
-async def login(req: LoginRequest):
-    """通过 user_id 登录"""
+def login(req: LoginRequest):
+    """[已废弃] 通过 user_id 登录
+
+    仅 TRUSTED_MODE 下可用（无密码卡片登录）；正式登录请改用 POST /api/auth/login。
+    """
+    if not SELF_GROW_TRUSTED_MODE:
+        raise HTTPException(
+            status_code=403,
+            detail="该接口仅在本地免鉴权模式（SELF_GROW_TRUSTED_MODE=1）下可用，请使用 /api/auth/login",
+        )
     user = get_user(req.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -27,13 +36,13 @@ async def login(req: LoginRequest):
 
 
 @router.get("/api/users")
-async def list_users():
+def list_users():
     """获取所有用户列表"""
     return get_all_users()
 
 
 @router.get("/api/users/profile")
-async def user_profile(user=Depends(get_current_user)):
+def user_profile(user=Depends(get_current_user)):
     """获取用户完整资料（含今日/昨日统计）"""
     user_id = user["id"]
     level = user["level"]
@@ -80,7 +89,7 @@ async def user_profile(user=Depends(get_current_user)):
 
 
 @router.post("/api/users/stats/sync")
-async def sync_stats(req: StatsSyncRequest, user=Depends(get_current_user)):
+def sync_stats(req: StatsSyncRequest, user=Depends(get_current_user)):
     """同步今日统计"""
     user_id = user["id"]
     today = datetime.now().strftime('%Y-%m-%d')
@@ -102,7 +111,7 @@ async def sync_stats(req: StatsSyncRequest, user=Depends(get_current_user)):
 
 
 @router.post("/api/users/exp/add")
-async def add_exp(req: ExpAddRequest, user=Depends(get_current_user)):
+def add_exp(req: ExpAddRequest, user=Depends(get_current_user)):
     """手动增加经验值（后端计算等级变化）"""
     user_id = user["id"]
     old_level = user["level"]

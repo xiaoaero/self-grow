@@ -187,7 +187,8 @@ function renderSkills(subPage) {
 }
 
 async function renderSkillMine() {
-    const user = getCurrentUser();
+    // 优先用后端 /api/users/profile 返回的 AppData.user（服务端权威），本地缓存仅作兜底
+    const user = (typeof AppData !== 'undefined' && AppData.user) || getCurrentUser();
     const isAdmin = user && user.role === 'admin';
 
     // 异步加载数据
@@ -326,7 +327,8 @@ async function renderSkillMine() {
 }
 
 async function renderSkillLib() {
-    const user = getCurrentUser();
+    // 优先用后端 /api/users/profile 返回的 AppData.user（服务端权威），本地缓存仅作兜底
+    const user = (typeof AppData !== 'undefined' && AppData.user) || getCurrentUser();
     const isAdmin = user && user.role === 'admin';
 
     // 异步加载数据

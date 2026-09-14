@@ -244,7 +244,10 @@ class App {
 
     const parentCenter = this.renderer.getNodeCenter(parent);
     const offsetX = (parent.size || 70) + 40;
-    const yOffset = (this.connections.filter(c => c.from === parentId).length - 1) * 80;
+    // 已有 n 个子节点时，新的排在父节点中心下方依次错开；
+    // 原写法 (n-1)*80 会让第一个子节点偏移 -120px（明显偏上且不居中）
+    const existingChildren = this.connections.filter(c => c.from === parentId).length;
+    const yOffset = existingChildren * 80;
 
     const child = this.createNode(
       parentCenter.cx + offsetX,
@@ -266,6 +269,10 @@ class App {
     // 删除节点
     this.nodes = this.nodes.filter(n => n.id !== nodeId);
     this.selectedIds.delete(nodeId);
+    // 详情面板正显示这个节点时关闭，避免展示已删除节点
+    if (this.detailPanel && this.detailPanel.currentNodeId === nodeId) {
+      this.detailPanel.hideDetail();
+    }
     this.renderer.removeNode(nodeId);
     this.updateLearningStates();
     // 立即重渲染连线，避免节点删除后连线残留在画布上
@@ -362,9 +369,10 @@ class App {
   }
 
   syncSelection() {
+    // 只切换视觉 class，不重建节点 DOM（原实现每个节点都 renderNode，树大时卡顿）
     this.nodes.forEach(n => {
       n._selected = this.selectedIds.has(n.id);
-      this.renderNode(n);
+      this.renderer.updateNodeVisual(n);
     });
   }
 
@@ -392,7 +400,8 @@ class App {
       const isDup = nameCount[n.name] > 1;
       if (isDup !== n._nameDuplicate) {
         n._nameDuplicate = isDup;
-        this.renderNode(n);
+        // 只是切换 class，无需重建节点内容
+        this.renderer.updateNodeVisual(n);
       }
       if (isDup) hasDuplicate = true;
     });
@@ -586,7 +595,9 @@ class App {
    */
   onNodeClick(nodeId) {
     this.updateLearningStates();
-    this.renderAll(); // 刷新所有节点和连线的状态颜色
+    // 只刷新状态颜色与连线，不再整体重建所有节点的 innerHTML
+    this.nodes.forEach(n => this.renderer.updateNodeVisual(n));
+    this.renderConnections();
     this.detailPanel.showNodeDetail(nodeId);
   }
 
@@ -651,7 +662,7 @@ class App {
     const node = this.nodes.find(n => n.id === nodeId);
     if (node) {
       node._highlight = true;
-      this.renderNode(node);
+      this.renderer.updateNodeVisual(node);
       showToast(`跳转到：${node.name}`);
     }
   }
@@ -668,7 +679,8 @@ class App {
       }
     });
     if (changed) {
-      this.renderAll();
+      // 只是去掉高亮 class，不需要整体重建（renderAll 会重建全部节点 DOM）
+      this.nodes.forEach(n => this.renderer.updateNodeVisual(n));
     }
   }
 
@@ -678,6 +690,10 @@ class App {
     this.treeName = state.treeName;
     this.treeDescription = state.treeDescription;
     this.selectedIds.clear();
+    // 撤销/重做后节点集合可能已变，详情面板继续显示可能指向已不存在的节点
+    if (this.detailPanel && !this.nodes.some(n => n.id === this.detailPanel.currentNodeId)) {
+      this.detailPanel.hideDetail();
+    }
     this.updateLearningStates();
     this.renderAll();
     this.checkDuplicateNames();
@@ -956,6 +972,8 @@ class App {
     this.selectedIds.clear();
     this.renderer.nodeEls.forEach(el => el.remove());
     this.renderer.nodeEls.clear();
+    // 切换树后旧节点 ID 已失效，关闭详情面板避免残留上一个树的内容
+    if (this.detailPanel) this.detailPanel.hideDetail();
     this.updateLearningStates();
     this.renderAll();
     this.checkDuplicateNames();

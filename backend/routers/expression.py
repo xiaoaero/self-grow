@@ -58,12 +58,12 @@ async def api_generate_question(
     if not types:
         types = ["hot_opinion", "emotional", "life_reflection", "career"]
 
-    result = await generate_question(types)
+    result = await generate_question(types, user_id=user["id"])
     return result
 
 
 @router.post("/api/expression/answer")
-async def api_create_answer(
+def api_create_answer(
     req: dict,
     user=Depends(get_current_user),
 ):
@@ -108,12 +108,13 @@ async def api_generate_hints(
         question_id=question_id,
         question=question["question"],
         question_type=question["question_type"],
+        user_id=user["id"],
     )
     return {"hints": hints}
 
 
 @router.post("/api/expression/answer/{answer_id}/text")
-async def api_update_answer_text(
+def api_update_answer_text(
     answer_id: int,
     data: dict,
     user=Depends(get_current_user),
@@ -167,19 +168,20 @@ async def api_evaluate_answer(
         answer_id=answer_id,
         answer_text=answer["answer"],
         filler_words=filler_words,
+        user_id=user["id"],
     )
 
     return evaluation
 
 
 @router.get("/api/expression/stats")
-async def api_expression_stats(user=Depends(get_current_user)):
+def api_expression_stats(user=Depends(get_current_user)):
     """获取用户总训练统计数据"""
     return get_user_stats(user["name"])
 
 
 @router.get("/api/expression/history")
-async def api_expression_history(
+def api_expression_history(
     limit: int = Query(default=20, le=100),
     user=Depends(get_current_user),
 ):
@@ -205,7 +207,7 @@ async def api_expression_history(
 
 
 @router.get("/api/expression/history/questions")
-async def api_expression_history_questions(
+def api_expression_history_questions(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=50),
     question_type: str = Query(default=None, description="题型筛选"),
@@ -228,7 +230,7 @@ async def api_expression_history_questions(
 
 
 @router.get("/api/expression/history/questions/{question_id}/answers")
-async def api_expression_question_answers(
+def api_expression_question_answers(
     question_id: int,
     limit: int = Query(default=5, ge=1, le=20),
     user=Depends(get_current_user),
@@ -263,7 +265,7 @@ async def api_expression_question_answers(
 
 
 @router.get("/api/expression/question/{question_id}")
-async def api_get_question_detail(question_id: int, user=Depends(get_current_user)):
+def api_get_question_detail(question_id: int, user=Depends(get_current_user)):
     """获取题目详情 + 该题下所有回答"""
     question = get_question(question_id)
     if not question:
@@ -286,7 +288,7 @@ async def api_get_question_detail(question_id: int, user=Depends(get_current_use
 
 
 @router.get("/api/expression/answer/{answer_id}")
-async def api_get_answer_detail(answer_id: int, user=Depends(get_current_user)):
+def api_get_answer_detail(answer_id: int, user=Depends(get_current_user)):
     """获取单条回答详情"""
     answer = get_answer(answer_id)
     if not answer:
@@ -304,7 +306,7 @@ async def api_beautify_question(
     text = (req.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="输入内容不能为空")
-    beautified = await beautify_question(text)
+    beautified = await beautify_question(text, user_id=user["id"])
     return {"beautified": beautified, "original": text}
 
 

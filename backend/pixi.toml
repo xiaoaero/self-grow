@@ -19,6 +19,9 @@ export-reqs = "python tools/export_reqs.py"
 # 启动 MCP Server（stdio，供 Claude Desktop / Cursor 等客户端挂载）
 mcp = "python mcp_server.py"
 
+# 初始化 / 重置账号密码（默认 test / admin；也可 pixi run init-password 用户名 新密码）
+init-password = "python tools/init_password.py"
+
 [dependencies]
 python = "3.12.*"
 fastapi = ">=0.139.0,<0.140"
@@ -34,5 +37,10 @@ pillow = ">=12.3.0,<13"
 dashscope = ">=1.25.19,<2"
 
 # MCP 插件（mcp_server.py 用）—— fastmcp 是 MCP Python SDK v2 的高级封装（PyPI 依赖）
+# 登录鉴权（services/auth_service.py 用）—— PyJWT 签发/验签，bcrypt 做密码哈希
+# 注：不用 passlib，它与 bcrypt >= 4.1 存在兼容问题（__about__ 已移除），
+#     这里直接调用 bcrypt 官方 API，依赖更少也更可控。
 [pypi-dependencies]
 fastmcp = ">=2.0"
+PyJWT = ">=2.8"
+bcrypt = ">=4.0"

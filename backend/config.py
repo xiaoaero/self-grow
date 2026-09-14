@@ -60,6 +60,12 @@ if not os.path.exists(env_path):
             "\n"
             "# 服务端口\n"
             "PORT=3001\n"
+            "\n"
+            "# 登录鉴权（JWT 签名密钥，务必改成随机值：openssl rand -hex 32）\n"
+            "SELF_GROW_JWT_SECRET=\n"
+            "\n"
+            "# 本地免鉴权模式（1 = 跳过登录，仅供开发/演示，生产务必留空）\n"
+            "SELF_GROW_TRUSTED_MODE=\n"
         )
         with open(env_path, 'w', encoding='utf-8') as f:
             f.write(template)
@@ -69,9 +75,9 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 # AI 配置
-AI_BASE_URL = os.getenv("AI_API_BASE_URL", "https://one.loll.xyz/v1")
+AI_BASE_URL = os.getenv("AI_API_BASE_URL", "")
 AI_API_KEY = os.getenv("AI_API_KEY", "")
-AI_MODEL = os.getenv("AI_MODEL", "gemini-2.5-pro-exp-03-25")
+AI_MODEL = os.getenv("AI_MODEL", "")
 
 # ASR 配置（paraformer 实时语音识别）
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "") or AI_API_KEY
@@ -86,9 +92,9 @@ elif not AI_API_KEY.isascii():
 def get_version() -> str:
     """从 git 获取版本号（git describe --tags --always），失败则返回默认值。
 
-    - 有 tag 时返回 tag 名（如 v1.0.0）
-    - tag 之后有提交时返回 v1.0.0-3-g0df2e08（tag-提交数-短commit）
-    - 非 git 环境（如 Docker 无 .git）回退到默认 "1.1.0"
+    - 有 tag 时返回 tag 名（如 v1.2）
+    - tag 之后有提交时返回 v1.2-3-g0df2e08（tag-提交数-短commit）
+    - 非 git 环境（如 Docker 无 .git）回退到默认 "1.2"
     """
     try:
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -100,7 +106,7 @@ def get_version() -> str:
             return out.stdout.strip()
     except Exception:
         pass
-    return "1.1.0"
+    return "1.2"
 
 # 服务端口
 try:
@@ -117,3 +123,69 @@ UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 
 # 前端目录（由环境变量指定，为空则不 serve 前端——开发模式下前端由独立 HTTP 服务器提供）
 FRONTEND_DIR = os.getenv("SELF_GROW_FRONTEND_DIR", "")
+
+# CORS 允许的来源：
+# - 未配置 → 同源 + 常见前端开发端口（携带凭证必须显式列来源，不能用 "*"）
+# - 配置 "*" → 完全放开，此时关闭凭证支持（仅供无鉴权的本地调试）
+_raw_cors = [o.strip() for o in (os.getenv("SELF_GROW_CORS_ORIGINS", "") or "").split(",") if o.strip()]
+if _raw_cors == ["*"]:
+    CORS_ORIGINS = ["*"]
+    CORS_ALLOW_CREDENTIALS = False
+elif _raw_cors:
+    CORS_ORIGINS = _raw_cors
+    CORS_ALLOW_CREDENTIALS = True
+else:
+    CORS_ORIGINS = [
+        f"http://localhost:{PORT}",
+        f"http://127.0.0.1:{PORT}",
+        "http://localhost:5173", "http://127.0.0.1:5173",   # Vite
+        "http://localhost:5500", "http://127.0.0.1:5500",   # VS Code Live Server
+        "http://localhost:8080", "http://127.0.0.1:8080",
+        "http://localhost:8000", "http://127.0.0.1:8000",   # python -m http.server
+        "http://localhost:3000", "http://127.0.0.1:3000",   # npx http-server 常用端口
+    ]
+    CORS_ALLOW_CREDENTIALS = True
+
+# 本机来源一律放行（开发态前端端口不固定，逐个列永远列不全：
+# http-server / Vite / Live Server / 自写脚本端口千变万化）。
+# 只匹配 localhost 与 127.0.0.1，不含局域网 IP —— 公网环境请用
+# SELF_GROW_CORS_ORIGINS 显式指定。
+CORS_ALLOW_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+# ─────────────────────────────────────────────────────────────
+# 登录鉴权（JWT）
+# ─────────────────────────────────────────────────────────────
+
+# JWT 签名密钥。生产环境必须设置（用 openssl rand -hex 32 生成）。
+# 未设置时按 TRUSTED_MODE 处理：本地模式自动生成临时密钥并告警，
+# 否则由 auth_service 在启动时抛错，避免"默认密钥"这种致命配置。
+SELF_GROW_JWT_SECRET = os.getenv("SELF_GROW_JWT_SECRET", "")
+
+# 密钥轮换用：填写旧密钥后，旧 token 仍可验签一段时间
+SELF_GROW_JWT_OLD_SECRET = os.getenv("SELF_GROW_JWT_OLD_SECRET", "")
+
+# Access Token 有效期（秒，默认 2 小时）
+try:
+    SELF_GROW_ACCESS_TTL = int(os.getenv("SELF_GROW_ACCESS_TTL", "7200"))
+except (ValueError, TypeError):
+    SELF_GROW_ACCESS_TTL = 7200
+
+# Refresh Token 有效期（秒，默认 30 天）
+try:
+    SELF_GROW_REFRESH_TTL = int(os.getenv("SELF_GROW_REFRESH_TTL", "2592000"))
+except (ValueError, TypeError):
+    SELF_GROW_REFRESH_TTL = 2592000
+
+# CORS 允许的来源（逗号分隔）。
+# 注意：一旦前端需要携带凭证（Cookie / Authorization），就不能再用 "*"，
+# 否则浏览器会直接拒绝响应。默认给同源 + 常见开发端口。
+SELF_GROW_CORS_ORIGINS = os.getenv("SELF_GROW_CORS_ORIGINS", "")
+
+# 可信模式：跳过鉴权，固定为指定用户（本地开发 / 演示用）。
+# 开启后所有请求都以 SELF_GROW_TRUSTED_USER_ID 身份执行 —— 绝不用于生产。
+SELF_GROW_TRUSTED_MODE = os.getenv("SELF_GROW_TRUSTED_MODE", "0") == "1"
+
+try:
+    SELF_GROW_TRUSTED_USER_ID = int(os.getenv("SELF_GROW_TRUSTED_USER_ID", "1"))
+except (ValueError, TypeError):
+    SELF_GROW_TRUSTED_USER_ID = 1

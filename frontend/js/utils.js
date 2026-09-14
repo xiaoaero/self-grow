@@ -108,6 +108,27 @@ function closeModal() {
     }
 }
 
+/**
+ * 二次确认弹窗（与 skill-tree 的 showConfirm 同签名，主应用此前没有）
+ * @param {string} message 提示文案
+ * @param {Function} onConfirm 确认回调（支持 async）
+ * @param {string} [confirmText] 确认按钮文字
+ */
+function showConfirm(message, onConfirm, confirmText) {
+    const content = `
+        <p style="margin:0 0 4px;line-height:1.6">${message}</p>
+        <div class="modal__actions">
+            <button class="btn btn--ghost" onclick="closeModal()">取消</button>
+            <button class="btn btn--primary" id="__confirmOkBtn">${confirmText || '确定'}</button>
+        </div>
+    `;
+    openModal('请确认', content, false);
+    document.getElementById('__confirmOkBtn').onclick = function () {
+        closeModal();
+        if (typeof onConfirm === 'function') onConfirm();
+    };
+}
+
 /** Close modal with protection for data-entry modals (goals, tasks, habits, rewards)
  *  Prevent accidental data loss when clicking outside. */
 function closeModalIfNotActive() {
@@ -320,8 +341,19 @@ function getCurrentUser() {
     }
 }
 
-/** 检查是否已登录，未登录则跳转到登录页 */
+/**
+ * 检查是否已登录，未登录则跳转到登录页
+ *
+ * JWT 改造（2026-09-13）：以 **token 是否存在** 为准，
+ * localStorage 里的用户信息只是缓存，不能作为登录凭据。
+ * 本地免鉴权模式（TRUSTED_MODE）下后端本就不校验，不拦截。
+ */
 function requireLogin() {
+    if (window.Auth && !window.Auth.isAuthenticated() && !window.Auth.isTrustedMode()) {
+        window.Auth.clear();
+        window.location.href = '../login.html';
+        return false;
+    }
     const user = getCurrentUser();
     if (!user) {
         window.location.href = '../login.html';

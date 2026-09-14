@@ -16,14 +16,14 @@ router = APIRouter()
 
 
 @router.get("/api/rewards")
-async def list_rewards(user=Depends(get_current_user)):
+def list_rewards(user=Depends(get_current_user)):
     """获取所有奖励（自动评估解锁状态）"""
     rewards = evaluate_all_rewards(user["id"])
     return {"rewards": rewards}
 
 
 @router.post("/api/rewards")
-async def create_new_reward(req: CreateRewardRequest, user=Depends(get_current_user)):
+def create_new_reward(req: CreateRewardRequest, user=Depends(get_current_user)):
     """创建新奖励"""
     new_id = create_reward(
         user["id"], req.title, req.desc, req.icon,
@@ -35,7 +35,7 @@ async def create_new_reward(req: CreateRewardRequest, user=Depends(get_current_u
 
 
 @router.put("/api/rewards/{reward_id}")
-async def update_existing_reward(reward_id: int, req: UpdateRewardRequest, user=Depends(get_current_user)):
+def update_existing_reward(reward_id: int, req: UpdateRewardRequest, user=Depends(get_current_user)):
     """更新奖励"""
     reward = get_reward(reward_id)
     if not reward:
@@ -49,7 +49,7 @@ async def update_existing_reward(reward_id: int, req: UpdateRewardRequest, user=
 
 
 @router.delete("/api/rewards/{reward_id}")
-async def delete_existing_reward(reward_id: int, user=Depends(get_current_user)):
+def delete_existing_reward(reward_id: int, user=Depends(get_current_user)):
     """删除奖励"""
     reward = get_reward(reward_id)
     if not reward:
@@ -61,7 +61,7 @@ async def delete_existing_reward(reward_id: int, user=Depends(get_current_user))
 
 
 @router.post("/api/rewards/{reward_id}/claim")
-async def claim_reward_endpoint(reward_id: int, user=Depends(get_current_user)):
+def claim_reward_endpoint(reward_id: int, user=Depends(get_current_user)):
     """领取奖励（后端校验条件）"""
     reward = get_reward(reward_id)
     if not reward:
@@ -83,7 +83,7 @@ async def claim_reward_endpoint(reward_id: int, user=Depends(get_current_user)):
 
 
 @router.post("/api/rewards/{reward_id}/manual-confirm")
-async def manual_confirm_reward_condition(reward_id: int, req: ManualConfirmRequest, user=Depends(get_current_user)):
+def manual_confirm_reward_condition(reward_id: int, req: ManualConfirmRequest, user=Depends(get_current_user)):
     """手动确认某个条件"""
     reward = get_reward(reward_id)
     if not reward:
@@ -96,7 +96,7 @@ async def manual_confirm_reward_condition(reward_id: int, req: ManualConfirmRequ
 
 
 @router.post("/api/rewards/reevaluate")
-async def reevaluate_all_rewards(user=Depends(get_current_user)):
+def reevaluate_all_rewards(user=Depends(get_current_user)):
     """重新评估所有奖励的解锁状态"""
     rewards = evaluate_all_rewards(user["id"])
     return {"rewards": rewards}
@@ -129,21 +129,21 @@ async def upload_reward_image(reward_id: int, file: UploadFile = File(...)):
 # ================================================================
 
 @router.get("/api/rewards/draft")
-async def get_draft(user=Depends(get_current_user)):
+def get_draft(user=Depends(get_current_user)):
     """获取草稿"""
     draft = get_reward_draft(user["id"])
     return {"draft": draft}
 
 
 @router.post("/api/rewards/draft")
-async def save_draft(req: CreateRewardRequest, user=Depends(get_current_user)):
+def save_draft(req: CreateRewardRequest, user=Depends(get_current_user)):
     """保存草稿"""
     save_reward_draft(user["id"], req.dict())
     return {"saved": True}
 
 
 @router.delete("/api/rewards/draft")
-async def delete_draft(user=Depends(get_current_user)):
+def delete_draft(user=Depends(get_current_user)):
     """删除草稿"""
     delete_reward_draft(user["id"])
     return {"deleted": True}

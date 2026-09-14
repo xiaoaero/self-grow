@@ -409,6 +409,71 @@ def init_db():
         pass  # 列已存在
     conn3.close()
 
+    # 登录鉴权：users 补字段 + 新建 refresh_tokens / api_keys（幂等）
+    init_auth_tables()
+    migrate_users_auth_columns()
+
+
+def init_auth_tables():
+    """创建登录鉴权相关表（refresh_tokens / api_keys）"""
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token_hash TEXT NOT NULL,
+            user_agent TEXT DEFAULT '',
+            expires_at TEXT NOT NULL,
+            revoked INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_refresh_user
+        ON refresh_tokens(user_id)
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_refresh_hash
+        ON refresh_tokens(token_hash)
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            key_hash TEXT NOT NULL,
+            last_used_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            revoked INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_apikey_hash
+        ON api_keys(key_hash)
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def migrate_users_auth_columns():
+    """users 表补 password_hash / token_version / last_login（幂等）"""
+    conn = get_conn()
+    for col, col_type in [
+        ("password_hash", "TEXT"),
+        ("token_version", "INTEGER NOT NULL DEFAULT 1"),
+        ("last_login", "TEXT"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+        except Exception:
+            pass  # 列已存在
+    conn.commit()
+    conn.close()
+
 
 def migrate_total_exp_to_dimensions():
     """将 users.total_exp 按比例分配到 8 维（仅在维度 SUM 为 0 时执行一次）"""

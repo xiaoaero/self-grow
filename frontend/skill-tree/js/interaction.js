@@ -176,6 +176,11 @@ class InteractionManager {
         this.container.style.cursor = 'grabbing';
         return;
       }
+      // 连线模式下点空白处 = 取消连线（原来会开始框选，用户以为卡住了）
+      if (this.isConnecting) {
+        this.cancelConnecting();
+        return;
+      }
       if (!e.shiftKey) this.app.deselectAll();
       this.isSelecting = true;
       this.selectStart = { x: pos.x, y: pos.y };
@@ -269,7 +274,12 @@ class InteractionManager {
     }
 
     if (this.isSelecting) {
-      if (this.app.isUser) { this.isSelecting = false; return; }
+      // 用户模式下也要把框选矩形收起来，否则会残留一个虚线框
+      if (this.app.isUser) {
+        this.isSelecting = false;
+        this.selectionBox.style.display = 'none';
+        return;
+      }
       const pos = this.screenToCanvas(e.clientX, e.clientY);
       const sel = this.app.renderer.hitTestRect(this.selectStart.x, this.selectStart.y, pos.x, pos.y, this.app.nodes);
       if (sel.length > 0) {

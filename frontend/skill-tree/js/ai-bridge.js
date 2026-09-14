@@ -101,11 +101,19 @@ class AIBridge {
           thread_id: this.threadId,
           message: message,
           confirm: confirm,
+          // 带上当前树，避免 AI 基于 checkpoint 里的旧快照继续编辑
+          tree: this.buildTreePayload(app),
         }
       );
       this._handleResponse(data);
     } catch (err) {
-      this.addMessage('system', `❌ ${err.message}`);
+      // checkpointer 是内存存储，后端重启后 thread_id 会失效
+      if (/404|会话|thread/i.test(err.message)) {
+        this.resetSession();
+        this.addMessage('system', '⚠️ AI 会话已失效（后端可能重启），已自动重置，请重新提问');
+      } else {
+        this.addMessage('system', `❌ ${err.message}`);
+      }
     } finally {
       this.setLoading(false);
     }
@@ -148,12 +156,13 @@ class AIBridge {
       this.addMessage('assistant', `🔧 已执行操作:\n${summary}`);
     }
 
-    // 3. 应用树变更（有工具实际修改过树才应用）
+    // 3. 应用树变更
+    //    以 diffs 为准：只有真正产生了变更记录才应用。
+    //    原来用 executed_tools 判断，send_reply 之类也会命中，
+    //    导致纯聊天时也会刷一遍画布并弹"AI 已更新技能树"
     const app = window.__app;
-    const touched = (data.executed_tools || []).some(
-      t => t.success && t.status !== 'needs_confirmation'
-    );
-    if (app && touched && data.tree && Array.isArray(data.tree.nodes)) {
+    const changed = (data.diffs || []).length > 0;
+    if (app && changed && data.tree && Array.isArray(data.tree.nodes)) {
       this._applyTree(app, data.tree);
     }
 
@@ -186,6 +195,8 @@ class AIBridge {
     app.checkDuplicateNames();
     app.sidebar.refreshStats();
     app._updatePublishButtons();
+    // 立即落盘（localStorage + 后端草稿），否则 AI 的改动要等用户手动点保存
+    app.sidebar._saveCurrentTree();
 
     // 改后快照
     app.saveHistory();
@@ -215,10 +226,14 @@ class AIBridge {
         priority: n.priority || 'none',
         progress: n.progress || 0,
       })),
+      // 带上样式字段，否则服务端重建连线后会丢掉颜色/虚线设置
       connections: app.connections.map(c => ({
         id: c.id,
         from: c.from,
         to: c.to,
+        color: c.color || '#666680',
+        dashed: !!c.dashed,
+        showArrow: c.showArrow !== false,
       })),
     };
   }

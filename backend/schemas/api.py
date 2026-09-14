@@ -9,19 +9,6 @@ from pydantic import BaseModel, Field
 
 
 # ================================================================
-# AI Chat
-# ================================================================
-class ChatRequest(BaseModel):
-    messages: list
-    tree_state: Optional[dict] = None
-
-
-class ChatResponse(BaseModel):
-    content: Optional[str] = None
-    tool_calls: Optional[list] = None
-
-
-# ================================================================
 # 用户
 # ================================================================
 class LoginRequest(BaseModel):

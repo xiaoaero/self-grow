@@ -9,11 +9,15 @@ import logging
 import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from config import PORT, log, UPLOAD_DIR, FRONTEND_DIR
+from config import (
+    PORT, log, UPLOAD_DIR, FRONTEND_DIR,
+    CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, CORS_ALLOW_ORIGIN_REGEX,
+    SELF_GROW_TRUSTED_MODE,
+)
 from db.init import init_db
 from db.users import get_all_users
 from db.batch import archive_daily_tasks, archive_weekly_tasks, refresh_daily_tasks, refresh_weekly_tasks, settle_habit_exp_for_user, snapshot_daily_stats, catch_up_missed_archives
@@ -86,6 +90,21 @@ def run_weekly_refresh():
 @asynccontextmanager
 async def lifespan(app_instance):
     """应用生命周期：启动时初始化定时任务，关闭时停止"""
+    # 缺少 JWT 密钥就拒绝启动 —— 否则服务能起来、一登录才 500，排查成本高
+    from services import auth_service
+    auth_service.ensure_jwt_secret()
+
+    # 打印真正可用的访问地址（0.0.0.0 是监听地址，浏览器打不开）
+    log.info("─" * 56)
+    if _find_login_page():
+        log.info(f"🌐 登录页：   http://localhost:{PORT}/login.html")
+    else:
+        log.info(f"🌐 接口地址： http://localhost:{PORT}/docs （未配置前端目录，仅 API）")
+    log.info(f"📖 API 文档： http://localhost:{PORT}/docs")
+    if SELF_GROW_TRUSTED_MODE:
+        log.warning("⚠️  本地免鉴权模式已开启（SELF_GROW_TRUSTED_MODE=1），任何人可免登录访问！")
+    log.info("─" * 56)
+
     scheduler = None
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -122,7 +141,12 @@ app = FastAPI(title="Self Grow Backend", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # 前端要带 Authorization 头，且同源部署时依赖 refresh Cookie，
+    # 因此不能用 "*"（浏览器会拒绝携带凭证的响应）。
+    allow_origins=CORS_ORIGINS,
+    # 开发态前端端口不固定，再放行所有 localhost / 127.0.0.1 来源
+    allow_origin_regex=CORS_ALLOW_ORIGIN_REGEX,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -135,7 +159,7 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 from routers import (
     health_router, users_router, habits_router, actions_router,
     goals_router, tasks_router, scheduled_tasks_router,
-    stats_router, rewards_router, skill_tree_router,
+    stats_router, rewards_router, auth_router, skill_tree_router,
     skill_tree_ai_router, expression_router, coordinator_router, model_configs_router,
 )
 
@@ -148,6 +172,7 @@ app.include_router(tasks_router)
 app.include_router(scheduled_tasks_router)
 app.include_router(stats_router)
 app.include_router(rewards_router)
+app.include_router(auth_router)
 app.include_router(skill_tree_router)
 app.include_router(skill_tree_ai_router)
 app.include_router(expression_router)
@@ -161,10 +186,80 @@ app.include_router(model_configs_router)
 
 from fastapi.responses import Response, FileResponse
 
+# 站点图标：浏览器每个页面都会自动请求 /favicon.ico，
+# 没有它的话每次访问都刷一条 404 日志。优先用前端目录里的 favicon.svg，
+# 取不到（前端由独立服务器提供时）则回落内联的同款图标。
+_FAVICON_INLINE = (
+    b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">'
+    b'<circle cx="20" cy="20" r="18" stroke="#4fc3f7" stroke-width="2"/>'
+    b'<path d="M12 28 L20 12 L28 28" stroke="#4fc3f7" stroke-width="2"'
+    b' stroke-linecap="round" stroke-linejoin="round"/>'
+    b'<circle cx="20" cy="18" r="3" fill="#4fc3f7"/></svg>'
+)
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    if FRONTEND_DIR:
+        path = os.path.join(FRONTEND_DIR, "favicon.svg")
+        if os.path.isfile(path):
+            return FileResponse(path, media_type="image/svg+xml")
+    return Response(
+        content=_FAVICON_INLINE,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+# 站点根：直接给登录页。
+# 之前根路径没有路由，启动后打开 http://localhost:3001/ 只会看到 404，
+# 很容易让人误以为"服务没起来"。
+_BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_BACKEND_DIR)
+
+
+def _find_login_page():
+    """定位 login.html（项目根），找不到再退到前端首页"""
+    for p in (
+        os.path.join(_PROJECT_ROOT, "login.html"),
+        os.path.join(FRONTEND_DIR or "", "index.html"),
+    ):
+        if p and os.path.isfile(p):
+            return p
+    return None
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    path = _find_login_page()
+    if path:
+        return FileResponse(path)
+    return {
+        "app": "Self Grow",
+        "docs": "/docs",
+        "health": "/api/health",
+        "hint": "未配置 SELF_GROW_FRONTEND_DIR，后端未提供前端页面。"
+                "开发模式下请用前端独立服务器打开 login.html。",
+    }
+
+
+@app.get("/login.html", include_in_schema=False)
+async def login_page():
+    """项目根的 login.html 不在 frontend/ 目录下，这里单独提供"""
+    path = os.path.join(_PROJECT_ROOT, "login.html")
+    if os.path.isfile(path):
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail="未找到 login.html")
+
+
 @app.get("/api/config.js")
 async def serve_api_config():
     """返回 JavaScript 配置，让前端知道 API_BASE 地址"""
-    content = f"window.__SELF_GROW_API_BASE__ = 'http://127.0.0.1:{PORT}';"
+    trusted = "true" if SELF_GROW_TRUSTED_MODE else "false"
+    content = (
+        f"window.__SELF_GROW_API_BASE__ = 'http://127.0.0.1:{PORT}';\n"
+        f"window.__SELF_GROW_TRUSTED_MODE__ = {trusted};\n"
+    )
     return Response(content=content, media_type="application/javascript")
 
 
