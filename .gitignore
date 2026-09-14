@@ -27,3 +27,9 @@ backend/uploads/*
 .claude/
 .workbuddy/
 .pytest_cache/
+# Docker 部署：根目录 .env 含密钥（模板 .env.example 可提交）
+/.env
+
+# Nginx 真实配置与证书（模板 self-grow.conf.example 可提交）
+nginx/*.conf
+nginx/certs/
