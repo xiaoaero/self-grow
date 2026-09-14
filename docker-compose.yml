@@ -14,6 +14,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # pip 源：国内服务器直连 pypi.org 拉 129 个包要 6 分钟以上且容易断
+      # （实测 388 秒后失败）。走镜像源可降到数十秒。
+      # 海外机器在 .env 里写 PIP_INDEX_URL=https://pypi.org/simple 即可切回
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
     image: self-grow:1.2
     container_name: self-grow
     restart: unless-stopped

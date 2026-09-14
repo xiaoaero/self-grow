@@ -346,7 +346,7 @@ docker compose logs --tail 100 app
 
 ```bash
 # 用 Python 的 backup API（镜像里一定有 python）
-docker compose exec self-grow python -c "
+docker compose exec app python -c "
 import sqlite3
 src = sqlite3.connect('/data/data.db')
 dst = sqlite3.connect('/data/backup.db')
@@ -476,9 +476,13 @@ docs/screenshots/*.png
 
 ```yaml
 services:
-  self-grow:
-    build: .
-    image: self-grow:latest
+  app:                             # ⚠️ 服务名必须是 app：docker compose exec app ...
+    build:
+      context: .
+      # pip 源透传给 Dockerfile 的 ARG（默认清华源，海外机器在 .env 里覆盖）
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    image: self-grow:1.2
     container_name: self-grow
     restart: unless-stopped        # 崩溃/重启后自动拉起
     ports:
@@ -574,7 +578,7 @@ docker compose logs -f        # 看到 "🌐 登录页" 与 "Application startup
 
 ```bash
 # 注意：镜像里没装 pixi（它只是开发环境的包管理器），直接跑脚本
-docker compose exec self-grow python tools/init_password.py
+docker compose exec app python tools/init_password.py
 ```
 
 默认写入 `test / test123456`（普通用户）与 `admin / admin123456`（管理员）。
@@ -586,7 +590,7 @@ docker compose exec self-grow python tools/init_password.py
 - [ ] 浏览器打开 `http://服务器IP:3001` → 登录页
 - [ ] `admin` 登录成功 → 用户中心「账户安全」显示"已登录 · admin（管理员）"
 - [ ] `test` 登录 → 技能页**没有**"编辑技能"按钮
-- [ ] 奖励商城上传一张图片 → `docker compose exec self-grow ls /data/uploads` 能看到
+- [ ] 奖励商城上传一张图片 → `docker compose exec app ls /data/uploads` 能看到
 - [ ] **持久化测试**（最重要）：`docker compose down && docker compose up -d` → 数据还在
 - [ ] 公网部署：`SELF_GROW_CORS_ORIGINS` 是否正确、是否上了 HTTPS
 
@@ -594,13 +598,13 @@ docker compose exec self-grow python tools/init_password.py
 
 ```bash
 # 备份（在线安全备份，见 3.10）
-docker compose exec self-grow python -c "
+docker compose exec app python -c "
 import sqlite3
 s=sqlite3.connect('/data/data.db'); d=sqlite3.connect('/data/backup.db')
 with d: s.backup(d)
 "
 docker cp self-grow:/data/backup.db ./backup-$(date +%F).db
-docker compose exec self-grow rm /data/backup.db
+docker compose exec app rm /data/backup.db
 
 # 整卷打包（简单粗暴版，需先停服务）
 docker compose stop
@@ -756,7 +760,7 @@ RUN pip install --no-cache-dir --retries 5 --timeout 60 \
 # 构建与运行
 docker compose build / up -d / down / restart
 docker compose logs -f [service]
-docker compose exec self-grow bash
+docker compose exec app bash
 docker compose ps
 
 # 镜像与容器
@@ -770,5 +774,6 @@ docker volume ls / inspect self-grow_data / prune
 # 排障
 docker compose logs --tail 200 self-grow
 docker exec -it self-grow sh       # 进容器看文件
-docker history self-grow:latest    # 看镜像每一层（含有没有误写密钥）
+docker history self-grow:1.2       # 看镜像每一层（含有没有误写密钥）
+docker compose config              # 渲染后的最终配置（含变量替换结果）
 ```
