@@ -2,7 +2,7 @@
 
 > 目标读者：会用 Docker 跑起来，但想搞清**它到底做了什么**、**为什么这么写**、**背后牵扯哪些技术**。
 > 配套：[安全设计说明.md](./安全设计说明.md)（上线检查清单）、项目根目录 `Dockerfile` / `.dockerignore` / `docker-compose.yml` / `.env.example` / `nginx/self-grow.conf.example`
-> 核实时间：2026-09-14，对照 `backend/config.py`、`backend/main.py`、`backend/requirements.txt`（177 包）
+> 核实时间：2026-09-14，对照 `backend/config.py`、`backend/main.py`、`backend/requirements.txt`（132 包）
 
 ---
 
@@ -283,7 +283,7 @@ sudo iptables -t nat -L DOCKER -n    # 能看到 DNAT 规则
 | `--no-cache-dir` | pip 不缓存 wheel（本项目 Dockerfile 已用） |
 
 > 本项目是纯 Python，不需要编译器，所以 `python:3.12-slim` + `pip install --no-cache-dir` 就够了，
-> 最终镜像约 400~600 MB（177 个依赖里有 langchain/langgraph/fastmcp/numpy 等大包）。
+> 最终镜像约 400~600 MB（132 个依赖里有 langchain/langgraph/fastmcp 等大包）。
 
 ## 3.6 反向代理 Nginx —— 为什么容器前要有它
 
@@ -561,7 +561,7 @@ docker compose config | grep -E "SELF_GROW_JWT_SECRET|CORS"
 ## 5.3 构建并启动
 
 ```bash
-docker compose build          # 首次约 3~8 分钟（177 个依赖）
+docker compose build          # 首次约 3~8 分钟（132 个依赖）
 docker compose up -d
 docker compose logs -f        # 看到 "🌐 登录页" 与 "Application startup complete" 即成功
 ```
