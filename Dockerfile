@@ -3,7 +3,7 @@
 #
 # 设计要点（逐条对应 docs/Docker技术详解与部署实战.md）：
 #  1. 先只 COPY requirements.txt 再 pip install —— 利用镜像层缓存，
-#     改业务代码不会重装 177 个依赖
+#     改业务代码不会重装 129 个依赖
 #  2. python:3.12-slim 而非 python:3.12 —— 体积从 ~1GB 降到 ~150MB 基础
 #  3. CMD 用 exec 形式 —— 让应用成为 PID 1，才能收到 SIGTERM 优雅退出
 #  4. 密钥一律不写进镜像 —— 镜像分层，写进去再删也能被 docker history 看到
@@ -41,9 +41,23 @@ RUN apt-get update \
 
 # ── 依赖层（变化频率低，放前面以命中缓存）──────────────────
 # requirements.txt 由 `pixi run export-reqs` 从 pixi 锁定版本导出，
-# 与开发环境版本完全一致（改依赖请改 pixi.toml 后重新导出，不要手工编辑）
+# 与开发环境版本完全一致（改依赖请改 pixi.toml 后重新导出，不要手工编辑）。
+#
+# 注意：导出脚本会剔除 pywin32 / pywin32-ctypes / win_inet_pton 这类
+# 「只在 Windows 存在」的包 —— 它们来自 conda 解析，装到 Linux 上会直接报
+#   ERROR: No matching distribution found for pywin32==312
+# 不要手工把它们加回来。
 COPY backend/requirements.txt ./backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt
+
+# pip 源：服务器在国内，直连 pypi.org 拉 129 个包要 6 分钟以上，且容易中断
+# （实测一次失败前已跑 388 秒）。换清华源后可降到数十秒。
+# 需要走官方源的场景（海外机器 / 合规要求）：
+#   docker compose build --build-arg PIP_INDEX_URL=https://pypi.org/simple
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir \
+        --retries 5 --timeout 60 \
+        -i "${PIP_INDEX_URL}" \
+        -r backend/requirements.txt
 
 # ── 代码层（变化频率高，放后面）────────────────────────────
 COPY . .

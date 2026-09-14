@@ -427,7 +427,11 @@ WORKDIR /app
 
 # 先只拷依赖清单 —— 利用层缓存：改代码不会重装依赖
 COPY backend/requirements.txt ./backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt
+
+# 国内服务器直连 pypi.org 拉 129 个包要 6 分钟以上且容易中断，换清华源
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir --retries 5 --timeout 60 \
+        -i "${PIP_INDEX_URL}" -r backend/requirements.txt
 
 # 再拷全部代码（.dockerignore 已排除 .git / .pixi / data.db 等）
 COPY . .
@@ -561,7 +565,7 @@ docker compose config | grep -E "SELF_GROW_JWT_SECRET|CORS"
 ## 5.3 构建并启动
 
 ```bash
-docker compose build          # 首次约 3~8 分钟（132 个依赖）
+docker compose build          # 首次约 1~3 分钟（129 个依赖，走清华源）
 docker compose up -d
 docker compose logs -f        # 看到 "🌐 登录页" 与 "Application startup complete" 即成功
 ```
@@ -623,6 +627,79 @@ docker image prune -f         # 清理悬空镜像
 > 升级前先备份（5.6）。数据库迁移是**启动时自动幂等执行**的（`db/init.py` 的 `ALTER TABLE ... try/except`），
 > 所以拉新代码直接重启即可，不用手工跑迁移。
 
+## 5.8 依赖导出踩坑（本项目真实发生，构建连续失败两次）
+
+`requirements.txt` 不是手写的，而是 `pixi run export-reqs` 从开发环境导出的。
+这一步连着踩了两颗雷，且都在 `RUN pip install` 阶段才暴露。
+
+### 坑一：conda 包混进 pip 清单
+
+- **现象**：`ERROR: Invalid requirement: '_openmp_mutex==4.5'`
+- **根因**：早期用 `pixi list --json` 导出 —— 那是 **conda 视角**，混进了 `_openmp_mutex`、
+  `bzip2`、`ca-certificates`（PyPI 上根本没有）以及 `brotli-python`（PyPI 上叫 `brotli`）
+- **解决**：改读 `importlib.metadata.distributions()`（**Python 发行版视角**），
+  自动拿到正确的 PyPI 名称。包数 177 → 132
+
+### 坑二：Windows 专属包混进 Linux 镜像
+
+- **现象**：
+  ```
+  ERROR: Could not find a version that satisfies the requirement pywin32==312
+  ERROR: No matching distribution found for pywin32==312
+  failed to solve: process "/bin/sh -c pip install ..." did not complete successfully
+  ```
+  最难受的地方：pip 会**先把前面 100 多个包全部下载完**，最后才在 `pywin32` 上撞墙 ——
+  实测整个构建跑了 **388 秒**才失败，前面的下载全白费。
+- **根因**：`pywin32` 在 PyPI 上**只有 `win32` / `win_amd64` 轮子**，Linux 下没有任何可用文件。
+  它本身只是 `keyring` 的 `sys_platform == "win32"` 条件依赖，但
+  **conda 解析依赖时会忽略 PyPI 的 sys_platform 标记**，按宿主机（Windows）直接装进开发环境，
+  再被导出脚本原样写进清单。同批漏出来的还有 `pywin32-ctypes`、`win_inet_pton`。
+- **绕过的弯路**：第一反应是「读 WHEEL 文件的 `Tag:`，把带 win 的剔掉」。**行不通** ——
+  实测 Windows 环境的 `site-packages` 里，`cryptography`、`pydantic_core`、`pillow` 这些
+  **跨平台**包的 WHEEL 同样写着 `Tag: cp312-cp312-win_amd64`，和 `pywin32` 长得一模一样。
+  靠 tag 无法区分「跨平台包在 Windows 上装的轮子」和「本身就只发 Windows 版的包」，
+  唯一可靠的离线信号是**包名**。
+- **解决**：`tools/export_reqs.py` 加 `PLATFORM_ONLY` 黑名单，并做 **PEP 503 名字归一化**
+  （`win_inet_pton` 的元数据名是下划线形式，不归一化就会漏网）。导出时剔除并打印 `[SKIP]` 日志。
+  最终 129 个包。
+
+### 上线前的本地预检（不用真起 Docker）
+
+想提前知道清单能不能在 Linux 上装，用 pip 的跨平台 dry-run：
+
+```bash
+python -m pip install --dry-run --ignore-installed --no-deps \
+  --only-binary=:all: \
+  --platform manylinux_2_28_x86_64 --platform manylinux_2_27_x86_64 \
+  --platform manylinux_2_17_x86_64 --platform manylinux2014_x86_64 \
+  --python-version 3.12 --target /tmp/pipverify \
+  -r backend/requirements.txt
+```
+
+末尾出现 `Would install ...` 即全部可解析；出现 `No matching distribution` 就是有包在该平台上不存在。
+
+> ⚠️ `--platform` 要给**多个**标签：`pillow 12.3.0` 只发布了 `manylinux_2_28` 轮子，
+> 只给 `manylinux2014_x86_64` 会误报 `No matching distribution found for pillow==12.3.0`，
+> 让你误以为清单有问题。
+
+### 顺带一提：构建慢也是坑
+
+388 秒里绝大部分是跨境下载耗时。国内服务器务必配镜像源，并加 `--retries` / `--timeout` 抗抖动：
+
+```dockerfile
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir --retries 5 --timeout 60 \
+        -i "${PIP_INDEX_URL}" -r backend/requirements.txt
+```
+
+写成 `ARG` 而非硬编码：海外机器 `docker compose build --build-arg PIP_INDEX_URL=https://pypi.org/simple` 即可切回官方源。
+
+**经验总结**：
+
+1. 依赖清单**永远不要手工编辑**，一律从锁定环境重新导出
+2. 导出脚本必须**打日志说明剔除了什么**，否则换个环境你不知道自己少了什么
+3. 构建期的失败要**在本地提前拦截**（dry-run 一条命令的事），别等服务器上跑 6 分钟才失败
+
 ---
 
 # 第六部分：排障速查
@@ -638,7 +715,9 @@ docker image prune -f         # 清理悬空镜像
 | 容器反复重启 | 依赖装不全或端口被占 | `docker compose logs`；`ss -lntp \| grep 3001` |
 | 定时任务执行两次 | **跑了 2 个副本** | 本项目只能单副本，不要 `scale` |
 | 改了代码没生效 | 镜像未重建 | `docker compose build` 后再 `up -d` |
-| 构建极慢 | 构建上下文太大 | 检查 `.dockerignore` 是否排除了 `.pixi/`、`.git/` |
+| `pip install` 报 `No matching distribution found for pywin32==312` | 依赖清单里混进了 Windows 专属包 | 重新 `pixi run export-reqs`；**别手工注释掉了事**（见 5.8） |
+| `pip install` 报 `Invalid requirement: '_openmp_mutex==4.5'` | 清单来自 conda 视角 | 重新导出，读 Python 元数据（见 5.8） |
+| 构建极慢（几分钟且容易断） | 直连 pypi.org；或上下文太大 | 配国内镜像源（见 5.8）；检查 `.dockerignore` 是否排除了 `.pixi/`、`.git/` |
 
 ---
 
@@ -666,6 +745,8 @@ docker image prune -f         # 清理悬空镜像
 | 密钥怎么管？ | 环境变量/compose 注入，绝不进镜像（分层删不掉） |
 | 为什么不扩展多副本？ | SQLite 单文件 + APScheduler，多副本会重复执行定时任务（**能主动说这个很加分**） |
 | 怎么瘦身镜像？ | slim 基础镜像、多阶段构建、`.dockerignore`、`--no-cache-dir` |
+| 依赖怎么保证线上线下一致？ | pixi 锁版本 → 导出 pip 清单。注意 **conda 解析会忽略 PyPI 的 `sys_platform` 标记**，Windows 专属包（pywin32）会漏进来，必须按包名显式剔除（见 5.8） |
+| 构建失败怎么快速定位？ | 看失败发生在**哪一层**：`pip install` 层失败是清单问题，`COPY` 层失败是上下文问题；跨平台问题本地 dry-run 就能提前拦（见 5.8） |
 
 ---
 
