@@ -21,7 +21,9 @@
   var REFRESH_KEY = 'sg_refresh_token';
   var USER_KEY = 'sg_user';
 
-  // 后端 /api/config.js 注入（同源部署时为空 → 回落到 localhost:3001）
+  // 后端 /api/config.js 按「请求的 Host」注入，所以同源部署时它就是当前访问地址
+  // （用 IP、用域名、带不带端口都能对上）。这里的 localhost:3001 只是
+  // 「config.js 压根没加载成功」时的纯本地开发兜底，线上不会走到。
   var API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
 
   var rawFetch = window.fetch.bind(window);

@@ -596,6 +596,10 @@ docker compose exec app python tools/init_password.py
 
 - [ ] `curl http://localhost:3001/api/health` 返回版本号
 - [ ] 浏览器打开 `http://服务器IP:3001` → 登录页
+      （若页面打开了却提示"无法连接后端服务"：先 **Ctrl+Shift+R 硬刷新** ——
+      `/api/config.js` 会被浏览器缓存，旧值里的 `127.0.0.1` 指向的是你自己的电脑。
+      仍然不行就看服务端日志**有没有请求进来**：一个请求都没有 = 请求根本没发出去，
+      属于地址问题而非跨域问题，见云服务器手册 6.1）
 - [ ] `admin` 登录成功 → 用户中心「账户安全」显示"已登录 · admin（管理员）"
 - [ ] `test` 登录 → 技能页**没有**"编辑技能"按钮
 - [ ] 奖励商城上传一张图片 → `docker compose exec app ls /data/uploads` 能看到

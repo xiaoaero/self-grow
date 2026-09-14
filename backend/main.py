@@ -5,11 +5,12 @@ FastAPI 应用创建、生命周期管理、路由注册、启动入口。
 """
 
 import os
+import json
 import logging
 import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -253,14 +254,37 @@ async def login_page():
 
 
 @app.get("/api/config.js")
-async def serve_api_config():
-    """返回 JavaScript 配置，让前端知道 API_BASE 地址"""
+async def serve_api_config(request: Request):
+    """返回 JavaScript 配置，让前端知道后端地址（API_BASE）
+
+    ⚠️ 这里**绝对不能写死 127.0.0.1 / localhost** —— 这段 JS 是在**用户的浏览器**里执行的，
+    写死回环地址等于让浏览器去访问「用户自己那台电脑」的 3001 端口。
+
+    远程部署时的典型症状（很容易误判成"后端没起来"）：
+      · 页面能打开，CSS/JS/字体全部 200
+      · 之后**一个 API 请求都发不出去**，服务端日志里干干净净
+      · 前端提示「无法连接到后端服务」
+
+    正确做法：按**本次请求的 Host** 反推后端地址。同源部署下，浏览器是用哪个地址访问的
+    后端，它就用哪个地址发 API 请求 —— 用 IP、用域名、带不带端口都自洽。
+    """
     trusted = "true" if SELF_GROW_TRUSTED_MODE else "false"
+
+    # 反向代理（Nginx 终止 HTTPS）时 scheme 由 X-Forwarded-Proto 给出，可能是 "https,http" 形式
+    scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme).split(",")[0].strip()
+    host = request.headers.get("host") or f"127.0.0.1:{PORT}"
+    api_base = f"{scheme}://{host}"
+
     content = (
-        f"window.__SELF_GROW_API_BASE__ = 'http://127.0.0.1:{PORT}';\n"
+        f"window.__SELF_GROW_API_BASE__ = {json.dumps(api_base)};\n"
         f"window.__SELF_GROW_TRUSTED_MODE__ = {trusted};\n"
     )
-    return Response(content=content, media_type="application/javascript")
+    return Response(
+        content=content,
+        media_type="application/javascript",
+        # 不能缓存：换域名/换端口后必须立刻生效，否则浏览器会一直用旧的 API_BASE
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # ================================================================
