@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-**Self Grow (个人成长系统)** — 基于原生 HTML/CSS/JS 的单页应用 + FastAPI 后端的个人成长追踪系统。核心功能包括：等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（AI 生成节点走 **LangGraph**）、**表达训练系统（AI 出题 + 实时语音 + 评分 + 填充词检测）**、**统一协调 Agent（多智能体 + 反问机制 + 悬浮球对话）**、**MCP 插件（24 个业务工具暴露）**、**用户中心（多模型管理 + 账户安全）**、**JWT 登录鉴权（Access/Refresh 双令牌 + RBAC + API Key）**。部署方式为纯 Web + [Docker 部署方案](docs/Docker部署方案.md)。
+**Self Grow (个人成长系统)** — 基于原生 HTML/CSS/JS 的单页应用 + FastAPI 后端的个人成长追踪系统。核心功能包括：等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（AI 生成节点走 **LangGraph**）、**表达训练系统（AI 出题 + 实时语音 + 评分 + 填充词检测）**、**统一协调 Agent（多智能体 + 反问机制 + 悬浮球对话）**、**MCP 插件（24 个业务工具暴露）**、**用户中心（多模型管理 + 账户安全）**、**JWT 登录鉴权（Access/Refresh 双令牌 + RBAC + API Key）**。部署方式为纯 Web + [Docker 技术详解与部署实战](docs/Docker技术详解与部署实战.md)。
 
 规模速查（2026-09-13 实测）：前端 39 文件 / 28.6k 行，后端 88 py 文件 / 13.8k 行，**22 张表 / 102 个 HTTP 端点 / 24 个 MCP 工具 / 6 个 AI 场景 / 101 个测试全绿**。
 
@@ -256,7 +256,7 @@ npx http-server -p 3000 -c-1     # 或 python -m http.server 3000
 - AI 配置通过 `backend/.env` 兜底：`AI_API_BASE_URL`、`AI_API_KEY`、`AI_MODEL`；实际运行时优先读 `model_configs` 表中当前启用的配置（用户中心可切换）
 
 ### 生产部署（Docker）
-- 详细方案：`docs/Docker部署方案.md`
+- 详细方案：`docs/Docker技术详解与部署实战.md`；根目录已有 `Dockerfile` / `docker-compose.yml` / `.env.example` / `nginx/self-grow.conf.example`
 - 依赖安装走 `requirements.txt`（由 `pixi run export-reqs` 从 pixi 锁定版本生成）
 - 测试：`cd backend && pixi run test`
 - 上线前检查清单见 `docs/安全设计说明.md` §11（密钥、TRUSTED_MODE、CORS、HTTPS、备份）

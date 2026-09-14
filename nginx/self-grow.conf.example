@@ -1,0 +1,94 @@
+# ================================================================
+# Nginx 反向代理配置（公网 + HTTPS 时用）
+#
+# 用法：
+#   1. cp nginx/self-grow.conf.example nginx/self-grow.conf
+#   2. 把 example.com 换成你的域名
+#   3. 用 certbot 申请证书：
+#        docker run --rm -it \
+#          -v "$PWD/nginx/certs:/etc/letsencrypt" \
+#          -p 80:80 certbot/certbot certonly --standalone -d 你的域名
+#   4. 放开 docker-compose.yml 里的 nginx 服务，把 app 的端口改成
+#      "127.0.0.1:3001:3001"，然后：
+#        docker compose --profile with-nginx up -d
+#
+# 为什么需要 Nginx（而不是直接暴露 3001）：
+#   - HTTPS 终结：SSL 配在 Nginx，后端代码一行不用改
+#   - 只暴露 80/443，隐藏后端端口
+#   - 静态资源缓存、压缩、限流
+#
+# 为什么本项目必须上 HTTPS（不是"最佳实践"这种空话）：
+#   JWT 的 Access Token 与 API Key 都在 HTTP 头里明文传输，
+#   公网 HTTP 下抓包即可盗用身份。
+# ================================================================
+
+upstream self_grow {
+    server app:3001;          # compose 里用服务名当主机名
+    keepalive 32;
+}
+
+# HTTP → HTTPS
+server {
+    listen 80;
+    server_name example.com;
+
+    # Let's Encrypt 校验路径
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_session_cache   shared:SSL:10m;
+
+    # 上传奖励图片，适当放宽
+    client_max_body_size 20m;
+
+    # 安全响应头
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy no-referrer-when-downgrade always;
+
+    # 前端静态资源缓存（后端同源 serve，路径是 /frontend/）
+    location /frontend/ {
+        proxy_pass http://self_grow;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+
+    location / {
+        proxy_pass http://self_grow;
+        proxy_http_version 1.1;
+
+        # 转发真实协议与 IP（后端若要记录来源会用到）
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 表达训练的语音走 WebSocket 上传，若将来加 WS 需要这两行
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # AI 请求可能较慢（生成整棵技能树），放宽超时
+        proxy_connect_timeout 30s;
+        proxy_send_timeout    300s;
+        proxy_read_timeout    300s;
+    }
+}

@@ -189,7 +189,7 @@ self_grow_system/
 │   ├── 性能优化学习指南.md            # 性能优化学习资料
 │   ├── 设计模式学习指南.md            # 设计模式学习资料
 │   ├── FastAPI与FastMCP学习指南.md    # FastAPI / FastMCP 学习资料
-│   ├── Docker部署方案.md             # Docker 生产部署方案
+│   ├── Docker技术详解与部署实战.md    # Docker 原理讲解 + 生产部署实战（含 Nginx/HTTPS）
 │   ├── 压测说明.md                   # Locust 压测方案与结果
 │   └── 手机版部署方案.md            # 移动端部署方案
 │
@@ -327,7 +327,7 @@ curl -X POST http://localhost:8000/mcp -H "X-API-Key: sgk_xxx" \
 
 ### 5. 生产部署（Docker）
 
-详细步骤见 [`docs/Docker部署方案.md`](docs/Docker部署方案.md)：
+详细步骤见 [`docs/Docker技术详解与部署实战.md`](docs/Docker技术详解与部署实战.md)：
 
 ```bash
 # 在项目根目录（与 .gitignore 同级）放置 Dockerfile / .dockerignore / docker-compose.yml
@@ -707,7 +707,7 @@ docker compose up -d
 
 ### 生产部署（Docker）
 
-详细部署方案见 [`docs/Docker部署方案.md`](docs/Docker部署方案.md)。
+详细方案见 [`docs/Docker技术详解与部署实战.md`](docs/Docker技术详解与部署实战.md)，根目录已提供 `Dockerfile` / `.dockerignore` / `docker-compose.yml` / `.env.example`。
 
 **架构**：FastAPI 同时提供 API 与前端静态资源，通过 `SELF_GROW_FRONTEND_DIR` 环境变量指向容器内 `/app/frontend`。
 

@@ -1,0 +1,55 @@
+# ================================================================
+# 构建上下文排除清单
+#
+# 执行 `docker build .` 时，Docker 会把当前目录全部文件打包发给守护进程。
+# 不配这个文件，.pixi/（几百 MB）+ .git/ 会被反复传输，构建极慢。
+# ================================================================
+
+# 版本控制
+.git/
+.gitignore
+
+# pixi 开发环境（几百 MB，生产用不到，依赖走 requirements.txt）
+.pixi/
+backend/.pixi/
+backend/pixi.lock
+backend/.venv/
+venv/
+.venv/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 本地数据与密钥（绝不进镜像）
+backend/.env
+.env
+backend/data.db
+backend/data.db-wal
+backend/data.db-shm
+backend/uploads/*
+backend/*.bak
+backend/*.log
+
+# 测试
+backend/tests/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# 工具私有目录
+.claude/
+.workbuddy/
+
+# 大体积素材（截图未录制，先排除，需要时再放开）
+docs/screenshots/*.png
+docs/screenshots/*.jpg
+
+# 文档（可选：镜像不需要文档，放开注释可再省几百 KB）
+# docs/
+# memory/

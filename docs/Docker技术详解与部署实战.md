@@ -1,7 +1,7 @@
 # Docker 技术详解与 Self Grow 部署实战
 
 > 目标读者：会用 Docker 跑起来，但想搞清**它到底做了什么**、**为什么这么写**、**背后牵扯哪些技术**。
-> 配套：[Docker部署方案.md](./Docker部署方案.md)（纯配置清单）、[安全设计说明.md](./安全设计说明.md)（上线检查清单）
+> 配套：[安全设计说明.md](./安全设计说明.md)（上线检查清单）、项目根目录 `Dockerfile` / `.dockerignore` / `docker-compose.yml` / `.env.example` / `nginx/self-grow.conf.example`
 > 核实时间：2026-09-14，对照 `backend/config.py`、`backend/main.py`、`backend/requirements.txt`（177 包）
 
 ---
