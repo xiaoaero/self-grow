@@ -61,7 +61,7 @@ def update_config(config_id: int, **kwargs) -> bool:
     values.append(config_id)
     conn = get_conn()
     conn.execute(
-        f"UPDATE model_configs SET {', '.join(fields)}, updated_at = datetime('now') WHERE id = ?",
+        f"UPDATE model_configs SET {', '.join(fields)}, updated_at = datetime('now','localtime') WHERE id = ?",
         values,
     )
     conn.commit()

@@ -331,6 +331,30 @@ function renderSidebarFooter() {
 
 const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
 
+/* ================================================================
+   时间工具（全项目统一口径：本地时间）
+
+   ⚠️ 绝对不要用 `new Date().toISOString()` 来做这两件事：
+     · toISOString() 给的是 **UTC 壁钟**，去掉 Z 当作本地时间发给后端 →
+       数据会整体早 8 小时（UTC+8），凌晨 0~8 点记录的行动还会落到前一天
+     · toISOString().slice(0,10) 取的是 **UTC 日期** → 同样在凌晨取到"昨天"
+
+   要发给后端 / 要判断"今天"时，一律用下面这两个函数。
+   ================================================================ */
+
+/** 本地墙上时间的 ISO 串：2026-09-15T09:00:00（不带 Z、不带偏移） */
+function toLocalIso(date) {
+    const d = date || new Date();
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}` +
+           `T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/** 本地日期：2026-09-15（替代 toISOString().slice(0, 10)） */
+function todayLocal(date) {
+    return toLocalIso(date).slice(0, 10);
+}
+
 /** 获取当前登录用户信息（从 localStorage） */
 function getCurrentUser() {
     try {

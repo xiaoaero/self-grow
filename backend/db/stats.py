@@ -34,8 +34,15 @@ def get_recent_activities(user_id: int, limit: int = 10) -> list:
         created_str = d.get("created_at") or d.get("start_time", "")
         try:
             created_dt = datetime.datetime.fromisoformat(created_str)
+            # 历史数据里可能有带时区偏移的串（旧版前端发的是 toISOString()），
+            # 统一折算成本地 naive 再比较，否则 aware 与 naive 相减会直接抛异常
+            if created_dt.tzinfo is not None:
+                created_dt = created_dt.astimezone().replace(tzinfo=None)
         except (ValueError, TypeError):
             created_dt = now
+        # 两边都是本地时间（created_at 由 db/connection.now_str() 写入本地时间）。
+        # 修正前 created_at 来自 SQLite 的 datetime('now')（UTC），与本地时间相减
+        # 恒定差 8 小时 → 刚记录完也显示"8小时前"
         delta = now - created_dt
         if delta.total_seconds() < 60:
             time_str = "刚刚"

@@ -79,7 +79,7 @@ def save_skill_tree_draft(tree_id: str, user_id: int, name: str, description: st
     conn.execute(
         """UPDATE skill_trees SET name = ?, description = ?, data = ?,
            node_count = ?, completed_count = ?, image = ?, remark = ?,
-           updated_at = datetime('now')
+           updated_at = datetime('now','localtime')
            WHERE tree_id = ? AND user_id = ?""",
         (name, description, data_json, node_count, completed_count,
          image, remark, tree_id, user_id),
@@ -112,7 +112,7 @@ def publish_skill_tree(tree_id: str, user_id: int, published_data: dict,
     conn.execute(
         """UPDATE skill_trees SET published_data = ?, published_at = ?,
            node_count = ?, completed_count = ?, update_history = ?,
-           updated_at = datetime('now')
+           updated_at = datetime('now','localtime')
            WHERE tree_id = ? AND user_id = ?""",
         (published_json, published_data.get("publishedAt"),
          node_count, completed_count, json.dumps(history, ensure_ascii=False),

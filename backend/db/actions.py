@@ -2,7 +2,7 @@
 Self Grow — 行动记录 CRUD
 """
 
-from db.connection import get_conn
+from db.connection import get_conn, now_str
 from models.constants import get_category
 import datetime as _dt
 
@@ -78,12 +78,15 @@ def create_action_log(user_id: int, category_id: str, start_time: str,
             return int(existing["id"])
 
     note_value = f"[req:{request_id}] {note}" if request_id else note
+    # created_at 显式写本地时间：它被"最近行动"的相对时间和活动流的时间戳使用，
+    # 而表上的 DEFAULT (datetime('now')) 是 UTC（已建好的库又改不掉），会恒定差 8 小时
     cursor = conn.execute(
         """INSERT INTO action_logs
-           (user_id, category_id, start_time, end_time, duration, note, exp_earned, sub_type, sleep_start, sleep_end)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (user_id, category_id, start_time, end_time, duration, note, exp_earned,
+            sub_type, sleep_start, sleep_end, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (user_id, category_id, start_time, end_time, duration, note_value, exp_earned,
-         sub_type, sleep_start, sleep_end),
+         sub_type, sleep_start, sleep_end, now_str()),
     )
     new_id = int(cursor.lastrowid)
 

@@ -102,6 +102,18 @@ async def lifespan(app_instance):
     else:
         log.info(f"🌐 接口地址： http://localhost:{PORT}/docs （未配置前端目录，仅 API）")
     log.info(f"📖 API 文档： http://localhost:{PORT}/docs")
+
+    # 时区自检：全项目时间口径统一为**本地时间**（见 docs/时间口径统一方案.md）。
+    # 容器忘记设 TZ 就会整体偏 8 小时（打卡日期错位、定时任务晚 8 小时），
+    # 而且这类问题不报错、只让数据慢慢错掉 —— 所以启动时把偏移打出来。
+    _tz = datetime.datetime.now().astimezone()
+    _offset = _tz.utcoffset()
+    _hours = _offset.total_seconds() / 3600 if _offset else 0
+    if _hours == 0:
+        log.warning("🕐 当前时区：UTC（偏移 +0.0h）—— 若你在中国，请检查容器是否漏设 TZ=Asia/Shanghai！")
+    else:
+        log.info(f"🕐 当前时区：{_tz.tzname()}（偏移 {_hours:+.1f}h）  当前时间 {_tz:%Y-%m-%d %H:%M}")
+
     if SELF_GROW_TRUSTED_MODE:
         log.warning("⚠️  本地免鉴权模式已开启（SELF_GROW_TRUSTED_MODE=1），任何人可免登录访问！")
     log.info("─" * 56)

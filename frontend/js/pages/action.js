@@ -764,7 +764,7 @@ function updateDynamicForm() {
 
 /** 记录睡眠后设置今日已记录标记（持久化到 localStorage） */
 function markSleepRecordedToday() {
-    var today = new Date().toISOString().slice(0, 10);
+    var today = todayLocal();
     window._sleepRecordedToday = true;
     try { localStorage.setItem('sg_sleep_recorded_date', today); } catch(e) {}
 }
@@ -774,7 +774,7 @@ function isSleepRecordedToday() {
     if (window._sleepRecordedToday) return true;
     try {
         var saved = localStorage.getItem('sg_sleep_recorded_date');
-        if (saved === new Date().toISOString().slice(0, 10)) {
+        if (saved === todayLocal()) {
             window._sleepRecordedToday = true;
             return true;
         }
@@ -842,7 +842,7 @@ async function checkSleepRecordedToday() {
         if (!res.ok) return;
         var data = await res.json();
         var recent = data.recent_actions || [];
-        var todayStr = new Date().toISOString().slice(0, 10);
+        var todayStr = todayLocal();
         var sleepRecord = recent.find(function(r) {
             return r.sub_type === 'health-sleep'
                 && r.start_time && r.start_time.slice(0, 10) === todayStr;
@@ -1069,7 +1069,7 @@ async function confirmAISubmit() {
             dimension_exp: a.dimension_exp || 0,
             sleep_start: a.sleep_start || '',
             sleep_end: a.sleep_end || '',
-            start_time: a.start_time || new Date().toISOString(),
+            start_time: a.start_time || toLocalIso(),
         };
     });
 
@@ -1261,7 +1261,7 @@ function submitAction() {
 
         window._pendingActionPayload = {
             category_id: selectedActionCategory,
-            start_time: sleepStartDate.toISOString().replace('Z', ''),
+            start_time: toLocalIso(sleepStartDate),
             duration: sleepDurationMin,
             note: actionNote || '',
             sub_type: subType,
@@ -1269,7 +1269,7 @@ function submitAction() {
             sleep_end: actionSleepEnd,
         };
     } else {
-        const startIso = startTime.toISOString().replace('Z', '');
+        const startIso = toLocalIso(startTime);
         window._pendingActionPayload = {
             category_id: selectedActionCategory,
             start_time: startIso,

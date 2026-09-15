@@ -120,10 +120,15 @@ def create_task(user_id: int, title: str, category: str, priority: str = "mid",
                 source_type: str = "today", source_template_id: int = None) -> int:
     """创建任务，返回 id"""
     conn = get_conn()
+    # created_at 显式写本地时间：db/batch.py 用 `date(created_at) = 昨天` 判断归档/过期，
+    # 而表默认值 datetime('now') 是 UTC → 凌晨 0~8 点建的任务会被归到前一天
+    from db.connection import now_str
     cursor = conn.execute(
-        """INSERT INTO tasks (user_id, title, category, priority, exp, intro, status, source_type, source_template_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (user_id, title, category, priority, exp, intro, status, source_type, source_template_id),
+        """INSERT INTO tasks (user_id, title, category, priority, exp, intro, status,
+                              source_type, source_template_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, title, category, priority, exp, intro, status, source_type,
+         source_template_id, now_str()),
     )
     new_id = cursor.lastrowid
     conn.commit()

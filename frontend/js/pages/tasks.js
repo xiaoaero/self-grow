@@ -44,7 +44,7 @@ function loadLocalTasksIntoToday() {
         if (!raw) return;
         const tasks = JSON.parse(raw);
         const now = new Date();
-        const todayStr = now.toISOString().slice(0, 10);
+        const todayStr = todayLocal(now);   // 本地日期，别用 toISOString()（那是 UTC）
         const stillValid = [];
         tasks.forEach(t => {
             const taskDate = t.createdAt ? t.createdAt.slice(0, 10) : '';

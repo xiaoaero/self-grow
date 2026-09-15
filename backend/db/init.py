@@ -147,7 +147,7 @@ def init_db():
             xp_reward INTEGER NOT NULL DEFAULT 15,
             active INTEGER NOT NULL DEFAULT 1,
             sort_order INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -178,7 +178,7 @@ def init_db():
             sub_type TEXT DEFAULT '',
             sleep_start TEXT DEFAULT '',
             sleep_end TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -225,7 +225,7 @@ def init_db():
             reward_exp INTEGER NOT NULL DEFAULT 0,
             claimed INTEGER NOT NULL DEFAULT 0,
             category_image TEXT DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -253,7 +253,7 @@ def init_db():
             exp INTEGER NOT NULL DEFAULT 50,
             intro TEXT DEFAULT '',
             status TEXT NOT NULL DEFAULT 'todo',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             deadline TEXT,
             completed_at TEXT,
             claimed INTEGER NOT NULL DEFAULT 0,
@@ -289,7 +289,7 @@ def init_db():
             source_type TEXT NOT NULL,
             completed_at TEXT,
             created_at TEXT NOT NULL,
-            archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+            archived_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -311,7 +311,7 @@ def init_db():
             exp INTEGER NOT NULL DEFAULT 50,
             weekdays TEXT,
             active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -333,7 +333,7 @@ def init_db():
             claimed_at TEXT,
             manual_confirmed TEXT NOT NULL DEFAULT '[]',
             created_at_exp INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -350,7 +350,7 @@ def init_db():
             image TEXT DEFAULT '',
             unlock_conditions TEXT NOT NULL DEFAULT '[]',
             claim_conditions TEXT NOT NULL DEFAULT '[]',
-            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -378,8 +378,8 @@ def init_db():
             base_url TEXT NOT NULL DEFAULT '',
             api_key TEXT NOT NULL DEFAULT '',
             is_active INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -654,8 +654,8 @@ def init_skill_trees_tables():
             remark TEXT DEFAULT '',
             node_count INTEGER NOT NULL DEFAULT 0,
             completed_count INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             published_at TEXT,
             update_history TEXT NOT NULL DEFAULT '[]',
             FOREIGN KEY (user_id) REFERENCES users(id)

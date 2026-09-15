@@ -119,13 +119,13 @@ def save_reward_draft(user_id: int, data: dict) -> bool:
     conn.execute(
         """INSERT INTO reward_drafts (user_id, title, desc, icon, category, image,
            unlock_conditions, claim_conditions, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
            ON CONFLICT(user_id) DO UPDATE SET
            title=excluded.title, desc=excluded.desc, icon=excluded.icon,
            category=excluded.category, image=excluded.image,
            unlock_conditions=excluded.unlock_conditions,
            claim_conditions=excluded.claim_conditions,
-           updated_at=datetime('now')""",
+           updated_at=datetime('now','localtime')""",
         (user_id, data.get("title", ""), data.get("desc", ""), data.get("icon", "🎁"),
          data.get("category", ""), data.get("image", ""), unlock_json, claim_json),
     )

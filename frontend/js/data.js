@@ -22,7 +22,9 @@ const AppData = {
         exp: 0,
         totalExp: 0,
         streak: 0,
-        joined: new Date().toISOString().slice(0, 10),
+        // 本地日期。注意本文件在 utils.js 之前加载，不能用 todayLocal()，所以就地算
+        joined: (d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+                      + '-' + String(d.getDate()).padStart(2, '0'))(new Date()),
         get expToNext() { return expForLevel(this.level); },
         get title() { return getRankInfo(this.level).name; },
     },
