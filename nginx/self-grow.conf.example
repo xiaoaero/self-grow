@@ -1,15 +1,23 @@
 # ================================================================
 # Nginx 反向代理配置（公网 + HTTPS 时用）
 #
-# 用法：
+# ⚠️ 先确认走哪条路线，upstream 的地址写法完全不同：
+#
+#   路线 A：Nginx 装在**宿主机**（apt install nginx）
+#           → upstream 写 127.0.0.1:3001 / 127.0.0.1:8000
+#             （前提：docker-compose.yml 里 app 端口改成 "127.0.0.1:3001:3001"）
+#   路线 B：Nginx 跑在**容器**（本项目自带的 with-nginx profile）
+#           → upstream **必须**写 compose 服务名 app:3001 / mcp:8000
+#             ⚠️ 写 127.0.0.1 会指向 nginx 容器自己，必然 502
+#
+# 用法（容器路线 B）：
 #   1. cp nginx/self-grow.conf.example nginx/self-grow.conf
 #   2. 把 example.com 换成你的域名
-#   3. 用 certbot 申请证书：
-#        docker run --rm -it \
+#   3. 申请证书（写到 ./nginx/certs，正好对应 compose 里 nginx 的挂载点）：
+#        docker run --rm -it -p 80:80 \
 #          -v "$PWD/nginx/certs:/etc/letsencrypt" \
-#          -p 80:80 certbot/certbot certonly --standalone -d 你的域名
-#   4. 放开 docker-compose.yml 里的 nginx 服务，把 app 的端口改成
-#      "127.0.0.1:3001:3001"，然后：
+#          certbot/certbot certonly --standalone -d 你的域名
+#   4. 把 docker-compose.yml 里 app 的端口改成 "127.0.0.1:3001:3001"，然后：
 #        docker compose --profile with-nginx up -d
 #
 # 为什么需要 Nginx（而不是直接暴露 3001）：
@@ -23,8 +31,14 @@
 # ================================================================
 
 upstream self_grow {
-    server app:3001;          # compose 里用服务名当主机名
+    server app:3001;          # 路线 B：compose 服务名｜路线 A：改成 127.0.0.1:3001
     keepalive 32;
+}
+
+# MCP Server（给 AI 客户端接入用；不用 MCP 可整段删掉）
+upstream self_grow_mcp {
+    server mcp:8000;          # 路线 B：compose 服务名｜路线 A：改成 127.0.0.1:8000
+    keepalive 16;
 }
 
 # HTTP → HTTPS
@@ -70,6 +84,33 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         expires 7d;
         add_header Cache-Control "public";
+    }
+
+    # ── MCP Server（AI 客户端接入）：https://你的域名/mcp ──────────
+    # 客户端配置里的 url 就填 https://你的域名/mcp，请求头带 X-API-Key
+    # 不用 MCP 的话，这一段和上面的 self_grow_mcp upstream 都可以删掉
+    location /mcp {
+        proxy_pass http://self_grow_mcp;
+
+        # ⚠️ MCP 的 streamable-http 是 SSE 长连接，这几行是必须的：
+        #    不关缓冲的话，nginx 会把响应攒着不发，客户端表现为"连上了但一直没反应"
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding on;
+
+        proxy_http_version 1.1;
+        # 注意这里是空串（长连接复用），不能写成 "upgrade"
+        proxy_set_header Connection "";
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 客户端可能长时间不发数据（比如挂着会话），超时给足
+        proxy_connect_timeout 30s;
+        proxy_send_timeout    3600s;
+        proxy_read_timeout    3600s;
     }
 
     location / {

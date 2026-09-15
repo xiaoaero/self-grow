@@ -144,24 +144,36 @@ services:
         max-size: "10m"
         max-file: "3"
 
-# ── 可选：Nginx 反向代理 + HTTPS ────────────────────────────
-# 公网部署时启用：把上面 ports 改成 127.0.0.1:3001:3001，
-# 再执行 `docker compose --profile with-nginx up -d`
+# ── 可选：Nginx 反向代理 + HTTPS（容器版）────────────────────
+# 公网部署时启用：
+#   1. cp nginx/self-grow.conf.example nginx/self-grow.conf 并填域名
+#   2. 申请证书（写到 ./nginx/certs，与下面的挂载点对应）：
+#        docker run --rm -it -p 80:80 \
+#          -v "$PWD/nginx/certs:/etc/letsencrypt" \
+#          certbot/certbot certonly --standalone -d 你的域名
+#   3. 把上面 app / mcp 的 ports 都改成只绑回环（如 "127.0.0.1:3001:3001"）
+#   4. docker compose --profile with-nginx up -d
 #
-#  nginx:
-#    image: nginx:1.27-alpine
-#    container_name: self-grow-nginx
-#    restart: unless-stopped
-#    profiles: ["with-nginx"]
-#    ports:
-#      - "80:80"
-#      - "443:443"
-#    volumes:
-#      - ./nginx/self-grow.conf:/etc/nginx/conf.d/default.conf:ro
-#      - ./nginx/certs:/etc/nginx/certs:ro
-#      - /etc/letsencrypt:/etc/letsencrypt:ro
-#    depends_on:
-#      - app
+# ⚠️ nginx 容器里访问后端**必须用 compose 服务名**（app:3001 / mcp:8000），
+#    写 127.0.0.1 会指向 nginx 容器自己，必然 502。conf 里已按服务名配好。
+#
+  # 注意：这个服务加了 profiles，**默认不会启动**（`docker compose up -d` 会忽略它），
+  # 必须显式 `--profile with-nginx` 才会拉起 —— 所以没证书时也不会影响日常使用。
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: self-grow-nginx
+    restart: unless-stopped
+    profiles: ["with-nginx"]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/self-grow.conf:/etc/nginx/conf.d/default.conf:ro
+      # 证书目录：certbot 写 ./nginx/certs，conf 里读 /etc/letsencrypt/live/...
+      - ./nginx/certs:/etc/letsencrypt:ro
+    depends_on:
+      - app
+      - mcp
 
 volumes:
   data:

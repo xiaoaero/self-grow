@@ -310,6 +310,45 @@ sudo certbot --nginx -d your.domain.com
 > JWT 的 Access Token 和 API Key 都在 HTTP 头里明文传输，
 > 公网 HTTP 下抓包即可盗用身份。见 [安全设计说明](./安全设计说明.md) §7.4。
 
+### 3.7.1 Nginx 反代落地：两条路线（2026-09-15 完整实测）
+
+| | 路线 A：Nginx 装在宿主机 | 路线 B：Nginx 跑在容器（本项目自带） |
+|---|---|---|
+| 安装 | `sudo apt install nginx` | 无需安装，用 `--profile with-nginx` |
+| upstream 写什么 | `127.0.0.1:3001`（app）/ `127.0.0.1:8000`（mcp） | **`app:3001` / `mcp:8000`**（compose 服务名） |
+| 配置文件位置 | `/etc/nginx/sites-available/self-grow.conf` | `nginx/self-grow.conf`（挂进容器） |
+| 证书 | certbot 直接装系统，`/etc/letsencrypt` | certbot 写 `./nginx/certs`，容器挂到 `/etc/letsencrypt` |
+| 前提 | 把 app/mcp 的 ports 改成只绑 `127.0.0.1` | 同上；`nginx/self-grow.conf` 必须存在，否则容器起不来 |
+
+**⚠️ 头号坑**：容器里的 Nginx **不能**用 `proxy_pass http://127.0.0.1:3001`
+——那是它自己。必须用 compose 服务名。表现为 nginx 启动即报
+`host not found in upstream`，或起来后 502。
+
+**路线 B 的四步**：
+
+```bash
+cp nginx/self-grow.conf.example nginx/self-grow.conf     # 改里面的域名
+# 申请证书（写入 ./nginx/certs，与 compose 的挂载点一致）
+docker run --rm -it -p 80:80 \
+  -v "$PWD/nginx/certs:/etc/letsencrypt" \
+  certbot/certbot certonly --standalone -d 你的域名
+# 把 app / mcp 的 ports 都改成只绑回环（如 "127.0.0.1:3001:3001"）
+docker compose --profile with-nginx up -d
+```
+
+> `nginx` 服务带了 `profiles: ["with-nginx"]`，**默认不会启动** ——
+> 日常 `docker compose up -d` 只起 app（和 mcp），不受影响。
+
+**实测结果**（本地按上面步骤完整起栈，用自签证书 + `-H "Host: example.com"`）：
+
+| 检查 | 结果 |
+|---|---|
+| `http://…:80/api/health` | ✅ `301 Moved Permanently`（跳 HTTPS） |
+| `https://…/api/health` | ✅ `{"status":"ok","version":"1.2"}`（反代到 `app:3001` 通） |
+| `https://…/api/config.js` | ✅ 输出 `https://example.com`（`X-Forwarded-Proto` 透传正确） |
+| `https://…/mcp`（不带 Key） | ✅ `401`（反代到 `mcp:8000` 通、鉴权生效） |
+| `https://…/frontend/js/utils.js` | ✅ 200 + `Cache-Control: max-age=604800`（静态缓存生效） |
+
 ## 3.8 PID 1 与优雅退出、日志
 
 - 容器的 **PID 1 进程退出 = 容器退出**

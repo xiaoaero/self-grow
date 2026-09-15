@@ -264,6 +264,50 @@ cd backend
 MCP_TRANSPORT=streamable-http MCP_PORT=8000 python mcp_server.py
 ```
 
+### 6.6 走 Nginx 反代（推荐：这样就能用 HTTPS 域名接 MCP）
+
+客户端能不能方便地连上，取决于 **8000 端口可不可达**。`docker-compose.yml` 里默认只绑
+`127.0.0.1:8000`（安全考虑），所以要么开 SSH 隧道，要么让 Nginx 反代出去。
+`nginx/self-grow.conf.example` 里已经内置了 `/mcp` 的反代块，**直接用即可**。
+
+**⚠️ 最容易踩的一个坑：`proxy_pass` 的地址写法取决于 Nginx 跑在哪**
+
+| Nginx 跑在 | upstream 必须写 | 写成 127.0.0.1 会怎样 |
+|---|---|---|
+| **宿主机**（apt install nginx） | `127.0.0.1:3001` / `127.0.0.1:8000` | 正常 |
+| **容器**（本项目 `with-nginx` profile） | **`app:3001` / `mcp:8000`**（compose 服务名） | 指向 nginx 容器自己 → **必然 502** |
+
+**MCP 特有的两处配置**（`/mcp` 的 location 块里，漏了会"连上但一直没反应"）：
+
+```nginx
+location /mcp {
+    proxy_pass http://self_grow_mcp;
+    proxy_buffering off;          # ⚠️ SSE 长连接：不关缓冲，响应会被 nginx 攒着不发
+    proxy_cache off;
+    chunked_transfer_encoding on;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";   # ⚠️ 是空串，不是 "upgrade"
+    proxy_read_timeout 3600s;         # 会话可能长时间无数据
+    proxy_send_timeout 3600s;
+}
+```
+
+**实测验证（2026-09-15，本地完整起栈跑通）**：
+
+```bash
+curl -sk -H "Host: example.com" https://你的域名/api/health      # → {"status":"ok","version":"1.2"}
+curl -sk -X POST -H "Host: example.com" https://你的域名/mcp \
+     -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'          # → 401（鉴权生效，路径已打通）
+curl -sk -H "Host: example.com" https://你的域名/api/config.js    # → 应输出 https://你的域名（不是 127.0.0.1）
+```
+
+> 最后一条是**连带检查**：它验证 `X-Forwarded-Proto` 有正确透传。
+> 后端 `/api/config.js` 会按请求头反推前端要用的后端地址，
+> 所以反代配错协议头的话，会出现"页面能开但前端连不上后端"的怪现象（见云服务器手册 6.1）。
+
+客户端那里把 url 换成 `https://你的域名/mcp`、请求头仍带 `X-API-Key` 即可。
+
 ## 7. 待办与已知限制
 
 ### 7.1 Agent 级暴露（未实现）
