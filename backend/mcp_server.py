@@ -53,6 +53,13 @@ from starlette.responses import JSONResponse  # noqa: E402
 
 from config import SELF_GROW_TRUSTED_MODE  # noqa: E402
 from services import auth_service  # noqa: E402
+from db.init import init_db  # noqa: E402
+
+# 幂等建表：MCP Server 可能**单独启动**（例如 docker compose up -d mcp，
+# 或者与主站并行启动时的竞态），不能假设主站已经建过表。
+# 不调用它的话，全新数据卷上第一次请求会报 `no such table: api_keys`，
+# 表现为"Key 明明是刚生成的却一直 401 / 500"。
+init_db()
 
 from db.goals import (  # noqa: E402
     get_goals as db_get_goals,

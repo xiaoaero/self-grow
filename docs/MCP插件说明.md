@@ -163,19 +163,132 @@ curl -X POST http://localhost:8000/mcp \
 
 ## 6. 远程部署（已支持）
 
-stdio 仅限本地。设置环境变量即可切换为 **Streamable HTTP**（MCP 新规范），部署成远程 MCP 服务供多端接入：
+stdio 仅限本地。设 `MCP_TRANSPORT=streamable-http` 即可切换为 **Streamable HTTP**（MCP 新规范），
+部署成远程 MCP 服务供多端接入。客户端连接地址：`http://host:port/mcp`
 
-```bash
-MCP_TRANSPORT=streamable-http MCP_PORT=8000 python mcp_server.py
+### 6.1 用 Docker Compose 部署（推荐）
+
+`docker-compose.yml` 里已经内置 `mcp` 服务（与 `app` 共用同一个镜像，只是换了启动命令）：
+
+```yaml
+  mcp:
+    image: self-grow:1.2
+    container_name: self-grow-mcp
+    restart: unless-stopped
+    command: ["python", "mcp_server.py"]      # 覆盖镜像默认的 `python main.py`
+    ports:
+      - "127.0.0.1:8000:8000"                 # 只绑回环，公网走 Nginx / SSH 隧道
+    environment:
+      SELF_GROW_DATA_DIR: /data
+      TZ: ${TZ:-Asia/Shanghai}
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8000"
+      SELF_GROW_TRUSTED_MODE: "0"             # 必须 0，否则鉴权被跳过
+      SELF_GROW_JWT_SECRET: ${SELF_GROW_JWT_SECRET:-}
+    volumes:
+      - data:/data                            # ⚠️ 与 app 共享同一个卷
 ```
 
-客户端连接地址：`http://host:port/mcp`
+启动：
+
+```bash
+docker compose up -d --build      # 两个服务一起起
+docker compose up -d app          # 不需要 MCP 时，只点名 app 即可
+docker compose logs -f mcp        # 看到 "Uvicorn running on http://0.0.0.0:8000" 即成功
+```
+
+### 6.2 三个必须知道的点（踩过坑）
+
+| # | 要点 | 不这么做会怎样 |
+|---|---|---|
+| 1 | **必须与 `app` 共享同一个 `data` 卷** | 两条进程各读写一个 `data.db`：你在 AI 里记的行动，网站上看不到（反之亦然） |
+| 2 | **`SELF_GROW_TRUSTED_MODE` 必须为 0** | 为 1 时 `ApiKeyMiddleware` 直接放行所有请求，等于把 24 个写库工具裸奔在端口上 |
+| 3 | **端口不要直接对公网** | 拿到 Key 就能增删改你的数据。建议 `127.0.0.1:8000:8000` + Nginx 反代或 SSH 隧道 |
+
+> **关于建表**：`mcp_server.py` 启动时会调用一次 `init_db()`（幂等），
+> 所以 MCP **可以单独启动**而不会报 `no such table: api_keys`。
+> 早期版本没这一步，在全新数据卷上只起 mcp 会一直 401/500，很难排查。
+
+### 6.3 客户端接入
+
+1. 系统里生成 Key：**用户中心 → 账户安全 → 「API Key（MCP）」** → 创建（明文只显示一次）
+2. 客户端填连接信息：
+
+```json
+{
+  "mcpServers": {
+    "self-grow": {
+      "type": "streamable-http",
+      "url": "http://你的服务器:8000/mcp",
+      "headers": { "X-API-Key": "sgk_你的密钥" }
+    }
+  }
+}
+```
+
+> 不同客户端的字段名略有差异（有的用 `transport` / `httpUrl`），但**核心只有两个**：
+> URL 是 `http://host:8000/mcp`，鉴权头是 `X-API-Key`（也支持 `Authorization: Bearer sgk_...`）。
+
+### 6.4 验证与排查
+
+```bash
+# ① 不带 Key 应返回 401（说明鉴权生效了）
+curl -s -X POST http://127.0.0.1:8000/mcp \
+  -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# ② 带正确 Key 应返回 JSON-RPC 结果
+curl -s -X POST http://127.0.0.1:8000/mcp \
+  -H "X-API-Key: sgk_xxx" -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+```
+
+| 现象 | 原因 | 解决 |
+|---|---|---|
+| 一直 401 | Key 没带 / 带错 / 已撤销 | 重新在用户中心生成，注意请求头名是 `X-API-Key` |
+| `401` 但 Key 刚生成 | `SELF_GROW_TRUSTED_MODE` 看着像关了、实际是 1 | 检查容器 env：`docker compose exec mcp env \| grep TRUSTED` |
+| `no such table: api_keys` | 老版本 mcp_server.py（没调 `init_db()`） | 重建镜像；或先启动一次 `app` 让它建表 |
+| AI 记了行动，网站上没有 | 两个服务没共享 `data` 卷 | 对比 `docker inspect` 两个容器的 Mounts |
+| 客户端连不上 / 超时 | 端口只绑了回环，外部访问不到 | 走 SSH 隧道：`ssh -L 8000:127.0.0.1:8000 user@host` |
+| healthcheck 一直 unhealthy | 照抄了 app 的 `/api/health` | MCP 没有 `/health`（会 404），用 TCP 探测或干脆不配 |
+
+> **本地调试时注意**：后台启动的 MCP 进程会随启动它的那次 shell 会话一起退出，
+> 所以「起服务 + 发请求」要写在同一条命令里，否则会得到 connection refused。
+
+### 6.5 不用 Docker 直接跑
+
+```bash
+cd backend
+MCP_TRANSPORT=streamable-http MCP_PORT=8000 python mcp_server.py
+```
 
 ## 7. 待办与已知限制
 
 ### 7.1 Agent 级暴露（未实现）
 
 当前暴露的是**工具**。若要把整个 coordinator（多智能体编排 + 反问机制）也暴露成一个 MCP 工具，让外部客户端获得"多智能体编排"能力，尚未实现。
+
+### 7.1.1 部署缺口（✅ 2026-09-15 已补）
+
+早期 `docker-compose.yml` 里**只有 `app` 一个服务**，CMD 是 `python main.py` ——
+镜像里虽然带着 `mcp_server.py` 和 fastmcp，但 `docker compose up` 之后 MCP 是**没起来的**，
+表现为「代码就绪但没编进编排」。现已补上 `mcp` 服务（见 §6.1），并顺手修了一个连带问题：
+
+- `mcp_server.py` 启动时会调用 `init_db()`（幂等）。此前不调用，导致
+  **在全新数据卷上只启动 mcp** 时第一次请求就报 `no such table: api_keys`，
+  表现为"Key 明明是刚生成的却一直 401"。现在两条服务谁先起都不会出问题。
+
+实测记录（2026-09-15）：
+
+| 验证项 | 结果 |
+|---|---|
+| stdio：`tools/list` | 24 个工具，serverInfo `{"name":"Self Grow","version":"3.4.7"}` |
+| compose 起 mcp（**只起 mcp**） | 容器 `Up (healthy)`，`/data/data.db` 自动建出 23 张表（含 `api_keys`） |
+| HTTP 无 Key / 错 Key | 401 `{"error":"unauthorized",...}` |
+| HTTP 正确 Key | 200 + JSON-RPC `initialize` 结果（SSE） |
+| **共享卷** | 在 mcp 容器里生成的 Key，用 `app` 容器能读到同一条 → 确认同一个 `data.db` |
 
 ### 7.2 三个需要提前想清楚的点
 

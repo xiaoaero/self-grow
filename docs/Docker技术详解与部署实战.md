@@ -524,12 +524,36 @@ services:
       retries: 3
       start_period: 20s
 
+  # 可选：MCP Server（把 24 个业务工具暴露给 AI 客户端），
+  # 与 app 共用镜像 + **共用同一个 data 卷**。详见 docs/MCP插件说明.md §6
+  mcp:
+    image: self-grow:1.2
+    container_name: self-grow-mcp
+    restart: unless-stopped
+    command: ["python", "mcp_server.py"]      # 覆盖镜像默认的 python main.py
+    ports:
+      - "127.0.0.1:8000:8000"                 # 只绑回环，公网走反代/隧道
+    environment:
+      SELF_GROW_DATA_DIR: /data
+      MCP_TRANSPORT: streamable-http
+      SELF_GROW_TRUSTED_MODE: "0"             # 必须 0，否则 MCP 的 Key 校验被跳过
+    volumes:
+      - data:/data                            # ⚠️ 必须与 app 共享
+    healthcheck:                              # ⚠️ MCP 没有 /health（会 404），只做 TCP 探测
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 3).close()"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
 volumes:
-  data:                            # 命名卷：docker volume ls 可看到 self-grow_data
+  data:                            # 命名卷：docker volume ls 可看到 <项目名>_data
 ```
 
 > compose 里的 `${VAR:?错误信息}` 语法：变量未设置时**直接报错拒绝启动**，
 > 比"启动了但一登录 500"好排查得多（和后端 `ensure_jwt_secret()` 是同一个思路）。
+>
+> 不需要 MCP 就只起主站：`docker compose up -d app`（只点名 app，mcp 不会启动）。
 
 ### `.env`（与 docker-compose.yml 同级，**务必 gitignore**）
 
@@ -613,6 +637,9 @@ docker compose exec app python tools/init_password.py
 - [ ] 奖励商城上传一张图片 → `docker compose exec app ls /data/uploads` 能看到
 - [ ] **持久化测试**（最重要）：`docker compose down && docker compose up -d` → 数据还在
 - [ ] 公网部署：`SELF_GROW_CORS_ORIGINS` 是否正确、是否上了 HTTPS
+- [ ] （用了 MCP 的话）`docker compose ps` 里 `self-grow-mcp` 是 `Up (healthy)`；
+      不带 Key 调 `http://127.0.0.1:8000/mcp` 返回 **401**（返回别的说明鉴权没生效）；
+      在 MCP 里记一条行动 → 网站行动历史能看到（证明两个服务共享同一个卷）
 
 ## 5.6 备份与恢复
 

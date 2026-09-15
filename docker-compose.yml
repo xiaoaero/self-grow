@@ -81,6 +81,69 @@ services:
       retries: 3
       start_period: 20s
 
+  # ── MCP Server（可选）：把 24 个业务工具通过 MCP 协议暴露给 AI 客户端 ──
+  # 与 app 共用同一个镜像，只是换了启动命令。客户端连接地址：http://host:8000/mcp
+  #
+  # 三个必须知道的点：
+  #  1. **必须共享同一个 data 卷**：MCP 和主站要读写同一个 data.db，
+  #     否则你在 AI 里记的行动，网站上看不到（反过来也一样）
+  #  2. **必须带 X-API-Key**：只要监听了端口，任何能访问它的人都能调用 24 个写库工具。
+  #     Key 在「用户中心 → 账户安全 → API Key（MCP）」生成，可随时撤销
+  #  3. **SELF_GROW_TRUSTED_MODE 必须为 0**：为 1 时鉴权中间件会直接放行所有请求
+  #
+  # 不需要 MCP 就不启动它：`docker compose up -d app`（只点名 app 即可）
+  mcp:
+    # 复用 app 构建出来的镜像，不重复定义 build（先 docker compose build / up -d --build）
+    image: self-grow:1.2
+    container_name: self-grow-mcp
+    restart: unless-stopped
+
+    # 覆盖镜像默认的 `python main.py`
+    command: ["python", "mcp_server.py"]
+
+    ports:
+      # ⚠️ 只绑回环：公网访问请走 Nginx 反代或 SSH 隧道，别把 8000 直接开到公网。
+      # 确实要直连（仅测试）可改成 "8000:8000"，并同步在云控制台放行端口
+      - "127.0.0.1:8000:8000"
+
+    environment:
+      # 与主站同一个数据目录 + 同一个卷（见下方 volumes）
+      SELF_GROW_DATA_DIR: /data
+      TZ: ${TZ:-Asia/Shanghai}
+
+      # 传输方式：stdio（本地客户端 spawn，无鉴权）/ streamable-http（远程，必须带 Key）
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8000"
+
+      # 生产必须为 0；为 1 时 MCP 的 API Key 校验会被直接跳过
+      SELF_GROW_TRUSTED_MODE: "0"
+
+      # MCP 只用 API Key 鉴权、用不到 JWT，带上是为了与主站环境保持一致
+      SELF_GROW_JWT_SECRET: ${SELF_GROW_JWT_SECRET:-}
+
+    volumes:
+      # ⚠️ 关键：与 app 用同一个命名卷，两条进程看的是同一个 data.db
+      - data:/data
+
+    # 注意：MCP 没有 /health 路由（访问会 404），别照抄 app 的 healthcheck。
+    # 这里只做 TCP 连通性探测：端口能连上就算活着。
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 3).close()"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+    mem_limit: 512m
+    cpus: 0.5
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 # ── 可选：Nginx 反向代理 + HTTPS ────────────────────────────
 # 公网部署时启用：把上面 ports 改成 127.0.0.1:3001:3001，
 # 再执行 `docker compose --profile with-nginx up -d`
