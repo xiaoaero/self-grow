@@ -261,17 +261,21 @@ class AIBridge {
     this.messagesEl.appendChild(el);
     this.scrollToBottom();
 
-    const remove = () => el.remove();
-    el.querySelector('.ok').addEventListener('click', () => {
-      remove();
-      this.addMessage('user', '确认执行');
-      this.resume(true);
-    });
-    el.querySelector('.cancel').addEventListener('click', () => {
-      remove();
-      this.addMessage('user', '取消该操作');
-      this.resume(false, '用户取消了该操作，请不要执行它');
-    });
+    // 防连点：点击后立刻把两个按钮禁掉并移除卡片。
+    // `el.isConnected` 是第二道保险 —— 万一同一帧内派发了两次 click，
+    // 第二次会因为元素已脱离文档而直接返回
+    const decide = (confirmed, text, message) => {
+      if (el.__decided || !el.isConnected) return;
+      el.__decided = true;
+      el.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+      el.remove();
+      this.addMessage('user', text);
+      this.resume(confirmed, message);
+    };
+
+    el.querySelector('.ok').addEventListener('click', () => decide(true, '确认执行', ''));
+    el.querySelector('.cancel').addEventListener('click',
+      () => decide(false, '取消该操作', '用户取消了该操作，请不要执行它'));
   }
 
   /* ================================================================

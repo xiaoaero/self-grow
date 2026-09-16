@@ -266,6 +266,26 @@ async def get_current_user(user_id: int = Query(...)):
 
 **`resume` 的幂等保护**：若该域已完成且无待处理反问，直接返回当前状态，不重复执行。
 
+**`resume` 的会话锁（2026-09-16 新增）**：同一 `thread_id` 同时只允许一个写请求，
+冲突返回 **409**。
+
+- 起因：`/resume` 是「读 state → await 子图 → 写 state」，两次并发请求会在 await 点
+  交错，双方都读到「该域还没完成」→ **子图被重复执行**。实测（单域场景连点两次发送）
+  `results` 变成 2 条、子图跑了两次。写库型工具会重复写入（连点发送 = 创建两个任务）
+- 为什么必须在服务端做：前端防抖只能挡「手滑连点」，挡不住重试、多标签页、脚本调用
+- 占用时机：**返回流式响应之前**（否则拿不到干净的 409 状态码）；
+  释放在 runner 的 `finally` 里（`StreamingResponse` 是「返回即开始」，
+  在端点里释放等于业务还没跑就把锁丢了）。客户端中途断开也会走 `finally`，不会锁死会话
+- 配套：前端把多个回答**排队串行提交**（见 §6.2），所以正常操作不会撞到 409
+
+**`resume` 的 `skip` 语义（2026-09-16 新增）**：`skip: true` 表示用户跳过这个提问 ——
+**不重新执行子图**，直接把这个域标记为已完成。
+
+- 必须显式告诉后端：跳过的域如果永远完不成，`pending_domains ⊆ completed_domains`
+  恒不成立 → **这条记录的总结永远不会生成**（改造前前端只删本地卡片，就是这个结果）
+- 不重跑子图也有实际好处：用户没给信息，再问一遍也问不出来，省一次 LLM 调用，
+  也避免子 Agent 拿不到信息硬猜着去写库
+
 ### 6.2 前端（`frontend/js/chat.js`）
 
 - **走 SSE 流式**（2026-09-16 改造）：`fetch` + `resp.body.getReader()` 读事件流
@@ -273,9 +293,40 @@ async def get_current_user(user_id: int = Query(...)):
   （服务端中途出错会降级成规则拼接，所以 done 才是权威值）
 - ⚠️ **不能用原生 `EventSource`**：它不能自定义请求头，而身份是 `js/auth.js`
   包装 `fetch` 注入的 `Authorization: Bearer`，用 EventSource 必然 401
-- 反问用 `interruptQueue` 队列管理，可同时挂多个域的反问卡片
 - `thread_id` 存 `sessionStorage`（key：`self_grow_coordinator_thread_id`）——刷新不丢，关闭浏览器才丢
 - 恢复时携带 `sub_thread_id`，精确指定恢复哪个子图
+
+**反问卡片的提交逻辑（2026-09-16 重写）**
+
+一次消息可能路由到多个域，**两个反问一同到达是常态**。改造前用单个 `isLoading`
+全局开关挡住第二次提交，结果是：
+
+| 问题 | 后果 |
+|---|---|
+| `if (this.isLoading) return` | 用户在 B 卡片里提交 → **静默无反应**（不报错、不提示），只能反复点 |
+| 绕过前端直接并发 | 后端子图重复执行 → 写库型工具重复写入 |
+| `_refreshInterruptArea()` 里 `innerHTML = ''` | 提交 A 会把 **B 卡片里已输入的内容清空** |
+| `skipInterrupt` 只删本地卡片 | 后端不知道该域已放弃 → 总结永远为空 |
+
+现在的做法：
+
+1. **串行队列**：`resumeInterrupt` / `skipInterrupt` 只把任务推入 `_answerJobs`，
+   由 `_drainAnswers()` 单飞循环逐个发 —— 天然不会并发撞 409
+2. **状态即防抖**：`_interruptStatus[id]` 在第一次点击时**同步**置为 `queued`，
+   后续点击（连点、Enter 连按）在入口检查处被忽略。比定时器防抖可靠 ——
+   定时器窗口之外仍可能漏
+3. **草稿保留**：重渲染前先 `_captureInterruptDrafts()`，输入框实时写回草稿 map，
+   重建后回填。提交 A 不会再清掉 B 里打的字
+4. **排队/提交中有明确反馈**：卡片降透明度 + 状态行「排队中…／正在提交…」+
+   按钮禁用（改造前是毫无反馈）
+5. **失败可重试**：请求失败时卡片**留在原地**、状态清除、输入内容还回去
+   （`delete this._interruptStatus[id]` —— 不能赋 `'idle'`，卡片判断用的是
+   `busy = !!status`，任何真值都会被当成忙）
+6. **进场动画**：卡片首次出现时淡入 + 轻微上移，两张错开 70ms；
+   用 `_interruptAnimated` 记标记，重渲染不重播
+
+配套测试：`frontend/tests/interrupt-submit.test.mjs`（Node + 极简假 DOM，
+不开浏览器、零依赖，7 组场景）。**这个测试当场抓到了上面第 5 点的 `'idle'` 真值 bug。**
 
 ### 6.3 编排状态存储
 

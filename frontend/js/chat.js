@@ -17,6 +17,19 @@ const AIChat = {
     interruptQueue: [],       // 完整队列（所有待处理的 interrupt）
     maxVisibleCards: 2,        // 最多同时显示 2 张卡片
 
+    // 反问卡片的运行时状态（不放进 interruptQueue，因为它是后端数据）
+    //
+    // 为什么需要它：一次消息可能路由到多个域，两边同时缺信息 →
+    // **两个反问一同到达是常态**。而回答一个反问要写后端编排 state，
+    // 后端对同一会话加了锁（并发提交第二个会拿到 409），所以前端必须
+    // 把多个回答**串起来**逐个发。这个 map 记录每张卡片当前处于
+    // 待发 / 发送中，用来①防重复点击 ②在卡片上给出"排队中/提交中"的反馈。
+    _interruptStatus: {},     // interrupt.id → 'queued' | 'sending'
+    _answerJobs: [],          // 待提交的回答（FIFO）
+    _answerRunning: false,    // 是否正在串行提交
+    _interruptDrafts: {},     // interrupt.id → 输入框草稿（重渲染不能丢）
+    _interruptAnimated: {},   // 已播过进场动画的卡片（避免每次重渲染都重播）
+
     // DOM 引用
     ball: null,
     dialog: null,
@@ -198,55 +211,130 @@ const AIChat = {
         }
     },
 
-    /** 回答反问 */
-    async resumeInterrupt(interruptId, answer) {
-        if (this.isLoading) return;
-
-        // 从队列中找到并移除已回答的 interrupt
+    /**
+     * 回答一个反问（进入串行队列，不直接发请求）
+     *
+     * 为什么不在这里直接发：一次消息可能路由到多个域，**两个反问一同到达是常态**。
+     * 后端 /resume 对同一会话加了锁（并发写会重复执行子图 → 写库型工具重复写入），
+     * 第二个并发请求会拿到 409。所以前端必须把多个回答排队逐个发。
+     *
+     * 防抖靠 `_interruptStatus`：第一次点击就同步把它置为 queued，
+     * 后续点击（连点、Enter 连按）在状态检查处直接被忽略 ——
+     * 比用定时器防抖更可靠（定时器窗口之外仍可能漏）。
+     */
+    resumeInterrupt(interruptId, answer) {
         const interrupt = this.interruptQueue.find(i => i.id === interruptId);
         if (!interrupt) return;
-        this.interruptQueue = this.interruptQueue.filter(i => i.id !== interruptId);
+        if (this._interruptStatus[interruptId]) return;   // 已排队/发送中 → 忽略重复点击
 
-        // 立即刷新反问区：当前卡片马上关闭，队列中下一个补上（不等 fetch 返回）
+        const text = (answer || '').trim();
+        if (!text) return;
+
+        delete this._interruptDrafts[interruptId];
+        this._interruptStatus[interruptId] = 'queued';
+        this._answerJobs.push({
+            interruptId: interruptId,
+            domain: interrupt.domain,
+            sub_thread_id: interrupt.sub_thread_id,
+            text: text,
+            skip: false,
+        });
         this._refreshInterruptArea();
+        this._drainAnswers();
+    },
 
+    /**
+     * 串行提交排队中的回答（一次只发一个）
+     *
+     * 用一个 while 循环 + `_answerRunning` 标志实现「单飞」：
+     * 先到的调用负责把队列清空，后来的调用看到标志就直接返回。
+     */
+    async _drainAnswers() {
+        if (this._answerRunning) return;
+        this._answerRunning = true;
         this.isLoading = true;
         this.sendBtn.disabled = true;
-        const bubble = this._showStream();
+        this._refreshInterruptArea();   // 立即把还在排队的卡片标成"排队中"
 
+        try {
+            while (this._answerJobs.length) {
+                const job = this._answerJobs[0];
+                this._interruptStatus[job.interruptId] = 'sending';
+                this._refreshInterruptArea();
+
+                const ok = await this._submitAnswer(job);
+
+                this._answerJobs.shift();
+                if (ok) {
+                    // 后端已消费这次回答 → 卡片退场
+                    this.interruptQueue = this.interruptQueue
+                        .filter(i => i.id !== job.interruptId);
+                    delete this._interruptStatus[job.interruptId];
+                } else {
+                    // 失败 → 恢复成可提交，并把输入内容还回去让用户重试。
+                    // ⚠️ 必须 **delete** 而不是赋 'idle'：卡片渲染用的是
+                    // `busy = !!status`，任何真值（包括字符串 'idle'）都会被当成忙
+                    delete this._interruptStatus[job.interruptId];
+                    if (job.text) this._interruptDrafts[job.interruptId] = job.text;
+                }
+                this._refreshInterruptArea();
+            }
+        } finally {
+            this._answerRunning = false;
+            this.isLoading = false;
+            this.sendBtn.disabled = false;
+            this._refreshInterruptArea();
+        }
+    },
+
+    /**
+     * 真正发出一次 /resume 请求
+     *
+     * @returns {Promise<boolean>} 是否成功（失败时调用方会把卡片恢复成可重试）
+     */
+    async _submitAnswer(job) {
+        const bubble = this._showStream();
         try {
             const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
             // JWT 改造：身份由 Authorization 头决定，user_id 仅作参考，不再兜底为 1
             const userId = AppData?.user?.id || getCurrentUser()?.id;
 
+            const body = {
+                thread_id: this.threadId,
+                sub_thread_id: job.sub_thread_id,   // 指定恢复哪个子图
+            };
+            if (job.skip) {
+                // 跳过必须显式告诉后端：否则这个域永远完不成 →
+                // 这条记录的总结**永远不会生成**
+                body.skip = true;
+            } else {
+                body.answer = job.text;
+            }
+
             const data = await this._streamCall(
                 `${API_BASE}/api/coordinator/resume?user_id=${userId}`,
-                {
-                    thread_id: this.threadId,
-                    sub_thread_id: interrupt.sub_thread_id,  // 指定恢复哪个子图
-                    answer: answer,
-                },
+                body,
                 bubble,
             );
 
             if (data.results && data.results.length > 0) {
                 this._renderToolCalls(data.results);
             }
-
-            // 如果有新的 interrupts，加入队列
+            // 该子图可能又反问一次 → 回到待答队列
             if (data.interrupts && data.interrupts.length > 0) {
                 this.interruptQueue.push(...data.interrupts);
             }
-
-            // 刷新显示（出队下一张卡片）
-            this._refreshInterruptArea();
-
+            return true;
         } catch (err) {
+            // 已经流出来的内容保留着（用户能看到部分结果），下面再补一条错误说明
             bubble.finish();
-            this._appendMessage('assistant', `抱歉，出了点问题：${err.message}`);
-        } finally {
-            this.isLoading = false;
-            this.sendBtn.disabled = false;
+            // 409 = 后端说"上一条还在处理中"。理论上排队后不该出现，
+            // 出现了说明有另一个标签页 / 别的客户端在同时操作 —— 提示得具体点
+            const hint = (err && err.status === 409)
+                ? '（可能在另一个标签页或窗口提交过，请刷新页面后重试）'
+                : '';
+            this._appendMessage('assistant', `抱歉，出了点问题：${err.message}${hint}`);
+            return false;
         }
     },
 
@@ -434,15 +522,50 @@ const AIChat = {
         }
     },
 
-    /** 跳过（忽略）某个反问 */
+    /**
+     * 跳过某个反问
+     *
+     * ⚠️ 必须**调用后端**（`skip: true`），不能只在本地把卡片删掉：
+     * 后端要靠这次调用把这个域标记成"已完成"，否则 `pending_domains` 永远
+     * 不是 `completed_domains` 的子集 → 这条记录的总结**永远不会生成**。
+     *
+     * 与回答共用同一条串行队列：跳过同样会写后端编排 state，不能并发。
+     */
     skipInterrupt(interruptId) {
-        this.interruptQueue = this.interruptQueue.filter(i => i.id !== interruptId);
+        const interrupt = this.interruptQueue.find(i => i.id === interruptId);
+        if (!interrupt) return;
+        if (this._interruptStatus[interruptId]) return;   // 已排队/发送中 → 忽略
+
+        delete this._interruptDrafts[interruptId];
+        this._interruptStatus[interruptId] = 'queued';
+        this._answerJobs.push({
+            interruptId: interruptId,
+            domain: interrupt.domain,
+            sub_thread_id: interrupt.sub_thread_id,
+            text: '',
+            skip: true,
+        });
         this._refreshInterruptArea();
-        this._appendMessage('assistant', '已跳过该提问');
+        this._drainAnswers();
+    },
+
+    /** 重渲染前把卡片里已输入的内容存起来（否则 innerHTML='' 会把另一个卡片的输入清掉） */
+    _captureInterruptDrafts() {
+        if (!this.interruptArea) return;
+        this.interruptArea.querySelectorAll('.chat__interrupt-card').forEach((card) => {
+            const id = card.dataset.id;
+            const input = card.querySelector('.chat__interrupt-input');
+            if (id && input) this._interruptDrafts[id] = input.value;
+        });
     },
 
     /** 刷新反问区域（FIFO 队列渲染，最多 maxVisibleCards 张卡片） */
     _refreshInterruptArea() {
+        if (!this.interruptArea) return;
+
+        // ⚠️ 必须在清空之前抓草稿：用户在 A 卡片里打了半句，然后去提交 B 卡片，
+        // 重渲染会把 A 的输入一起清掉 —— 这是改造前丢答案的原因之一
+        this._captureInterruptDrafts();
         this.interruptArea.innerHTML = '';
 
         const visible = this.interruptQueue.slice(0, this.maxVisibleCards);
@@ -453,20 +576,38 @@ const AIChat = {
             this.interruptArea.appendChild(card);
         }
 
-        // 超过 2 张时显示排队提示
+        // 超过 maxVisibleCards 时显示排队提示
         if (remaining > 0) {
             const queueHint = document.createElement('div');
             queueHint.className = 'chat__interrupt-queue-hint';
             queueHint.textContent = `还有 ${remaining} 个提问排队中，回答后自动显示`;
             this.interruptArea.appendChild(queueHint);
         }
+
+        // 说明性提示放在**最后**（appendChild 会把提示压到队列提示下面）
+        if (this._answerRunning) {
+            const busyHint = document.createElement('div');
+            busyHint.className = 'chat__interrupt-busy-hint';
+            busyHint.textContent = '之前的回答还在处理中，这一条会在它完成后自动发送…';
+            this.interruptArea.appendChild(busyHint);
+        }
     },
 
     /** 创建单张反问卡片 DOM */
     _createInterruptCard(interrupt) {
+        const status = this._interruptStatus[interrupt.id];   // undefined | 'queued' | 'sending'
+        const busy = !!status;
+
         const card = document.createElement('div');
         card.className = 'chat__interrupt-card';
         card.dataset.id = interrupt.id;
+        if (busy) card.classList.add('chat__interrupt-card--busy');
+
+        // 进场动画只在**首次**创建时加：每次重渲染都重播会很晃眼
+        if (!this._interruptAnimated[interrupt.id]) {
+            this._interruptAnimated[interrupt.id] = true;
+            card.classList.add('chat__interrupt-card--enter');
+        }
 
         // 头部：域名标签 + 关闭按钮
         const header = document.createElement('div');
@@ -480,6 +621,7 @@ const AIChat = {
         skipBtn.className = 'chat__interrupt-skip';
         skipBtn.textContent = '×';
         skipBtn.title = '跳过此提问';
+        skipBtn.disabled = busy;
         skipBtn.addEventListener('click', () => this.skipInterrupt(interrupt.id));
 
         header.appendChild(domainLabel);
@@ -492,6 +634,16 @@ const AIChat = {
         question.textContent = interrupt.question || '请补充信息';
         card.appendChild(question);
 
+        // 状态行：给排队/提交中的卡片一个明确的反馈
+        //（改造前是静默吞掉第二次提交，用户点了没反应，只能反复点）
+        if (busy) {
+            const statusEl = document.createElement('div');
+            statusEl.className = 'chat__interrupt-status';
+            statusEl.innerHTML = '<span class="chat__interrupt-status-dot"></span>'
+                + (status === 'sending' ? '正在提交…' : '排队中，等待上一条完成…');
+            card.appendChild(statusEl);
+        }
+
         // 输入框 + 发送按钮（自由文本回答）
         const inputRow = document.createElement('div');
         inputRow.className = 'chat__interrupt-input-row';
@@ -499,11 +651,17 @@ const AIChat = {
         const input = document.createElement('input');
         input.type = 'text';
         input.className = 'chat__interrupt-input';
-        input.placeholder = '输入你的回答...';
+        input.placeholder = busy ? '上一条处理完后可继续' : '输入你的回答...';
+        input.value = this._interruptDrafts[interrupt.id] || '';
+        input.disabled = busy;
+        input.addEventListener('input', () => {
+            this._interruptDrafts[interrupt.id] = input.value;
+        });
 
         const sendBtn = document.createElement('button');
         sendBtn.className = 'chat__interrupt-send';
-        sendBtn.textContent = '发送';
+        sendBtn.textContent = busy ? '…' : '发送';
+        sendBtn.disabled = busy;
         sendBtn.addEventListener('click', () => {
             const val = input.value.trim();
             if (val) {
@@ -532,6 +690,7 @@ const AIChat = {
                 const btn = document.createElement('button');
                 btn.className = 'chat__interrupt-option';
                 btn.textContent = opt;
+                btn.disabled = busy;
                 btn.addEventListener('click', () => {
                     this.resumeInterrupt(interrupt.id, opt);
                 });

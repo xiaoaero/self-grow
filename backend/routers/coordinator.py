@@ -82,6 +82,46 @@ def _extract_domain(sub_thread_id: str) -> str:
     return parts[-1]
 
 
+# ── 会话级「处理中」锁（串行化同一 thread_id 的写请求）──────
+#
+# 为什么必须在**服务端**做（而不是只靠前端禁按钮）：
+#   /chat 与 /resume 都是「读 state → await 子图 → 写 state」。
+#   两次并发请求会在 await 点交错：两个都读到「该域还没完成」，
+#   于是**子图被重复执行**。真实后果是写库型工具跑两次
+#   （比如连点发送按钮 → 创建两个任务 / 打卡两次）。
+#   实测证据：只有 1 个域时并发提交两次 → `results` 变成 2 条、
+#   两个请求都拿到了最终回复。
+#
+# 前端加防抖/禁用按钮只能挡住「手滑连点」，挡不住重试、多标签页、
+# 脚本调用 —— 所以服务端必须自己兜住。
+#
+# 用「逻辑锁」不是线程锁：请求处理是异步的，锁的持有期跨越 await，
+# 只能用「集合标记 + 用后即除」。集合本身不做并发保护，但因为
+# 判定与插入之间没有 await，事件循环里是原子的。
+_inflight: set[str] = set()
+
+
+def _acquire_session(thread_id: str) -> None:
+    """占用会话；已被占用则抛 409
+
+    ⚠️ 调用时机很关键：必须在**返回流式响应之前**占用
+    （否则第二个请求要等流建立才知道冲突，拿不到干净的 409 状态码），
+    而释放要放在 runner 的 `finally` 里 —— StreamingResponse 是「返回即开始」，
+    在端点函数里释放等于业务还没跑就把锁丢了。
+    """
+    if thread_id in _inflight:
+        raise HTTPException(
+            status_code=409,
+            detail="上一条内容还在处理中，请等它结束再提交",
+        )
+    _inflight.add(thread_id)
+
+
+def _release_session(thread_id: str) -> None:
+    """释放会话（幂等，可以重复调）"""
+    _inflight.discard(thread_id)
+
+
 class ChatRequest(BaseModel):
     message: str
     thread_id: Optional[str] = None
@@ -90,7 +130,11 @@ class ChatRequest(BaseModel):
 class ResumeRequest(BaseModel):
     thread_id: str
     sub_thread_id: str
-    answer: str
+    answer: str = ""
+    # 用户点「跳过」时置 true：**不重新执行子图**，直接把这个域标记为已完成。
+    # 必须有这个语义，否则「跳过一个提问」会让该域永远完不成 →
+    # pending_domains 永远不是 completed 的子集 → 这条记录的总结**永远不会生成**。
+    skip: bool = False
 
 
 def _state_payload(thread_id: str, state: CoordinatorState, **overrides) -> dict:
@@ -134,12 +178,19 @@ async def chat(request: ChatRequest, user=Depends(get_current_user)):
     )
     _store_state(thread_id, state)
 
+    _acquire_session(thread_id)
+
     async def runner(emit):
-        # use_emitter 让深层代码（graph / agent / tool）也能推阶段事件
-        with use_emitter(emit):
-            await run_coordinator_stream(state)
-        _store_state(thread_id, state)
-        await emit({"type": "done", **_state_payload(thread_id, state)})
+        try:
+            # use_emitter 让深层代码（graph / agent / tool）也能推阶段事件
+            with use_emitter(emit):
+                await run_coordinator_stream(state)
+            _store_state(thread_id, state)
+            await emit({"type": "done", **_state_payload(thread_id, state)})
+        finally:
+            # 客户端中途断开时 stream_events 会 cancel 这个任务，
+            # CancelledError 也会走 finally —— 不会把会话锁死
+            _release_session(thread_id)
 
     return sse_response(stream_events(runner))
 
@@ -151,8 +202,13 @@ async def resume(request: ResumeRequest, user=Depends(get_current_user)):
     流程：
     1. 校验编排状态与用户归属
     2. 解析 sub_thread_id → domain，调用 resume_subgraph 追加回答
+       （`skip=True` 时跳过这步，直接把该域标记为已完成）
     3. 若子图又反问 → 返回新 interrupt；若完成 → 记录结果并标记域完成
     4. 所有域完成 → 触发 synthesize 生成最终总结
+
+    ⚠️ 同一 thread_id 同时只允许一个写请求（见 `_acquire_session`），
+    冲突时返回 **409**。这是为了防止「连点 / 重试 / 多标签页」导致
+    子图被重复执行（写库型工具会重复写入）。
     """
     state = _get_state(request.thread_id)
     if not state:
@@ -167,81 +223,94 @@ async def resume(request: ResumeRequest, user=Depends(get_current_user)):
     pending_interrupt_ids = {i.get("sub_thread_id") for i in state.get("interrupts", [])}
     if request.sub_thread_id not in pending_interrupt_ids and domain in set(state.get("completed_domains", [])):
         # 幂等命中：没有任何异步工作，发一个 done 就结束
+        # （注意：这里**不占锁** —— 它不读改共享 state，也就没有竞态）
         return await immediate_response(
             _state_payload(request.thread_id, state, results=[])
         )
 
+    # 占用会话；已被占用会抛 409（干净的 HTTP 状态码，前端能区分）
+    _acquire_session(request.thread_id)
+
     async def runner(emit):
-        # 注意：字段与改造前的 JSON 返回**逐字一致** ——
-        # interrupts / results 只含本次新增的（这是原本的行为，前端据此追加反问，
-        # 不要"顺手"改成累计值），另外多带一个 pending_domains。
+        # 字段与改造前的 JSON 返回**逐字一致**（interrupts / results 只含本次新增的，
+        # 前端据此追加反问，不要"顺手"改成累计值），另外多带一个 pending_domains
         done_payload = None
+        label = DOMAIN_LABELS.get(domain, domain)
 
-        with use_emitter(emit):
-            await emit_stage(
-                "domain_start",
-                f"{DOMAIN_LABELS.get(domain, domain)}：处理你的回答…",
-                domain=domain,
-            )
-
-            try:
-                new_results, new_interrupts = await resume_subgraph(
-                    domain, request.sub_thread_id, request.answer
-                )
-            except Exception as e:
-                log.error(f"恢复执行失败：{e}")
-                await emit({"type": "error", "message": f"恢复失败：{str(e)}"})
-                return
-
-            # 移除该子图旧的 interrupt，追加新 interrupt（其它域的反问保留）
-            remaining_interrupts = [
-                i for i in state.get("interrupts", [])
-                if i.get("sub_thread_id") != request.sub_thread_id
-            ]
-            state["interrupts"] = remaining_interrupts + new_interrupts
-
-            # 累积结果 + 更新完成域
-            state["results"] = list(state.get("results", [])) + new_results
-            completed = set(state.get("completed_domains", []))
-            if not new_interrupts:
-                completed.add(domain)
-            state["completed_domains"] = list(completed)
-
-            # 判断是否所有域都完成 → 阶段三总结（这一步逐 token 推给前端）
-            pending_domains = {t["domain"] for t in state.get("pending_tasks", [])}
-            if pending_domains and pending_domains.issubset(completed):
-                await emit_stage("synthesize", "正在整理回复…")
-                syn = await synthesize_node(state, on_token=emit_token)
-                state["final_reply"] = syn.get("final_reply", "")
-                # 三阶段走完 → 压入近 5 条历史
-                finalize_record(state)
-            else:
-                state["final_reply"] = ""
-
-            if new_interrupts:
+        try:
+            with use_emitter(emit):
                 await emit_stage(
-                    "domain_ask",
-                    f"{DOMAIN_LABELS.get(domain, domain)}：还需要补充信息",
-                    domain=domain,
-                )
-            else:
-                await emit_stage(
-                    "domain_done",
-                    f"{DOMAIN_LABELS.get(domain, domain)}：已完成",
+                    "domain_start",
+                    f"{label}：已跳过这个提问" if request.skip
+                    else f"{label}：处理你的回答…",
                     domain=domain,
                 )
 
-            _store_state(request.thread_id, state)
-            done_payload = _state_payload(
-                request.thread_id, state,
-                interrupts=new_interrupts,
-                results=new_results,
-                pending_domains=list(pending_domains),
-            )
+                if request.skip:
+                    # 跳过：不重新执行子图（用户没提供信息，再问也问不出来），
+                    # 只把该域标记成"已完成"，让编排还能走到总结那一步
+                    new_results = [{
+                        "domain": domain,
+                        "message": f"{label}：已跳过",
+                        "success": None,
+                        "sub_thread_id": request.sub_thread_id,
+                        "skipped": True,
+                    }]
+                    new_interrupts = []
+                else:
+                    try:
+                        new_results, new_interrupts = await resume_subgraph(
+                            domain, request.sub_thread_id, request.answer
+                        )
+                    except Exception as e:
+                        log.error(f"恢复执行失败：{e}")
+                        await emit({"type": "error", "message": f"恢复失败：{str(e)}"})
+                        return
 
-        # 出错时上面已经发过 error 事件（前端把 error 当终止信号），不再补 done
-        if done_payload is not None:
-            await emit({"type": "done", **done_payload})
+                # ── 下面这段「读 → 改 → 写」靠 _acquire_session 的会话锁保证
+                #    不会与另一个写请求交错（它内部有 await emit_stage）──
+                remaining_interrupts = [
+                    i for i in state.get("interrupts", [])
+                    if i.get("sub_thread_id") != request.sub_thread_id
+                ]
+                state["interrupts"] = remaining_interrupts + new_interrupts
+
+                # 累积结果 + 更新完成域
+                state["results"] = list(state.get("results", [])) + new_results
+                completed = set(state.get("completed_domains", []))
+                if not new_interrupts:
+                    completed.add(domain)
+                state["completed_domains"] = list(completed)
+
+                # 判断是否所有域都完成 → 阶段三总结（这一步逐 token 推给前端）
+                pending_domains = {t["domain"] for t in state.get("pending_tasks", [])}
+                if pending_domains and pending_domains.issubset(completed):
+                    await emit_stage("synthesize", "正在整理回复…")
+                    syn = await synthesize_node(state, on_token=emit_token)
+                    state["final_reply"] = syn.get("final_reply", "")
+                    # 三阶段走完 → 压入近 5 条历史
+                    finalize_record(state)
+                else:
+                    state["final_reply"] = ""
+
+                if new_interrupts:
+                    await emit_stage("domain_ask", f"{label}：还需要补充信息", domain=domain)
+                else:
+                    await emit_stage("domain_done", f"{label}：已完成", domain=domain)
+
+                _store_state(request.thread_id, state)
+                done_payload = _state_payload(
+                    request.thread_id, state,
+                    interrupts=new_interrupts,
+                    results=new_results,
+                    pending_domains=list(pending_domains),
+                )
+
+            # 出错时上面已经发过 error 事件（前端把 error 当终止信号），不再补 done
+            if done_payload is not None:
+                await emit({"type": "done", **done_payload})
+        finally:
+            _release_session(request.thread_id)
 
     return sse_response(stream_events(runner))
 

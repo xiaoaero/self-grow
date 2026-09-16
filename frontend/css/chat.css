@@ -339,6 +339,70 @@
     padding: 12px;
 }
 
+/* 进场动画：淡入 + 轻微上移。只在卡片**首次出现**时加这个类（JS 控制），
+   否则每次重渲染都重播会很晃眼 */
+.chat__interrupt-card--enter {
+    animation: chat-interrupt-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+/* 两张卡片同时到达时错开一点，看起来是「依次出现」而不是「一起蹦出来」 */
+.chat__interrupt-card--enter:nth-child(2) {
+    animation-delay: 0.07s;
+}
+
+@keyframes chat-interrupt-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chat__interrupt-card--enter { animation: none; }
+}
+
+/* 排队中 / 提交中：整体降透明度，和"可操作"的卡片区分开 */
+.chat__interrupt-card--busy {
+    opacity: 0.72;
+}
+
+.chat__interrupt-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+.chat__interrupt-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    animation: chat-bounce 1.4s infinite ease-in-out;
+    flex: none;
+}
+
+/* 「之前的回答还在处理中」提示 */
+.chat__interrupt-busy-hint {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-secondary);
+    padding: 2px 2px 0;
+}
+
+/* 禁用态：光标与降透明度，避免用户以为"按钮坏了" */
+.chat__interrupt-send:disabled,
+.chat__interrupt-option:disabled,
+.chat__interrupt-skip:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.chat__interrupt-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 /* 卡片头部：域名标签 + 跳过按钮 */
 .chat__interrupt-header {
     display: flex;
