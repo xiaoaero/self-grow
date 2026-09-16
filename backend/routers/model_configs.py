@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from routers.deps import get_current_user
 from db.model_configs import (
     get_configs, get_config, create_config, update_config,
-    delete_config, set_active,
+    delete_config, set_active, get_active_config,
 )
 
 router = APIRouter(prefix="/api/model-configs", tags=["model-configs"])
@@ -101,31 +101,67 @@ def activate_config(config_id: int, user=Depends(get_current_user)):
 
 class ModelConfigTest(BaseModel):
     type: str
-    model: str
+    model: str = ""
     base_url: str = ""
     api_key: str = ""
+    # 要测试的是哪条配置：api_key 留空时用它**已保存**的 Key
+    config_id: Optional[int] = None
 
 
 @router.post("/test")
 async def test_connection(req: ModelConfigTest, user=Depends(get_current_user)):
-    """测试模型配置连通性（LLM 发 ping，ASR 做配置校验）"""
-    if not req.api_key:
-        return {"success": False, "message": "API Key 为空"}
-    if req.type == "llm":
-        return await _test_llm(req)
-    elif req.type == "asr":
+    """测试模型配置连通性（LLM 发 ping，ASR 做配置校验）
+
+    **api_key 允许留空** —— 留空时回落到已保存的 Key：
+      · 传了 config_id → 用那条配置存的 Key（顺带校验归属，别人的一律不认）
+      · 没传 config_id → 用该 type 下「当前启用」的配置
+
+    为什么要有这个回落：列表接口返回的是**脱敏** Key（`sk-****abcd`），
+    前端弹窗里那个输入框拿不到明文，于是用户每次点「测试连通性」都被要求
+    重新粘贴一遍密钥 —— 明明刚刚保存过。现在留空即用已保存的那把，
+    密钥始终不出服务端，比"把明文吐给前端"安全。
+    """
+    # 1) 先定位"可回落"的配置
+    cfg = None
+    if req.config_id:
+        cfg = get_config(req.config_id)
+        if cfg and cfg["user_id"] != user["id"]:
+            cfg = None                      # 不是自己的配置，当作不存在
+    if cfg is None and not req.api_key:
+        cfg = get_active_config(user["id"], req.type)
+
+    # 2) 取密钥：优先用请求里带的，否则用已保存的
+    api_key = (req.api_key or "").strip() or ((cfg or {}).get("api_key") or "")
+    if not api_key:
+        return {"success": False,
+                "message": "API Key 为空：弹窗里没填，也没有已保存的可用配置"}
+
+    used_saved = not req.api_key and bool((cfg or {}).get("api_key"))
+
+    if req.type == "asr":
         return {"success": True, "message": "ASR 配置有效（语音识别将在使用时建立连接）"}
-    return {"success": False, "message": "type 必须是 llm 或 asr"}
+    if req.type != "llm":
+        return {"success": False, "message": "type 必须是 llm 或 asr"}
+
+    # 3) 模型/地址也一并回落：用已保存的 Key 时，前端少传字段也能测通
+    model = req.model or (cfg or {}).get("model", "")
+    base_url = req.base_url or (cfg or {}).get("base_url", "")
+    result = await _test_llm(model, base_url, api_key)
+    if result.get("success") and used_saved:
+        result["message"] = (result.get("message") or "连接成功") + "（使用已保存的 Key）"
+    return result
 
 
-async def _test_llm(req: ModelConfigTest) -> dict:
+async def _test_llm(model: str, base_url: str, api_key: str) -> dict:
     """用 ChatOpenAI 发一个极短 ping，验证 model/base_url/api_key 是否可用"""
+    if not model:
+        return {"success": False, "message": "模型标识为空"}
     from langchain_openai import ChatOpenAI
     try:
         llm = ChatOpenAI(
-            model=req.model,
-            api_key=req.api_key,
-            base_url=req.base_url or None,
+            model=model,
+            api_key=api_key,
+            base_url=base_url or None,
             max_tokens=1,
             timeout=30,
             max_retries=0,

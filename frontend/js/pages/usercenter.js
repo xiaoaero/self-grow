@@ -324,6 +324,10 @@ function renderModelCard(cfg) {
     `;
 }
 
+/* 弹窗里当前配置已保存 Key 的**脱敏形式**（后端只返回 sk-****abcd）。
+   非空即表示"已保存过 Key"，此时输入框留空也允许测试连通性 —— 后端会用已保存的那把。 */
+let _mcSavedKeyMasked = '';
+
 /** 打开模型编辑弹窗（configId 为 null 时新增，type 由「添加」按钮决定） */
 function openModelModal(configId, type) {
     const isEdit = configId != null;
@@ -333,6 +337,14 @@ function openModelModal(configId, type) {
     const buildForm = (cfg) => {
         const c = cfg || { type: type || 'llm', name: '', model: '', base_url: '', api_key: '' };
         const typeLabel = c.type === 'llm' ? '文本模型 (LLM)' : '语音模型 (ASR)';
+        // 记录"是否已有保存的 Key"（c.api_key 是脱敏值，非空即已保存）
+        _mcSavedKeyMasked = c.api_key || '';
+        // 编辑时把脱敏值显示在 placeholder 里，提示用户留空即可
+        const keyPlaceholder = isEdit
+            ? (_mcSavedKeyMasked
+                ? `已保存 ${_mcSavedKeyMasked}，留空即用它测试`
+                : '留空则不修改')
+            : 'sk-...';
         const content = `
             <div style="display:flex;flex-direction:column;gap:14px">
                 <div class="usercenter-modal-type">${typeLabel}</div>
@@ -350,10 +362,10 @@ function openModelModal(configId, type) {
                 </div>
                 <div>
                     <label class="action-form__label">API Key</label>
-                    <input class="input" id="mc-api-key" type="password" placeholder="${isEdit ? '留空则不修改' : 'sk-...'}" value="">
+                    <input class="input" id="mc-api-key" type="password" placeholder="${escapeHtml(keyPlaceholder)}" value="">
                 </div>
                 <div class="usercenter-modal-test">
-                    <button class="btn btn--ghost" onclick="testModelConnection('${c.type}')">测试连通性</button>
+                    <button class="btn btn--ghost" onclick="testModelConnection('${c.type}', ${configId || 0})">测试连通性</button>
                     <span id="mc-test-result" class="usercenter-modal-test-result"></span>
                 </div>
             </div>
@@ -419,8 +431,13 @@ async function saveModel(configId, isEdit, type) {
     }
 }
 
-/** 测试模型连通性 */
-async function testModelConnection(type) {
+/**
+ * 测试模型连通性
+ *
+ * api_key 留空是允许的：后端会回落到这条配置**已保存**的 Key
+ * （前端本来就拿不到明文，只有脱敏值，所以不该强迫用户重新粘贴）。
+ */
+async function testModelConnection(type, configId) {
     const userId = getCurrentUser()?.id || AppData.user.id || 1;
     const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
 
@@ -430,7 +447,11 @@ async function testModelConnection(type) {
     const resultEl = document.getElementById('mc-test-result');
 
     if (!model) { showToast('请先填写模型标识', 'error'); return; }
-    if (!api_key) { showToast('请填写 API Key 以测试连通性', 'error'); return; }
+    // 没填、且这条配置也没有已保存的 Key → 才拦
+    if (!api_key && !_mcSavedKeyMasked) {
+        showToast('请填写 API Key（这条配置还没有已保存的 Key）', 'error');
+        return;
+    }
 
     if (resultEl) { resultEl.textContent = '测试中…'; resultEl.className = 'usercenter-modal-test-result'; }
 
@@ -438,7 +459,8 @@ async function testModelConnection(type) {
         const resp = await fetch(`${API_BASE}/api/model-configs/test?user_id=${userId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type, model, base_url, api_key }),
+            body: JSON.stringify({ type, model, base_url, api_key,
+                                   config_id: (configId || 0) || null }),
         });
         const data = await resp.json();
         if (resultEl) {
