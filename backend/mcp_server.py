@@ -201,22 +201,31 @@ def query_dimension_stats(dimension_key: CategoryId) -> dict:
 
 @mcp.tool()
 def query_action_history(limit: int = 10) -> list:
-    """查询最近的行动记录。
+    """查询最近的行动记录（按时间倒序）。
 
     Args:
         limit: 返回条数（1~100），默认 10
+
+    Returns:
+        每项字段：id / category（维度英文键）/ category_name（中文名）/
+        note（备注）/ duration（分钟）/ exp（该条获得的维度经验）/
+        start_time（本地时间 ISO 串）/ sub_type（子类型，睡眠记录会带 health-sleep）
     """
     limit = max(1, min(int(limit), 100))
     result = get_action_logs(current_user_id(), page=1, page_size=limit)
     actions = result.get("records", [])
     return [
         {
+            # 注意：get_action_logs 返回的字段是 category_id / note，
+            # 不是 category / detail —— 之前这里取值取错了，工具一调就报 KeyError
             "id": a["id"],
-            "category": a["category"],
-            "detail": a.get("detail", ""),
+            "category": a.get("category_id", ""),
+            "category_name": a.get("category_name", ""),
+            "note": a.get("note", ""),
             "duration": a.get("duration", 0),
             "exp": a.get("exp_earned", 0),
-            "date": a.get("start_time", ""),
+            "start_time": a.get("start_time", ""),
+            "sub_type": a.get("sub_type", ""),
         }
         for a in actions
     ]
