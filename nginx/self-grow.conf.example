@@ -124,6 +124,12 @@ server {
     #      ① 后端对每个流式响应都带 `X-Accel-Buffering: no`（主要靠它，
     #         因为它跟着代码走，换部署方式也不会丢）
     #      ② 下面显式 `proxy_buffering off`（兜底，不依赖应用层是否记得加头）
+    #
+    # ⚠️ **别用「响应头里有没有 X-Accel-Buffering」来判断缓冲有没有关**：
+    #    它是给 Nginx 的**指令**，Nginx 读完会把它从响应里摘掉，**不透传给客户端**。
+    #    实测：直连 app 能看到 `X-Accel-Buffering: no`，经 Nginx 就是 `None`。
+    #    想确认有没有真的在流，看事件到达的**时间分布**（首条秒级到达、后面陆续来），
+    #    或看响应头里是不是 `Transfer-Encoding: chunked`（有 Content-Length = 被整体缓冲了）。
     location /api/ {
         proxy_pass http://self_grow;
         proxy_http_version 1.1;
