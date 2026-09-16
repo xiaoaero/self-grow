@@ -450,6 +450,9 @@ function cycleHabitStatus(id) {
                 // 重新评估奖励解锁状态
                 var curUserId = AppData.user?.id;
                 if (curUserId) reevaluateRewardsOnBackend(curUserId);
+
+                // 刷新维度进度缓存（打卡同样会加维度经验，属性页要跟着变）
+                refreshProfileCache();
             } else {
                 // 后端失败，用本地状态（兼容旧逻辑）
                 fallbackCycleHabitStatus(habit, user);

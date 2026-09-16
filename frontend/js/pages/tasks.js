@@ -368,6 +368,8 @@ function claimTaskExp(id) {
                 }
                 // 重新评估奖励
                 if (curUser) reevaluateRewardsOnBackend(curUser.id);
+                // 刷新维度进度缓存（领取任务奖励会给对应维度加经验）
+                refreshProfileCache();
             } else {
                 if (currentTasksSubPage === 'week') localClaimExpOnWeek(task);
                 else localClaimTaskExp(task);

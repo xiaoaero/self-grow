@@ -15,17 +15,13 @@ const ATTR_INTROS = {
 };
 
 async function renderAttributes() {
-    // 优先从 AppData.profile 读取（已在 app.js 启动时加载），避免重复请求
+    // 先用缓存顶上，避免请求期间白屏
     let dims = (AppData.profile && AppData.profile.dimensions) || [];
 
-    // 数据缺失时尝试从后端拉取
-    if (dims.length === 0 && AppData.user && AppData.user.id) {
-        const result = await fetchProfileStats(AppData.user.id);
-        if (result && result.dimensions) {
-            dims = result.dimensions;
-            AppData.profile = result;
-        }
-    }
+    // 再强制拉一次最新的：属性表展示的是会随"记行动/打卡/完成任务"变化的实时进度，
+    // 只用启动时填充的 AppData.profile 会显示旧数据（必须手动刷新页面才更新）
+    const fresh = await refreshProfileCache();
+    if (fresh && fresh.dimensions) dims = fresh.dimensions;
 
     const rows = dims.map((d, i) => {
         const currentXp = d.xp || 0;

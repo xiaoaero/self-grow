@@ -961,6 +961,28 @@ async function fetchProfileStats(userId) {
     }
 }
 
+/**
+ * 刷新进度缓存（AppData.profile）
+ *
+ * ⚠️ 任何**会改变经验/维度的写操作成功后**都要调一次，例如：
+ *     记行动（手动 / AI）、习惯打卡、完成任务、领取目标奖励
+ *
+ * 为什么必须有这一步：AppData.profile 只在打开网页时拉过一次，
+ * 而下面这些地方都读它 —— 属性页维度表、行动中心「升级进度」、奖励解锁条件。
+ * 不在写后刷新的话，它们会一直显示旧数据，直到用户手动刷新页面，
+ * 现象就是「记了行动，但属性/行动中心的维度经验没涨」。
+ * （成长记录页是例外，它每次进页面都重新拉，所以看起来是正常的。）
+ *
+ * @returns {Promise<object|null>} 最新的统计对象；失败返回 null（调用方自行降级）
+ */
+async function refreshProfileCache() {
+    const user = getCurrentUser();
+    if (!user || !user.id) return null;
+    const data = await fetchProfileStats(user.id);
+    if (data) AppData.profile = data;
+    return data;
+}
+
 /** 从后端获取年度热力图数据 */
 async function fetchYearlyActivity(userId, year) {
     try {

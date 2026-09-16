@@ -1083,6 +1083,9 @@ async function confirmAISubmit() {
         // 同步更新左下角侧边栏经验显示
         renderSidebarFooter();
 
+        // 刷新维度进度缓存（否则属性页/行动中心的维度经验不会变）
+        refreshProfileCache();
+
         showToast('🎉 成功记录 ' + result.records.length + ' 条行动！', 'success');
 
         // 重置对话
@@ -1308,6 +1311,9 @@ function confirmSubmitAction() {
 
             // 同步更新左下角侧边栏经验显示
             renderSidebarFooter();
+
+            // 刷新维度进度缓存（否则属性页/行动中心的维度经验不会变）
+            refreshProfileCache();
 
             actionNote = '';
             var expMsg = result.exp_earned + ' EXP';
@@ -1907,8 +1913,11 @@ async function loadActionCenterData() {
         AppData.goals = goalsResult.goals;
     }
 
-    // 模块一：升级进度（从 AppData.profile.dimensions 读取，已由后端加载）
-    const dimensions = AppData.profile?.dimensions || [];
+    // 模块一：升级进度 —— 每次进页面都刷新一次（和属性页同理，
+    // 不能只读启动时填充的缓存，否则记完行动后这里不涨）
+    const freshProfile = await refreshProfileCache();
+    const dimensions = (freshProfile && freshProfile.dimensions)
+        || AppData.profile?.dimensions || [];
     const levelCard = document.getElementById('ac-level-progress');
     if (levelCard) {
         levelCard.innerHTML = renderModule1_LevelProgress(dimensions);

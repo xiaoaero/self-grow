@@ -481,6 +481,8 @@ function claimGoalReward(id) {
                 }
                 // 重新评估奖励
                 if (curUser) reevaluateRewardsOnBackend(curUser.id);
+                // 刷新维度进度缓存（目标奖励会给对应维度加经验）
+                refreshProfileCache();
             } else {
                 localClaimGoal(id);
             }
