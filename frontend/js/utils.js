@@ -451,32 +451,44 @@ async function fetchHabitInsights(userId) {
 }
 
 
-/** AI 生成习惯图标：区分参数错误(400)与服务失败(5xx) */
-async function fetchHabitAIIcon(userId, name, intro, category) {
+/**
+ * AI 生成习惯图标（流式）。区分参数错误(400)、服务失败(5xx)、连不上
+ *
+ * 为什么这个也要流式：它是一次 `max_tokens=10000` 的生成，可能要等几十秒，
+ * 而中间隔着 Nginx —— 后端会推阶段事件 + 心跳，把连接保活下来。
+ *
+ * ⚠️ 但**不做逐 token 渲染**：服务端拿到整段后要先 `extract_svg()` 再
+ * `validate_svg()`，不合法还会重试。半截 SVG 画不出来，逐字推给前端没有意义，
+ * 所以这里只用 `onStage` 更新"生成中"的提示文案。
+ *
+ * @param {number} userId
+ * @param {string} name 习惯名称
+ * @param {string} intro 习惯简介
+ * @param {string} category 维度分类
+ * @param {function} [onStage] 收到阶段提示文本时调用
+ * @returns {Promise<{ok: boolean, svg: string|null, message: string|null}>}
+ */
+async function fetchHabitAIIcon(userId, name, intro, category, onStage) {
     try {
-        const resp = await fetch(`${API_BASE}/api/habits/ai-icon?user_id=${userId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, intro, category }),
-        });
-        if (resp.status === 400) {
-            // 参数问题：后端 Pydantic 校验拦截（如空名称）
-            return { ok: false, svg: null, message: '请先填写习惯名称' };
-        }
-        if (!resp.ok) {
-            let message = '图标生成失败，请稍后重试';
-            try {
-                const err = await resp.json();
-                if (err && err.detail) message = err.detail;
-            } catch (_) { /* 非 JSON 错误体，用默认文案 */ }
-            console.warn('AI 图标设计失败:', message);
-            return { ok: false, svg: null, message };
-        }
-        const data = await resp.json();
+        const data = await streamSSE(
+            `${API_BASE}/api/habits/ai-icon?user_id=${userId}`,
+            { name, intro, category },
+            { onStage: (p) => { if (onStage && p.label) onStage(p.label); } },
+        );
         return { ok: true, svg: data.svg || null, message: null };
     } catch (e) {
-        console.warn('后端不可用，AI 图标设计返回 null:', e);
-        return { ok: false, svg: null, message: '后端服务不可用，请稍后重试' };
+        // 参数问题：后端 Pydantic 校验拦截（如空名称）
+        if (e && e.status === 400) {
+            return { ok: false, svg: null, message: '请先填写习惯名称' };
+        }
+        // 有 status（HTTP 错误）或 fromStream（服务端 error 事件）说明拿到了明确原因；
+        // 两个都没有就是压根没连上
+        const hasReason = e && (e.status || e.fromStream);
+        const message = hasReason
+            ? (e.message || '图标生成失败，请稍后重试')
+            : '后端服务不可用，请稍后重试';
+        console.warn('AI 图标设计失败:', message, e);
+        return { ok: false, svg: null, message };
     }
 }
 

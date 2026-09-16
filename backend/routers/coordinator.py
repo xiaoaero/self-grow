@@ -5,22 +5,41 @@ Self Grow — 统一协调 Agent API
   POST /api/coordinator/chat   — 用户发送消息 → 主 agent 路由 + 并行派发 + （全部完成时）总结
   POST /api/coordinator/resume — 用户回答反问 → 直接接回对应子图继续（不重新路由）
   GET  /api/coordinator/status/{thread_id} — 查询对话编排状态
-  GET  /api/coordinator/stream/{thread_id}  — SSE（占位）
+
+**/chat 与 /resume 是流式（SSE）的**，响应不再是 JSON 而是 `text/event-stream`：
+
+    data: {"type": "stage", "stage": "routing", "label": "正在理解你的意图…"}
+    data: {"type": "stage", "stage": "domain_start", "domain": "habit", ...}
+    data: {"type": "token", "text": "已"}
+    data: {"type": "done", "thread_id": "...", "reply": "...", "interrupts": [...], ...}
+
+前端的契约是：**`done` 事件里带着与改造前完全相同的字段**，
+所以原来读 `resp.json()` 的地方只要改成「读流、等 done」，
+拿到 done 之后的处理逻辑可以一字不改。
+
+顺带删掉了原来的 `GET /stream/{thread_id}`：它只发一个 done，**而且没挂鉴权**
+（任何人知道 thread_id 就能查），又因为是 GET 所以浏览器无法带 token —— 现在 /chat
+本身就是流式的，这个端点已无存在意义。
 """
 
-import json
 import time
 import uuid
 import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from routers.deps import get_current_user
 from services.coordinator.state import CoordinatorState
-from services.coordinator.graph import run_coordinator, resume_subgraph, finalize_record
+from services.coordinator.graph import (
+    run_coordinator_stream, resume_subgraph, finalize_record,
+)
 from services.coordinator.synthesize_node import synthesize_node
+from services.coordinator.agents.ask_user_tool import DOMAIN_LABELS
+from services.sse import (
+    stream_events, sse_response, immediate_response,
+    use_emitter, emit_stage, emit_token,
+)
 
 log = logging.getLogger(__name__)
 
@@ -74,9 +93,27 @@ class ResumeRequest(BaseModel):
     answer: str
 
 
+def _state_payload(thread_id: str, state: CoordinatorState, **overrides) -> dict:
+    """组装编排结果（`done` 事件与历史版本 JSON 的字段完全一致）"""
+    payload = {
+        "thread_id": thread_id,
+        "reply": state.get("final_reply", ""),
+        "interrupts": state.get("interrupts", []),
+        "results": state.get("results", []),
+        "completed_domains": state.get("completed_domains", []),
+        "pending_tasks": state.get("pending_tasks", []),
+        "records": state.get("records", []),
+    }
+    payload.update(overrides)
+    return payload
+
+
 @router.post("/chat")
 async def chat(request: ChatRequest, user=Depends(get_current_user)):
-    """用户发送消息：主 agent 路由 → 并行派发子图 → （全部完成时）总结"""
+    """用户发送消息：主 agent 路由 → 并行派发子图 → （全部完成时）总结
+
+    流式返回（SSE）。事件类型见模块 docstring；最后一条 `done` 里是完整结果。
+    """
     thread_id = request.thread_id or str(uuid.uuid4())
 
     # 复用同一会话的历史记录（配合前端 sessionStorage 持久化 thread_id，实现"刷新不丢"）
@@ -97,23 +134,14 @@ async def chat(request: ChatRequest, user=Depends(get_current_user)):
     )
     _store_state(thread_id, state)
 
-    try:
-        state = await run_coordinator(state)
-    except Exception as e:
-        log.error(f"主编排执行失败：{e}")
-        raise HTTPException(status_code=500, detail=f"执行失败：{str(e)}")
+    async def runner(emit):
+        # use_emitter 让深层代码（graph / agent / tool）也能推阶段事件
+        with use_emitter(emit):
+            await run_coordinator_stream(state)
+        _store_state(thread_id, state)
+        await emit({"type": "done", **_state_payload(thread_id, state)})
 
-    _store_state(thread_id, state)
-
-    return {
-        "thread_id": thread_id,
-        "reply": state.get("final_reply", ""),
-        "interrupts": state.get("interrupts", []),
-        "results": state.get("results", []),
-        "completed_domains": state.get("completed_domains", []),
-        "pending_tasks": state.get("pending_tasks", []),
-        "records": state.get("records", []),
-    }
+    return sse_response(stream_events(runner))
 
 
 @router.post("/resume")
@@ -138,54 +166,84 @@ async def resume(request: ResumeRequest, user=Depends(get_current_user)):
     # 幂等保护：该域已完成且无待处理反问时，直接返回当前状态
     pending_interrupt_ids = {i.get("sub_thread_id") for i in state.get("interrupts", [])}
     if request.sub_thread_id not in pending_interrupt_ids and domain in set(state.get("completed_domains", [])):
-        return {
-            "thread_id": request.thread_id,
-            "reply": state.get("final_reply", ""),
-            "interrupts": state.get("interrupts", []),
-            "results": [],
-            "completed_domains": state.get("completed_domains", []),
-        }
+        # 幂等命中：没有任何异步工作，发一个 done 就结束
+        return await immediate_response(
+            _state_payload(request.thread_id, state, results=[])
+        )
 
-    try:
-        new_results, new_interrupts = await resume_subgraph(domain, request.sub_thread_id, request.answer)
-    except Exception as e:
-        log.error(f"恢复执行失败：{e}")
-        raise HTTPException(status_code=500, detail=f"恢复失败：{str(e)}")
+    async def runner(emit):
+        # 注意：字段与改造前的 JSON 返回**逐字一致** ——
+        # interrupts / results 只含本次新增的（这是原本的行为，前端据此追加反问，
+        # 不要"顺手"改成累计值），另外多带一个 pending_domains。
+        done_payload = None
 
-    # 移除该子图旧的 interrupt，追加新 interrupt（其它域的反问保留）
-    remaining_interrupts = [
-        i for i in state.get("interrupts", [])
-        if i.get("sub_thread_id") != request.sub_thread_id
-    ]
-    state["interrupts"] = remaining_interrupts + new_interrupts
+        with use_emitter(emit):
+            await emit_stage(
+                "domain_start",
+                f"{DOMAIN_LABELS.get(domain, domain)}：处理你的回答…",
+                domain=domain,
+            )
 
-    # 累积结果 + 更新完成域
-    state["results"] = list(state.get("results", [])) + new_results
-    completed = set(state.get("completed_domains", []))
-    if not new_interrupts:
-        completed.add(domain)
-    state["completed_domains"] = list(completed)
+            try:
+                new_results, new_interrupts = await resume_subgraph(
+                    domain, request.sub_thread_id, request.answer
+                )
+            except Exception as e:
+                log.error(f"恢复执行失败：{e}")
+                await emit({"type": "error", "message": f"恢复失败：{str(e)}"})
+                return
 
-    # 判断是否所有域都完成 → 阶段三总结
-    pending_domains = {t["domain"] for t in state.get("pending_tasks", [])}
-    if pending_domains and pending_domains.issubset(completed):
-        syn = await synthesize_node(state)
-        state["final_reply"] = syn.get("final_reply", "")
-        # 三阶段走完 → 压入近 5 条历史
-        finalize_record(state)
-    else:
-        state["final_reply"] = ""
+            # 移除该子图旧的 interrupt，追加新 interrupt（其它域的反问保留）
+            remaining_interrupts = [
+                i for i in state.get("interrupts", [])
+                if i.get("sub_thread_id") != request.sub_thread_id
+            ]
+            state["interrupts"] = remaining_interrupts + new_interrupts
 
-    _store_state(request.thread_id, state)
+            # 累积结果 + 更新完成域
+            state["results"] = list(state.get("results", [])) + new_results
+            completed = set(state.get("completed_domains", []))
+            if not new_interrupts:
+                completed.add(domain)
+            state["completed_domains"] = list(completed)
 
-    return {
-        "thread_id": request.thread_id,
-        "reply": state.get("final_reply", ""),
-        "interrupts": new_interrupts,
-        "results": new_results,
-        "completed_domains": list(completed),
-        "pending_domains": list(pending_domains),
-    }
+            # 判断是否所有域都完成 → 阶段三总结（这一步逐 token 推给前端）
+            pending_domains = {t["domain"] for t in state.get("pending_tasks", [])}
+            if pending_domains and pending_domains.issubset(completed):
+                await emit_stage("synthesize", "正在整理回复…")
+                syn = await synthesize_node(state, on_token=emit_token)
+                state["final_reply"] = syn.get("final_reply", "")
+                # 三阶段走完 → 压入近 5 条历史
+                finalize_record(state)
+            else:
+                state["final_reply"] = ""
+
+            if new_interrupts:
+                await emit_stage(
+                    "domain_ask",
+                    f"{DOMAIN_LABELS.get(domain, domain)}：还需要补充信息",
+                    domain=domain,
+                )
+            else:
+                await emit_stage(
+                    "domain_done",
+                    f"{DOMAIN_LABELS.get(domain, domain)}：已完成",
+                    domain=domain,
+                )
+
+            _store_state(request.thread_id, state)
+            done_payload = _state_payload(
+                request.thread_id, state,
+                interrupts=new_interrupts,
+                results=new_results,
+                pending_domains=list(pending_domains),
+            )
+
+        # 出错时上面已经发过 error 事件（前端把 error 当终止信号），不再补 done
+        if done_payload is not None:
+            await emit({"type": "done", **done_payload})
+
+    return sse_response(stream_events(runner))
 
 
 @router.get("/status/{thread_id}")
@@ -206,17 +264,3 @@ def get_status(thread_id: str, user=Depends(get_current_user)):
         "interrupts": state.get("interrupts", []),
         "final_reply": state.get("final_reply", ""),
     }
-
-
-@router.get("/stream/{thread_id}")
-def stream_events(thread_id: str):
-    """SSE 流式推送事件（占位）"""
-    async def event_generator():
-        state = _get_state(thread_id)
-        if state:
-            yield f"data: {json.dumps({'type': 'done', 'thread_id': thread_id})}\n\n"
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-    )

@@ -113,6 +113,42 @@ server {
         proxy_read_timeout    3600s;
     }
 
+    # ── 后端 API：含若干**流式（SSE）**端点 ────────────────────────
+    # 流式端点：/api/coordinator/chat、/api/coordinator/resume、
+    #           /api/skill-trees/{id}/chat(+resume)、/api/expression/*、
+    #           /api/habits/ai-icon
+    #
+    # ⚠️ 头号坑：不关 `proxy_buffering` 的话，Nginx 会把 SSE 事件**攒着**，
+    #    等缓冲区满了或响应结束才一次性发给浏览器 —— 表现成「流式看起来没生效」，
+    #    用户还是盯着一个不动的转圈。这里有两道保险：
+    #      ① 后端对每个流式响应都带 `X-Accel-Buffering: no`（主要靠它，
+    #         因为它跟着代码走，换部署方式也不会丢）
+    #      ② 下面显式 `proxy_buffering off`（兜底，不依赖应用层是否记得加头）
+    location /api/ {
+        proxy_pass http://self_grow;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 注意：这里**只有空串**，不是 "upgrade" ——
+        # WebSocket 在 /ws/asr（不属于 /api/），由下面的 location / 处理
+        proxy_set_header Connection "";
+
+        # SSE 必须关缓冲
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding on;
+
+        # 单次 LLM 调用可能跑 30~60s（出题 / 评分 / 生成图标甚至更久），
+        # 默认 60s 会把长请求直接掐断。后端有心跳保活，这里给足即可
+        proxy_connect_timeout 30s;
+        proxy_send_timeout    600s;
+        proxy_read_timeout    600s;
+    }
+
     location / {
         proxy_pass http://self_grow;
         proxy_http_version 1.1;
@@ -123,7 +159,7 @@ server {
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # 表达训练的语音走 WebSocket 上传，若将来加 WS 需要这两行
+        # 表达训练的语音走 WebSocket（/ws/asr），需要这两行
         proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection "upgrade";
 

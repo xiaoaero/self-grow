@@ -65,10 +65,10 @@ class AIBridge {
 
     this.inputEl.value = '';
     this.addMessage('user', text);
-    this.setLoading(true);
+    this.setLoading(true, '正在分析…');
 
     try {
-      const data = await this._request(
+      const data = await this._requestStream(
         `/api/skill-trees/${app.sidebar.currentId}/chat`,
         {
           tree: this.buildTreePayload(app),
@@ -93,9 +93,9 @@ class AIBridge {
     if (this.isLoading || !this.threadId) return;
     const app = window.__app;
 
-    this.setLoading(true);
+    this.setLoading(true, '正在处理…');
     try {
-      const data = await this._request(
+      const data = await this._requestStream(
         `/api/skill-trees/${app.sidebar.currentId}/chat/resume`,
         {
           thread_id: this.threadId,
@@ -119,23 +119,30 @@ class AIBridge {
     }
   }
 
-  /** 统一请求封装 */
-  async _request(path, body) {
+  /**
+   * 统一请求封装（**流式**）
+   *
+   * 后端 `/chat` 与 `/chat/resume` 已是 SSE：会推阶段事件
+   * （第 N 轮推理 / 正在执行哪个工具 / 需要确认），最后用 done 送完整结果。
+   * done 的字段与改造前完全一致，所以 `_handleResponse(data)` 不用改。
+   *
+   * 用共享的 `js/sse.js`（与主应用同一份实现）——
+   * 它走 `fetch` + `resp.body.getReader()`，因此能被 `js/auth.js` 的
+   * fetch 包装自动带上 `Authorization`（原生 EventSource 做不到这点）。
+   *
+   * @param {string} path
+   * @param {object} body
+   * @returns {Promise<object>} done 事件的完整内容
+   */
+  async _requestStream(path, body) {
     const userId = getCurrentUserId() || 1;
-    const resp = await fetch(`${this.serverUrl}${path}?user_id=${userId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok) {
-      let detail = `HTTP ${resp.status}`;
-      try {
-        const err = await resp.json();
-        if (err.detail) detail = err.detail;
-      } catch (e) { /* 忽略解析失败 */ }
-      throw new Error(detail);
-    }
-    return resp.json();
+    return streamSSE(
+      `${this.serverUrl}${path}?user_id=${userId}`,
+      body,
+      {
+        onStage: (p) => { if (p.label) this.setLoadingTip(p.label); },
+      }
+    );
   }
 
   /* ================================================================
@@ -289,7 +296,7 @@ class AIBridge {
     this.scrollToBottom();
   }
 
-  setLoading(loading) {
+  setLoading(loading, tip) {
     this.isLoading = loading;
     this.sendBtn.disabled = loading;
     const old = document.getElementById('ai-loading');
@@ -298,7 +305,29 @@ class AIBridge {
       const el = document.createElement('div');
       el.className = 'ai-message loading';
       el.id = 'ai-loading';
+      if (tip) {
+        const span = document.createElement('span');
+        span.className = 'ai-loading__tip';
+        span.textContent = tip;
+        el.appendChild(span);
+      }
       this.messagesEl.appendChild(el);
+      this.scrollToBottom();
+    }
+  }
+
+  /** 更新加载中的提示文案（由流式的阶段事件驱动） */
+  setLoadingTip(tip) {
+    const el = document.getElementById('ai-loading');
+    if (!el) return;
+    let span = el.querySelector('.ai-loading__tip');
+    if (!span) {
+      span = document.createElement('span');
+      span.className = 'ai-loading__tip';
+      el.insertBefore(span, el.firstChild);
+    }
+    if (span.textContent !== tip) {
+      span.textContent = tip;
       this.scrollToBottom();
     }
   }

@@ -174,6 +174,25 @@ async function apiGet(path) {
     return resp.json();
 }
 
+/**
+ * 调表达训练的流式 AI 端点
+ *
+ * 这些端点产出的是 **JSON**（题目/提示/评分），逐字流式没有意义，
+ * 所以后端推的是**阶段事件**（正在构思… / 第 2 轮调整… / 正在分析你的回答…）。
+ * 这里把阶段提示转发给 onStage，最终从 done 事件里取结果。
+ *
+ * @param {string} path
+ * @param {object} data
+ * @param {function} [onStage] 收到阶段提示文本时调用（用于更新按钮/占位文案）
+ * @returns {Promise<object>} done 事件的完整内容
+ */
+async function apiStream(path, data, onStage) {
+    const url = `${getApiBase()}${path}`;
+    return streamSSE(url, data, {
+        onStage: (p) => { if (onStage && p.label) onStage(p.label); },
+    });
+}
+
 // ================================================================
 // 草稿管理（断网/刷新恢复）
 // ================================================================
@@ -420,7 +439,8 @@ function renderTrainView() {
                     <button class="expr__gen-btn" id="expr-gen-btn">
                         <span class="expr__gen-btn-text">生成问题</span>
                         <span class="expr__gen-btn-loading" style="display:none">
-                            <span class="expr__spinner"></span> 问题生成中
+                            <span class="expr__spinner"></span>
+                            <span class="expr__gen-btn-tip">问题生成中</span>
                         </span>
                     </button>
                 </div>
@@ -923,7 +943,7 @@ async function handleGenerate() {
 
         if (customQuestion) {
             // 用户输入了自定义题目，调用后端保存到数据库
-            const result = await apiPost(`/api/expression/generate?${getUserIdParam()}`, {
+            const result = await apiStream(`/api/expression/generate?${getUserIdParam()}`, {
                 custom_question: customQuestion,
                 custom_type: 'custom',
             });
@@ -943,7 +963,13 @@ async function handleGenerate() {
                 const allTypes = QUESTION_TYPES.map(t => t.id);
                 types = [allTypes[Math.floor(Math.random() * allTypes.length)]];
             }
-            const result = await apiPost(`/api/expression/generate?${getUserIdParam()}`, { types });
+            // 流式：后端会推「正在构思…」「第 2 轮调整…」等阶段，直接显示在按钮上
+            const result = await apiStream(`/api/expression/generate?${getUserIdParam()}`,
+                { types },
+                (label) => {
+                    const tip = btnLoading && btnLoading.querySelector('.expr__gen-btn-tip');
+                    if (tip) tip.textContent = label;
+                });
             STATE.currentQuestion = result;
         }
 
@@ -979,7 +1005,8 @@ function bindAnswerEvents() {
 // 异步加载提示
 async function loadHintsAsync(questionId) {
     try {
-        const result = await apiPost(`/api/expression/generate-hints?${getUserIdParam()}`, {
+        // 流式：命中缓存时后端会立刻发 done，走的还是同一条解析路径
+        const result = await apiStream(`/api/expression/generate-hints?${getUserIdParam()}`, {
             question_id: questionId,
         });
         const hints = result.hints || [];
@@ -2170,10 +2197,18 @@ async function handleAIEvaluate() {
     if (!btn) return;
 
     btn.disabled = true;
-    btn.innerHTML = `<span class="expr__spinner"></span> 分析中...`;
+    btn.innerHTML = `<span class="expr__spinner"></span> <span class="expr__ai-tip">分析中...</span>`;
 
     try {
-        const result = await apiPost(`/api/expression/evaluate/${STATE.currentAnswerId}?${getUserIdParam()}`);
+        // 流式：把后端推的阶段提示（正在分析你的回答…）显示在按钮上，
+        // 免得用户对着一个不动的转圈等十几秒
+        const result = await apiStream(
+            `/api/expression/evaluate/${STATE.currentAnswerId}?${getUserIdParam()}`,
+            undefined,
+            (label) => {
+                const tip = btn.querySelector('.expr__ai-tip');
+                if (tip) tip.textContent = label;
+            });
         STATE.evaluation = result;
 
         // 渲染分析结果
@@ -2736,11 +2771,17 @@ async function handleDetailAIEvaluate(answerId, evt) {
     const btn = (evt && evt.target) ? evt.target.closest('.expr__ai-btn') : null;
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<span class="expr__spinner"></span> 分析中...`;
+        btn.innerHTML = `<span class="expr__spinner"></span> <span class="expr__ai-tip">分析中...</span>`;
     }
 
     try {
-        const result = await apiPost(`/api/expression/evaluate/${answerId}?${getUserIdParam()}`);
+        const result = await apiStream(
+            `/api/expression/evaluate/${answerId}?${getUserIdParam()}`,
+            undefined,
+            (label) => {
+                const tip = btn && btn.querySelector('.expr__ai-tip');
+                if (tip) tip.textContent = label;
+            });
 
         // 分析完成后重新加载详情数据，刷新界面
         await loadDetailData(STATE.detailQuestionId);

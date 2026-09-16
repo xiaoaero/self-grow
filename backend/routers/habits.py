@@ -14,6 +14,7 @@ from db.users import get_user
 from schemas.api import CreateHabitRequest, UpdateHabitRequest, DeleteHabitsRequest, HabitAIIconRequest
 from routers.deps import get_current_user
 from services.ai_habit_service import call_ai_for_icon
+from services.sse import stream_events, sse_response, use_emitter, emit_stage
 
 router = APIRouter()
 
@@ -341,11 +342,23 @@ def habit_insights(user=Depends(get_current_user)):
 
 @router.post("/api/habits/ai-icon")
 async def habit_ai_icon(req: HabitAIIconRequest, user=Depends(get_current_user)):
-    """AI 根据习惯信息生成 SVG 图标"""
+    """AI 根据习惯信息生成 SVG 图标（流式：阶段事件 + 心跳）
+
+    这里**不能做逐 token 输出**：生成的是一整段 SVG 代码，服务端必须先
+    `extract_svg()` 再用 `validate_svg()` 校验，校验不过要重试 ——
+    半截 SVG 对前端毫无价值（画不出来）。`max_tokens=10000` 让它可能要等几十秒，
+    所以真正需要的是「阶段提示 + 心跳保活」。
+    """
     if not req.name.strip():
         raise HTTPException(status_code=400, detail="习惯名称不能为空")
-    svg = await call_ai_for_icon(req.name, req.intro, req.category, user["id"])
-    return {"svg": svg}
+
+    async def runner(emit):
+        with use_emitter(emit):
+            await emit_stage("icon", "正在设计图标…", habit=req.name)
+            svg = await call_ai_for_icon(req.name, req.intro, req.category, user["id"])
+        await emit({"type": "done", "svg": svg})
+
+    return sse_response(stream_events(runner))
 
 
 @router.get("/api/habits/last-week")

@@ -25,10 +25,26 @@ from db.expressions import (
 from services.expression_service import generate_question, evaluate_answer, generate_hints, beautify_question
 from services.asr_service import ASRConnection
 from routers.deps import get_current_user
+from services.sse import (
+    stream_events, sse_response, immediate_response, use_emitter, emit_stage,
+)
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ================================================================
+# 表达训练的 AI 端点都是**流式（SSE）**的
+#
+# 这几个端点的产出是 **JSON**（题目+提示 / 四维评分+建议），所以**不做逐 token 推送**
+# —— 把残缺 JSON 逐字喂给前端，等于逼前端做增量 JSON 解析，是负优化。
+# 推的是**阶段事件**（正在连接模型 / 正在查询历史题目 / 正在解析…）：
+#   1. 出题、评分都是单次 LLM 调用，30~60s，比协调 Agent 更容易让用户以为"卡住了"
+#   2. `stream_events` 的心跳会把中间代理的空闲计时器顶掉，防止长请求被掐断
+#
+# `done` 事件里的字段与改造前的 JSON 返回**逐字相同**，前端读流拿 done 即可。
+# ================================================================
 
 
 @router.post("/api/expression/generate")
@@ -36,8 +52,8 @@ async def api_generate_question(
     req: dict,
     user=Depends(get_current_user),
 ):
-    """生成表达训练题目 + 3 条思考提示（支持自定义题目）"""
-    # 自定义题目：直接保存到数据库，不调用 AI
+    """生成表达训练题目 + 3 条思考提示（流式）。支持自定义题目（不走 AI）"""
+    # 自定义题目：直接保存到数据库，不调用 AI —— 无需流式，发个 done 即可
     custom_question = req.get("custom_question", "").strip()
     if custom_question:
         question_type = req.get("custom_type", "custom")
@@ -47,19 +63,24 @@ async def api_generate_question(
             hints=None,
             source="custom",
         )
-        return {
+        return await immediate_response({
             "id": qid,
             "question": custom_question,
             "question_type": question_type,
             "hints": [],
-        }
+        })
 
     types = req.get("types", ["hot_opinion", "emotional", "life_reflection", "career"])
     if not types:
         types = ["hot_opinion", "emotional", "life_reflection", "career"]
 
-    result = await generate_question(types, user_id=user["id"])
-    return result
+    async def runner(emit):
+        with use_emitter(emit):
+            await emit_stage("generate", "正在构思题目…")
+            result = await generate_question(types, user_id=user["id"])
+        await emit({"type": "done", **(result or {})})
+
+    return sse_response(stream_events(runner))
 
 
 @router.post("/api/expression/answer")
@@ -90,7 +111,11 @@ async def api_generate_hints(
     req: dict,
     user=Depends(get_current_user),
 ):
-    """异步生成提示（表达方向 + 例子），不阻塞答题"""
+    """异步生成提示（表达方向 + 例子），不阻塞答题。流式（阶段事件）。
+
+    校验放在流外：这样 400/404 仍是正常的 HTTP 状态码，
+    不会变成"200 + 一个 error 事件"（前端就没法用状态码区分错误类型了）。
+    """
     question_id = req.get("question_id")
     if not question_id:
         raise HTTPException(status_code=400, detail="缺少 question_id")
@@ -102,15 +127,20 @@ async def api_generate_hints(
     # 先检查是否已有 hints 缓存（必须是新格式：包含 direction 和 examples）
     hints = _parse_json_field(question.get("hints"))
     if hints and len(hints) >= 3 and hints[0].get("direction"):
-        return {"hints": hints}
+        return await immediate_response({"hints": hints})
 
-    hints = await generate_hints(
-        question_id=question_id,
-        question=question["question"],
-        question_type=question["question_type"],
-        user_id=user["id"],
-    )
-    return {"hints": hints}
+    async def runner(emit):
+        with use_emitter(emit):
+            await emit_stage("hints", "正在生成思考提示…")
+            result = await generate_hints(
+                question_id=question_id,
+                question=question["question"],
+                question_type=question["question_type"],
+                user_id=user["id"],
+            )
+        await emit({"type": "done", "hints": result})
+
+    return sse_response(stream_events(runner))
 
 
 @router.post("/api/expression/answer/{answer_id}/text")
@@ -137,7 +167,7 @@ async def api_evaluate_answer(
     answer_id: int,
     user=Depends(get_current_user),
 ):
-    """AI 评分 + 建议（用户点击「AI 分析」时调用）"""
+    """AI 评分 + 建议（用户点击「AI 分析」时调用）。流式（阶段事件）"""
     answer = get_answer(answer_id)
     if not answer:
         raise HTTPException(status_code=404, detail="回答记录不存在")
@@ -147,7 +177,7 @@ async def api_evaluate_answer(
 
     # 如果已经评估过，直接返回缓存结果
     if answer.get("status") == "evaluated" and answer.get("score_total") is not None:
-        return {
+        return await immediate_response({
             "scores": {
                 "total": answer["score_total"],
                 "fluency": answer["score_fluency"],
@@ -158,20 +188,24 @@ async def api_evaluate_answer(
             "strengths": _parse_json_field(answer.get("strengths")),
             "improvements": _parse_json_field(answer.get("improvements")),
             "suggestion": answer.get("suggestion", ""),
-        }
+        })
 
     # 填充词统计
     filler_words = _parse_json_field(answer.get("filler_words")) or {}
 
-    evaluation = await evaluate_answer(
-        question_id=answer["question_id"],
-        answer_id=answer_id,
-        answer_text=answer["answer"],
-        filler_words=filler_words,
-        user_id=user["id"],
-    )
+    async def runner(emit):
+        with use_emitter(emit):
+            await emit_stage("evaluate", "正在分析你的回答…")
+            result = await evaluate_answer(
+                question_id=answer["question_id"],
+                answer_id=answer_id,
+                answer_text=answer["answer"],
+                filler_words=filler_words,
+                user_id=user["id"],
+            )
+        await emit({"type": "done", **(result or {})})
 
-    return evaluation
+    return sse_response(stream_events(runner))
 
 
 @router.get("/api/expression/stats")

@@ -23,7 +23,7 @@
 | 方案设计 | 实际实现 |
 |---|---|
 | 9 个工具 | **8 个**（`get_tree_state` 按方案移除，`send_message` 改造为 `send_reply`） |
-| 前端通过 SSE 接收事件流 | **仍用普通 fetch**，后端 SSE 端点 `GET /{tree_id}/chat/stream` 已实现但前端未接入 |
+| 前端通过 SSE 接收事件流 | ✅ **2026-09-16 已接入**：`/chat` 与 `/chat/resume` 本身改为 **POST + SSE**（原来的 `GET /{tree_id}/chat/stream` 是假占位，已删除），前端用共享的 `js/sse.js` 读取，阶段事件显示成「第 N 轮推理 / 正在执行哪个工具 / 需要确认」 |
 | 返回「树 diff」由前端 `applyTreeDiff()` 应用 | 前端无 diff 应用逻辑（`diff` 关键字 0 命中），实际走整树覆盖 |
 
 ---
@@ -63,7 +63,7 @@
 | F1 | 快捷按钮主题替换后句子不完整 | ❓ | 未核实 |
 | F2 | 快捷按钮无主题输入框 | ❓ | 未核实 |
 | F3 | AI 消息用 `textContent`，不支持 Markdown | ❌ | **未实现**：`ai-bridge.js` 中 markdown/Markdown/marked 均 0 命中 |
-| F4 | 加载状态无进度提示 | ❌ | 未做 SSE，因此无分阶段进度推送 |
+| F4 | 加载状态无进度提示 | ✅ | 2026-09-16 已完成：靠 SSE 阶段事件推送「第 N 轮推理 / 正在执行 xxx 工具」 |
 | F5 | 无取消按钮 | ✅ | `cancel` 2 处 + `取消` 4 处 |
 | F6 | 未处理重名节点 | ❌ | 未实现 |
 
@@ -87,7 +87,8 @@
 前端 (skill-tree)                     后端 (FastAPI)
 AI 面板                               POST /api/skill-trees/{tree_id}/chat
   │ 发送 message + thread_id     ──►  POST /api/skill-trees/{tree_id}/chat/resume
-  │                                   GET  /api/skill-trees/{tree_id}/chat/stream (SSE，前端未接)
+  │                                   （旧的 GET .../chat/stream 假占位已删除；
+  │                                     /chat 与 /chat/resume 本身即 POST + SSE）
   │                                          │
   │                                          ▼
   │                                   SkillTreeChatGraph (LangGraph StateGraph)
@@ -110,7 +111,7 @@ AI 面板                               POST /api/skill-trees/{tree_id}/chat
 | **工具在后端执行** | ✅ | 8 个 `@tool` 函数，用 `InjectedState` 注入树状态 |
 | **节点使用 ID** | ✅ | 参数从 `name` 改为 `node_id` / `from_id` / `to_id` |
 | **返回 diff 而非操作指令** | 🟡 | 后端确实返回树变更，但前端没有 `applyTreeDiff()`，按整树覆盖应用 |
-| **SSE 流式事件** | 🟡 | 后端 `StreamingResponse` 已实现，前端未接入，仍用普通 fetch |
+| **SSE 流式事件** | ✅ | 2026-09-16 落地：后端 POST + SSE（阶段事件），前端 `js/sse.js` 接入 |
 | **checkpointer 持久化** | ✅ | 复用 `services.coordinator.checkpointer.get_checkpointer()`（全局 MemorySaver） |
 | **用户鉴权** | ✅ | 3 个端点全部 `Depends(get_current_user)` |
 
@@ -179,7 +180,7 @@ backend/
 
 | # | 事项 | 对应问题 |
 |---|------|---------|
-| 4 | 前端接入 SSE 流式（后端端点已就绪） | F4 |
+| 4 | ~~前端接入 SSE 流式~~ ✅ **已完成**（2026-09-16） | F4 |
 | 5 | 前端 `applyTreeDiff()` 替代整树覆盖 | 2.2 偏差 |
 | 6 | 重名节点自动处理 | F6 |
 | 7 | `move_node` 入撤销历史 | T6 |
@@ -212,7 +213,7 @@ backend/
 | 阶段 | 原估算 | 实际状态 |
 |------|--------|---------|
 | Phase 1 后端 graph | 4-6h | ✅ 完成 |
-| Phase 2 前端对接 | 3-4h | 🟡 约七成（缺 SSE / Markdown / diff） |
+| Phase 2 前端对接 | 3-4h | 🟢 约九成（SSE ✅；缺 Markdown / diff 应用） |
 | Phase 3 前端修复 | 1-2h | ❌ 未启动 |
 | Phase 4 下线旧代码 + 测试 | 1-2h | 🟡 旧接口已标记 deprecated，代码未删 |
 

@@ -20,6 +20,8 @@ from langchain_core.messages import HumanMessage
 from services.coordinator.router_node import router_node
 from services.coordinator.synthesize_node import synthesize_node
 from services.coordinator.agents import SUBGRAPH_BUILDERS
+from services.coordinator.agents.ask_user_tool import DOMAIN_LABELS
+from services.sse import emit_stage, emit_token
 
 log = logging.getLogger(__name__)
 
@@ -139,6 +141,30 @@ async def resume_subgraph(domain: str, sub_thread_id: str, answer: str):
         }], []
 
 
+async def _run_one_subgraph_reported(task: dict, user_id: int, main_thread_id: str):
+    """跑一个子图，并在开始/结束/反问时各推一个阶段事件
+
+    这几个事件很有价值：阶段二是整条链路**等待最久**的一段（每个子 Agent 内部
+    都是若干轮 LLM + 工具调用），而子图是**并行**跑的，所以事件会交错出现，
+    用户能看到「两个域同时在动」。
+
+    不流式时 emit_stage 是空操作，行为与直接调 _run_one_subgraph 完全一致。
+    """
+    domain = task["domain"]
+    label = DOMAIN_LABELS.get(domain, domain)
+    await emit_stage("domain_start", f"{label}：开始处理", domain=domain)
+
+    results, interrupts = await _run_one_subgraph(
+        domain, task.get("instruction", ""), user_id, main_thread_id
+    )
+
+    if interrupts:
+        await emit_stage("domain_ask", f"{label}：需要你补充信息", domain=domain)
+    else:
+        await emit_stage("domain_done", f"{label}：已完成", domain=domain)
+    return results, interrupts
+
+
 async def dispatch_subgraphs(state: dict) -> dict:
     """阶段二：并行派发所有待执行子图"""
     pending_tasks = state.get("pending_tasks", [])
@@ -149,7 +175,7 @@ async def dispatch_subgraphs(state: dict) -> dict:
         return {"results": [], "interrupts": [], "completed_domains": []}
 
     coros = [
-        _run_one_subgraph(task["domain"], task.get("instruction", ""), user_id, main_thread_id)
+        _run_one_subgraph_reported(task, user_id, main_thread_id)
         for task in pending_tasks
     ]
     outcomes = await asyncio.gather(*coros, return_exceptions=True)
@@ -197,6 +223,53 @@ async def run_coordinator(state: dict) -> dict:
         syn = await synthesize_node(state)
         state["final_reply"] = syn.get("final_reply", "")
         # 三阶段走完 → 压入近 5 条历史
+        finalize_record(state)
+
+    return state
+
+
+async def run_coordinator_stream(state: dict) -> dict:
+    """三段式主编排的**流式版**：与 run_coordinator 逻辑等价，只多了过程推送
+
+    推出去的东西：
+      · 阶段事件：routing / routing_done / domain_start / domain_done /
+        domain_ask / tool / synthesize
+      · 阶段三的回复改成**逐 token**推送（等待最长的就是这一段）
+
+    事件通过 `services.sse` 的 ContextVar 发射器送出（由路由层用
+    `use_emitter` 启用）；**没有启用流式时全部是空操作**，
+    所以这个函数在非流式场景下也能安全调用（只是浪费一次 astream）。
+
+    返回值与 run_coordinator 完全一致，路由层照旧把 state 存进 _thread_store。
+    """
+    # ── 阶段一：主 agent 路由 ──
+    await emit_stage("routing", "正在理解你的意图…")
+    routing = await router_node(state)
+    state["pending_tasks"] = routing.get("pending_tasks", [])
+    domains = [t["domain"] for t in state["pending_tasks"]]
+    if domains:
+        labels = "、".join(DOMAIN_LABELS.get(d, d) for d in domains)
+        await emit_stage(
+            "routing_done", f"已规划 {len(domains)} 项：{labels}", domains=domains
+        )
+    else:
+        await emit_stage("routing_done", "直接生成回复…")
+
+    # ── 阶段二：并行派发子图（每个域的起止/反问由 _run_one_subgraph_reported 推送）──
+    disp = await dispatch_subgraphs(state)
+    state["results"] = disp.get("results", [])
+    state["interrupts"] = disp.get("interrupts", [])
+    state["completed_domains"] = disp.get("completed_domains", [])
+
+    # ── 阶段三：全部完成才总结 ──
+    pending_domains = {t["domain"] for t in state["pending_tasks"]}
+    if pending_domains and (pending_domains - set(state["completed_domains"])):
+        # 还有域在等用户回答，final_reply 置空（与 run_coordinator 一致）
+        state["final_reply"] = ""
+    else:
+        await emit_stage("synthesize", "正在整理回复…")
+        syn = await synthesize_node(state, on_token=emit_token)
+        state["final_reply"] = syn.get("final_reply", "")
         finalize_record(state)
 
     return state

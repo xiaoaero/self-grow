@@ -19,6 +19,7 @@ from services.skill_tree_ai.prompts import (
     build_tree_state_prompt,
 )
 from services.skill_tree_ai.state import SkillTreeChatState
+from services.sse import emit_stage
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +76,9 @@ def make_agent_node(tools: list, llm_factory):
         ask_rounds = int(state.get("ask_rounds", 0) or 0)
 
         for i in range(MAX_ITERS):
+            # 阶段事件（不流式时是空操作）：一个 ReAct 循环里 LLM 会被调用多次，
+            # 把轮次报出来，用户才知道「它还在干活」而不是卡住了
+            await emit_stage("thinking", "正在分析…" if i == 0 else f"第 {i + 1} 轮推理…")
             response = await llm_with_tools.ainvoke(full_messages)
 
             # 1. LLM 调用工具
@@ -97,6 +101,7 @@ def make_agent_node(tools: list, llm_factory):
                         ))
                         continue
 
+                    await emit_stage("tool", f"正在执行 {name}", tool=name)
                     try:
                         # 手动注入 state（InjectedState 已把 state 从工具 schema 中排除）
                         result = tool_fn.invoke({**args, "state": state})
@@ -112,6 +117,9 @@ def make_agent_node(tools: list, llm_factory):
                             "message": result.get("message", "请确认此操作"),
                             "confirmed": False,
                         }
+                        await emit_stage(
+                            "confirm", result.get("message", "请确认此操作"), tool=name
+                        )
                         new_messages.append(ToolMessage(
                             content=json.dumps({
                                 "success": False,

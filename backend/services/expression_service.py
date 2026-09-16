@@ -17,6 +17,7 @@ from prompts.expression import (
     EXPRESSION_HINTS_SYSTEM_PROMPT,
     EXPRESSION_BEAUTIFY_SYSTEM_PROMPT,
 )
+from services.sse import emit_stage
 from db.expressions import (
     get_existing_questions,
     create_question,
@@ -180,6 +181,9 @@ async def _call_llm_with_tools(system_prompt: str, user_message: str, tools: lis
     max_rounds = 5  # 防止无限循环
     for current_round in range(max_rounds):
         log.info(f"→ 出题 AI 请求 ({current_round + 1})")
+        # 阶段事件（不流式时是空操作）：出题要跑好几轮 LLM + 工具，
+        # 把轮次报出来，前端就不只是一个不动的转圈
+        await emit_stage("thinking", "正在构思…" if current_round == 0 else f"第 {current_round + 1} 轮调整…")
         resp = await llm_with_tools.ainvoke(messages)
 
         # 处理工具调用
@@ -193,12 +197,14 @@ async def _call_llm_with_tools(system_prompt: str, user_message: str, tools: lis
 
                 if name == "query_history_questions":
                     # 查询历史题目
+                    await emit_stage("tool", "正在查询历史题目（避免重复出题）", tool=name)
                     q_types = args.get("types", [])
                     limit = args.get("limit", 20)
                     existing = get_existing_questions(types=q_types if q_types else None, limit=limit)
                     result_text = json.dumps(existing, ensure_ascii=False)
                 elif name == "search_hot_events":
                     # 预留：联网搜索，暂不可用
+                    await emit_stage("tool", "联网搜索（暂不可用）", tool=name)
                     result_text = "【该工具暂不可用】联网搜索功能尚未接入，请基于已有知识生成题目。"
                 else:
                     result_text = "未知工具"

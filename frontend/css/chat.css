@@ -214,6 +214,65 @@
     40% { transform: scale(1); opacity: 1; }
 }
 
+/* --- 流式回复：上方阶段进度 + 下方逐字文本 --- */
+.chat__msg-bubble--stream {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 120px;
+}
+
+.chat__stages {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--color-border);
+}
+
+.chat__stage {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-muted);
+}
+
+/* 最新一条阶段提示高亮 + 右侧呼吸圆点，表示「这一步还在进行」 */
+.chat__stage--active {
+    color: var(--color-accent);
+}
+
+.chat__stage--active::after {
+    content: '';
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: chat-bounce 1.4s infinite ease-in-out;
+    vertical-align: middle;
+}
+
+.chat__stream-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* 逐字输出的光标 */
+.chat__stream-text:not(:empty)::after {
+    content: '▍';
+    margin-left: 1px;
+    color: var(--color-accent);
+    animation: chat-caret 1s step-end infinite;
+}
+
+.chat__msg-bubble--done .chat__stream-text::after { content: ''; }
+
+@keyframes chat-caret {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
 /* --- 工具面板 --- */
 .chat__tools-panel {
     width: 260px;

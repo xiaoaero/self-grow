@@ -382,6 +382,8 @@
   <!-- Toast 提示 -->
   <div id="toast" class="hidden"></div>
 
+  <!-- 共享的 SSE 流式读取工具（与主应用同一份实现，避免两处解析逻辑各自腐烂） -->
+  <script src="../js/sse.js"></script>
   <script src="js/utils.js"></script>
   <script src="js/history.js"></script>
   <script src="js/tree-renderer.js"></script>

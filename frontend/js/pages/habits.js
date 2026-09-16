@@ -805,7 +805,9 @@ async function designHabitIcon() {
     statusEl.textContent = '🤖 AI 正在设计图标...';
     statusEl.style.color = '#888';
 
-    var result = await fetchHabitAIIcon(AppData.user.id, name, intro, category);
+    // 流式：把后端推的阶段提示显示在状态行上（生成要几十秒，别让用户干等）
+    var result = await fetchHabitAIIcon(AppData.user.id, name, intro, category,
+        function (label) { statusEl.textContent = '🤖 ' + label; });
     if (!result || !result.ok || !result.svg) {
         // 生成失败：不覆盖原图标，用户点保存仍是原图
         statusEl.textContent = result && result.message

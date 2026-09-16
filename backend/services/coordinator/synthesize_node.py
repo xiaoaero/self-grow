@@ -28,8 +28,8 @@ _SYNTHESIZE_SYSTEM_PROMPT = """你是「Self Grow 个人成长系统」的结果
 - 反问：简洁清晰地提出问题"""
 
 
-async def synthesize_node(state: CoordinatorState) -> dict:
-    """整合各子图执行结果，使用 LLM 生成自然语言回复"""
+def build_synthesize_prompt(state: CoordinatorState) -> str:
+    """把「用户消息 + 各子 Agent 结果 + 反问」拼成给 LLM 的上下文"""
     results = state.get("results", [])
     interrupts = state.get("interrupts", [])
     pending_tasks = state.get("pending_tasks", [])
@@ -69,31 +69,76 @@ async def synthesize_node(state: CoordinatorState) -> dict:
         else:
             context_parts.append("（未识别到具体任务）")
 
-    prompt = "\n\n".join(context_parts)
+    return "\n\n".join(context_parts)
 
-    # 调用 LLM 生成回复
+
+def _fallback_reply(state: CoordinatorState) -> str:
+    """LLM 不可用时的规则拼接降级"""
+    results = state.get("results", [])
+    interrupts = state.get("interrupts", [])
+
+    parts = []
+    if interrupts:
+        for i in interrupts:
+            parts.append(f"🤔 {i.get('question', '请补充信息')}")
+    if results:
+        for r in results:
+            msg = r.get("message", "")
+            if msg:
+                parts.append(f"✅ {msg}")
+    if not parts:
+        parts.append("抱歉，我没有理解你的意思。请告诉我你想做什么？")
+    return "\n".join(parts)
+
+
+def _chunk_text(chunk) -> str:
+    """从 astream 的增量块里取出文本（兼容不同 langchain 版本的对象形态）"""
+    text = getattr(chunk, "content", None)
+    if isinstance(text, str):
+        return text
+    # 有些实现只暴露 .text
+    text = getattr(chunk, "text", None)
+    return text if isinstance(text, str) else ""
+
+
+async def synthesize_node(state: CoordinatorState, on_token=None) -> dict:
+    """整合各子图执行结果，使用 LLM 生成自然语言回复
+
+    Args:
+        on_token: 可选异步回调 `async def (text: str) -> None`。
+            传入时改走 `llm.astream()`，把文本增量实时交出去（SSE 逐字输出）；
+            不传时行为与改造前**完全一致**（`ainvoke` 一次性拿结果）。
+
+    注意：无论走哪条路径，返回的 `final_reply` 都是权威结果 ——
+    流式场景下前端应始终用返回的这份覆盖已经打出来的文本，
+    因为中途出错时这里会降级成规则拼接（与已输出的半截内容不一致）。
+    """
+    prompt = build_synthesize_prompt(state)
+
     try:
         llm = get_llm(temperature=0.3, user_id=state.get("user_id"))
-        response = await llm.ainvoke([
+        msgs = [
             {"role": "system", "content": _SYNTHESIZE_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
-        ])
-        final_reply = response.content.strip()
+        ]
+        if on_token is None:
+            response = await llm.ainvoke(msgs)
+            final_reply = response.content.strip()
+        else:
+            chunks = []
+            async for chunk in llm.astream(msgs):
+                text = _chunk_text(chunk)
+                if text:
+                    chunks.append(text)
+                    await on_token(text)
+            final_reply = "".join(chunks).strip()
+            if not final_reply:
+                # 流式为空的兜底（推理模型偶发）：走规则拼接
+                final_reply = _fallback_reply(state)
+                await on_token(final_reply)
     except Exception as e:
         log.error(f"LLM 整合回复失败，降级为规则拼接：{e}")
-        # 降级：简单拼接
-        parts = []
-        if interrupts:
-            for i in interrupts:
-                parts.append(f"🤔 {i.get('question', '请补充信息')}")
-        if results:
-            for r in results:
-                msg = r.get("message", "")
-                if msg:
-                    parts.append(f"✅ {msg}")
-        if not parts:
-            parts.append("抱歉，我没有理解你的意思。请告诉我你想做什么？")
-        final_reply = "\n".join(parts)
+        final_reply = _fallback_reply(state)
 
     log.info(f"生成回复：{final_reply[:100]}...")
     return {"final_reply": final_reply}

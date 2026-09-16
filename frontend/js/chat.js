@@ -160,34 +160,22 @@ const AIChat = {
         // 显示加载状态
         this.isLoading = true;
         this.sendBtn.disabled = true;
-        const typingEl = this._showTyping();
+        const bubble = this._showStream();
 
         try {
             const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
             // JWT 改造：身份由 Authorization 头决定，user_id 仅作参考，不再兜底为 1
             const userId = AppData?.user?.id || getCurrentUser()?.id;
-            const resp = await fetch(`${API_BASE}/api/coordinator/chat?user_id=${userId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: text,
-                    thread_id: this.threadId,
-                }),
-            });
 
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            // 流式请求：阶段进度 + 逐 token（见 utils/chat 里的 _streamCall 注释）
+            const data = await this._streamCall(
+                `${API_BASE}/api/coordinator/chat?user_id=${userId}`,
+                { message: text, thread_id: this.threadId },
+                bubble,
+            );
 
-            const data = await resp.json();
             this.threadId = data.thread_id;
             sessionStorage.setItem(THREAD_KEY, data.thread_id);
-
-            // 移除加载状态
-            typingEl.remove();
-
-            // 显示 AI 回复
-            if (data.reply) {
-                this._appendMessage('assistant', data.reply);
-            }
 
             // 显示工具调用
             if (data.results && data.results.length > 0) {
@@ -201,7 +189,8 @@ const AIChat = {
             }
 
         } catch (err) {
-            typingEl.remove();
+            // 已经流出来的内容保留着（用户能看到部分结果），下面再补一条错误说明
+            bubble.finish();
             this._appendMessage('assistant', `抱歉，出了点问题：${err.message}`);
         } finally {
             this.isLoading = false;
@@ -223,30 +212,22 @@ const AIChat = {
 
         this.isLoading = true;
         this.sendBtn.disabled = true;
-        const typingEl = this._showTyping();
+        const bubble = this._showStream();
 
         try {
             const API_BASE = window.__SELF_GROW_API_BASE__ || 'http://localhost:3001';
             // JWT 改造：身份由 Authorization 头决定，user_id 仅作参考，不再兜底为 1
             const userId = AppData?.user?.id || getCurrentUser()?.id;
-            const resp = await fetch(`${API_BASE}/api/coordinator/resume?user_id=${userId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+
+            const data = await this._streamCall(
+                `${API_BASE}/api/coordinator/resume?user_id=${userId}`,
+                {
                     thread_id: this.threadId,
-                    sub_thread_id: interrupt.sub_thread_id,  // 新增：指定恢复哪个子图
+                    sub_thread_id: interrupt.sub_thread_id,  // 指定恢复哪个子图
                     answer: answer,
-                }),
-            });
-
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-            const data = await resp.json();
-            typingEl.remove();
-
-            if (data.reply) {
-                this._appendMessage('assistant', data.reply);
-            }
+                },
+                bubble,
+            );
 
             if (data.results && data.results.length > 0) {
                 this._renderToolCalls(data.results);
@@ -261,7 +242,7 @@ const AIChat = {
             this._refreshInterruptArea();
 
         } catch (err) {
-            typingEl.remove();
+            bubble.finish();
             this._appendMessage('assistant', `抱歉，出了点问题：${err.message}`);
         } finally {
             this.isLoading = false;
@@ -290,14 +271,41 @@ const AIChat = {
         this.messages.scrollTop = this.messages.scrollHeight;
     },
 
-    /** 显示加载动画 */
-    _showTyping() {
+    /* 说明：原来的 `_showTyping()`（三点跳动动画）已被 `_showStream()` 取代 ——
+       流式气泡内部自带同样的三点动画，等第一个 token 到达时自动移除。
+       两者并存会导致「loading 和流式文本同时出现」，所以删掉了。 */
+
+    /** 滚动到底部（流式追加文本时每来一段都要调） */
+    _scrollToBottom() {
+        this.messages.scrollTop = this.messages.scrollHeight;
+    },
+
+    /** 创建一个「流式回复」气泡：上方阶段进度条，下方逐字文本
+     *
+     * 返回控制器（不要直接操作 DOM）：
+     *   setStage(label)  追加一条阶段提示（连续重复的会去重）
+     *   appendToken(t)   追加文本增量
+     *   setText(t)       用权威文本覆盖（done 事件里的 reply）
+     *   finish()         收尾：去掉光标与加载动画
+     *   remove()         整条移除
+     */
+    _showStream() {
         const wrapper = document.createElement('div');
         wrapper.className = 'chat__msg chat__msg--assistant';
 
         const avatar = document.createElement('div');
         avatar.className = 'chat__msg-avatar';
         avatar.textContent = '🤖';
+
+        const bubble = document.createElement('div');
+        bubble.className = 'chat__msg-bubble chat__msg-bubble--stream';
+
+        const stages = document.createElement('div');
+        stages.className = 'chat__stages';
+        stages.style.display = 'none';
+
+        const text = document.createElement('div');
+        text.className = 'chat__stream-text';
 
         const typing = document.createElement('div');
         typing.className = 'chat__typing';
@@ -307,12 +315,87 @@ const AIChat = {
             typing.appendChild(dot);
         }
 
+        bubble.appendChild(stages);
+        bubble.appendChild(typing);
+        bubble.appendChild(text);
         wrapper.appendChild(avatar);
-        wrapper.appendChild(typing);
+        wrapper.appendChild(bubble);
         this.messages.appendChild(wrapper);
-        this.messages.scrollTop = this.messages.scrollHeight;
+        this._scrollToBottom();
 
-        return wrapper;
+        const self = this;
+        // 阶段日志最多保留最近几条：协调 Agent 一次请求可能推十几条
+        // （每个工具一条），全留着会把气泡撑得很长
+        const MAX_STAGES = 5;
+        let stageList = [];
+        let hasText = false;
+
+        const dropTyping = () => { if (typing.parentNode) typing.remove(); };
+
+        return {
+            setStage(label) {
+                if (!label) return;
+                if (stageList[stageList.length - 1] === label) return;
+                stageList.push(label);
+                if (stageList.length > MAX_STAGES) stageList = stageList.slice(-MAX_STAGES);
+                stages.style.display = '';
+                const last = stageList.length - 1;
+                stages.innerHTML = stageList.map(function (l, i) {
+                    const cls = i === last
+                        ? 'chat__stage chat__stage--active'
+                        : 'chat__stage';
+                    return '<div class="' + cls + '">' + escapeHtml(l) + '</div>';
+                }).join('');
+                self._scrollToBottom();
+            },
+            appendToken(t) {
+                if (!t) return;
+                if (!hasText) { hasText = true; dropTyping(); }
+                text.textContent += t;
+                self._scrollToBottom();
+            },
+            setText(t) {
+                if (t === undefined || t === null) return;
+                hasText = true;
+                dropTyping();
+                text.textContent = t;
+                bubble.classList.add('chat__msg-bubble--done');
+                stages.querySelectorAll('.chat__stage--active').forEach(function (el) {
+                    el.classList.remove('chat__stage--active');
+                });
+                self._scrollToBottom();
+            },
+            finish() {
+                dropTyping();
+                bubble.classList.add('chat__msg-bubble--done');
+                stages.querySelectorAll('.chat__stage--active').forEach(function (el) {
+                    el.classList.remove('chat__stage--active');
+                });
+            },
+            remove() { wrapper.remove(); },
+            hasText() { return hasText; },
+        };
+    },
+
+    /**
+     * 调一个流式 AI 端点，把过程渲染进气泡
+     *
+     * 约定（与后端 services/sse.py 一致）：
+     *   · stage 事件 → 阶段进度
+     *   · token 事件 → 逐字追加
+     *   · done 事件  → **用其中的 reply 覆盖已逐字输出的文本**
+     *     （服务端在中途出错时会降级成规则拼接，已输出的半截内容不再权威）
+     *
+     * @returns {Promise<object>} done 事件的完整内容
+     */
+    async _streamCall(url, body, bubble) {
+        const result = await streamSSE(url, body, {
+            onStage: (p) => bubble.setStage(p.label),
+            onToken: (t) => bubble.appendToken(t),
+        });
+        if (result.reply) bubble.setText(result.reply);
+        else bubble.finish();
+        return result;
     },
 
     /** 渲染工具调用结果 */

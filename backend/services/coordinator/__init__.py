@@ -9,7 +9,14 @@ Self Grow — 统一协调 Agent（Coordinator Agent）
 所有次 agent 完成后由主 agent 总结回复。
 """
 
-from .graph import run_coordinator, resume_subgraph
+from .graph import run_coordinator, run_coordinator_stream, resume_subgraph
 from .state import CoordinatorState
 
-__all__ = ["run_coordinator", "resume_subgraph", "CoordinatorState"]
+__all__ = [
+    # 非流式（保留：单测与「不需要过程推送」的调用方用）
+    "run_coordinator",
+    # 流式：路由层 /chat 用的就是它（阶段事件 + 逐 token）
+    "run_coordinator_stream",
+    "resume_subgraph",
+    "CoordinatorState",
+]

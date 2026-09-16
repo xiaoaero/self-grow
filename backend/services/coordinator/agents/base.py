@@ -28,6 +28,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from services.coordinator.agents.ask_user_tool import ask_user
+from services.sse import emit_stage
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +132,14 @@ def make_agent_node(tools, domain: str, domain_label: str, system_prompt: str):
 
                     tool_fn = tools_by_name.get(name)
                     if tool_fn:
+                        # 推「正在执行 xxx」阶段事件（不流式时是空操作）。
+                        # 注意必须在主协程里发，不能在 asyncio.to_thread 的线程里 ——
+                        # ContextVar 在线程池里语义不保证
+                        await emit_stage(
+                            "tool",
+                            f"{domain_label}：正在执行 {name}",
+                            domain=domain, tool=name,
+                        )
                         try:
                             # 工具是同步的（内部是同步 sqlite3），丢线程池避免阻塞事件循环
                             tool_result = await asyncio.to_thread(tool_fn.invoke, args)
