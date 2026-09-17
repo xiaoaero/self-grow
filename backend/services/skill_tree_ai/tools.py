@@ -15,7 +15,6 @@ from typing import Annotated
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
-from services.skill_tree_ai.state import NodeDiff
 
 log = logging.getLogger(__name__)
 

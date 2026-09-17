@@ -259,37 +259,8 @@ REWARD_AGENT_SYSTEM_PROMPT = """你是「奖励管理」次Agent，负责管理�
 4. 执行成功后简要说明结果
 """ + _ask_user_rules("reward", "🎁 奖励管理")
 
-
-# ================================================================
-# 路由决策 JSON Schema（供 LLM 结构化输出，预留）
-# ================================================================
-
-ROUTING_DECISION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "domains": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "domain": {
-                        "type": "string",
-                        "enum": ["action", "query", "goal", "task", "habit", "reward"],
-                        "description": "功能域名称"
-                    },
-                    "reason": {
-                        "type": "string",
-                        "description": "为何路由至此域"
-                    },
-                    "instruction": {
-                        "type": "string",
-                        "description": "动态生成的子Agent定制指令"
-                    }
-                },
-                "required": ["domain", "reason", "instruction"]
-            },
-            "description": "需要调度的功能域列表"
-        }
-    },
-    "required": ["domains"]
-}
+# 注：这里原来还有一个 `ROUTING_DECISION_SCHEMA`（路由决策的 JSON Schema，
+# 注释写着"供 LLM 结构化输出，预留"），已于 2026-09-17 删除 ——
+# 全项目零引用：router_node 用的是 COORDINATOR_ROUTER_SYSTEM_PROMPT 里
+# **文字描述的 JSON 格式** + 自己解析，从没走过 structured output。
+# 需要真做结构化输出时再引入（那时用 Pydantic 模型比手写 dict 更合适）。

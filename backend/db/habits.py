@@ -2,7 +2,6 @@
 Self Grow — 习惯 CRUD + 打卡记录
 """
 
-import re
 from xml.etree import ElementTree
 
 from db.connection import get_conn

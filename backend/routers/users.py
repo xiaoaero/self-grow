@@ -1,38 +1,29 @@
 """
 Self Grow — 用户 API 路由
 
-包含登录、用户列表、个人资料、统计同步、手动加经验。
+包含用户列表、个人资料、今日统计同步。
+
+注（2026-09-17 清理）：
+  · `POST /api/users/login`（[已废弃] 的 user_id 卡片登录）已删除 ——
+    登录页的卡片登录**根本不调后端**（只把用户信息写进 localStorage 再跳转），
+    正式登录一律走 `POST /api/auth/login`，这个端点全项目零调用。
+  · `POST /api/users/exp/add`（手动加经验）已删除 —— 开发调试用的，
+    真实经验都由 action_logs / 任务 / 习惯走 `services/exp_service.py` 发放。
+  · 注意 `GET /api/users`（裸列表）**是活的**：登录页用它渲染可选用户卡片，
+    所以它故意不挂鉴权 —— 删代码时别看它没鉴权就当成漏洞顺手删掉。
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from datetime import datetime, timedelta
 
-from db.users import get_user, get_user_by_name, get_all_users, get_user_stats, upsert_user_stats, update_user_exp
-from db.dimensions import upsert_dimension, get_total_exp_from_dimensions
-from models.level import exp_for_level, total_exp_for_level, level_from_total_exp
+from db.users import get_all_users, get_user_stats, upsert_user_stats
+from db.dimensions import get_total_exp_from_dimensions
+from models.level import exp_for_level
 from models.constants import get_rank_info
-from schemas.api import LoginRequest, StatsSyncRequest, ExpAddRequest
-from config import SELF_GROW_TRUSTED_MODE
+from schemas.api import StatsSyncRequest
 from routers.deps import get_current_user
 
 router = APIRouter()
-
-
-@router.post("/api/users/login")
-def login(req: LoginRequest):
-    """[已废弃] 通过 user_id 登录
-
-    仅 TRUSTED_MODE 下可用（无密码卡片登录）；正式登录请改用 POST /api/auth/login。
-    """
-    if not SELF_GROW_TRUSTED_MODE:
-        raise HTTPException(
-            status_code=403,
-            detail="该接口仅在本地免鉴权模式（SELF_GROW_TRUSTED_MODE=1）下可用，请使用 /api/auth/login",
-        )
-    user = get_user(req.user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    return {"id": user["id"], "name": user["name"], "role": user["role"]}
 
 
 @router.get("/api/users")
@@ -107,37 +98,6 @@ def sync_stats(req: StatsSyncRequest, user=Depends(get_current_user)):
         "tasksDone": today_row["tasks_done"],
         "habitsChecked": today_row["habits_checked"],
         "expEarned": today_row["exp_earned"],
-    }
-
-
-@router.post("/api/users/exp/add")
-def add_exp(req: ExpAddRequest, user=Depends(get_current_user)):
-    """手动增加经验值（后端计算等级变化）"""
-    user_id = user["id"]
-    old_level = user["level"]
-
-    # 如果有分类，同时更新对应维度的经验
-    if req.category:
-        upsert_dimension(user_id, req.category, req.amount)
-
-    # 从维度表实时 SUM 总经验
-    new_total = get_total_exp_from_dimensions(user_id)
-    new_level = level_from_total_exp(new_total)
-    new_current = new_total - total_exp_for_level(new_level)
-
-    update_user_exp(user_id, new_level, new_current)
-
-    rank_info = get_rank_info(new_level)
-    return {
-        "level": new_level,
-        "exp": new_current,
-        "expToNext": exp_for_level(new_level),
-        "totalExp": new_total,
-        "isMaxLevel": new_level >= 200,
-        "rank": rank_info["name"],
-        "rankTier": rank_info["tier"],
-        "leveledUp": new_level > old_level,
-        "oldLevel": old_level,
     }
 
 

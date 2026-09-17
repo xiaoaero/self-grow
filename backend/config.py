@@ -176,11 +176,6 @@ try:
 except (ValueError, TypeError):
     SELF_GROW_REFRESH_TTL = 2592000
 
-# CORS 允许的来源（逗号分隔）。
-# 注意：一旦前端需要携带凭证（Cookie / Authorization），就不能再用 "*"，
-# 否则浏览器会直接拒绝响应。默认给同源 + 常见开发端口。
-SELF_GROW_CORS_ORIGINS = os.getenv("SELF_GROW_CORS_ORIGINS", "")
-
 # 可信模式：跳过鉴权，固定为指定用户（本地开发 / 演示用）。
 # 开启后所有请求都以 SELF_GROW_TRUSTED_USER_ID 身份执行 —— 绝不用于生产。
 SELF_GROW_TRUSTED_MODE = os.getenv("SELF_GROW_TRUSTED_MODE", "0") == "1"

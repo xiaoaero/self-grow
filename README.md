@@ -3,7 +3,7 @@
 > 一个原生 HTML/CSS/JS 单页应用 + FastAPI 后端的个人成长追踪系统。包含等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（AI 生成节点走 **LangGraph**）、**表达训练系统（AI 出题 + 实时语音 + 评分 + 填充词检测）**、**统一协调 Agent（多智能体 + 反问机制 + 悬浮球对话）**、**MCP 插件（24 个业务工具暴露）**、**用户中心（多模型管理 + 账户安全）**、**JWT 登录鉴权（Access/Refresh 双令牌 + RBAC + API Key）**。部署方式为纯 Web + Docker。
 
 **三项能力定位**：
-- **22 张表 / 102 个 HTTP 端点 / 6 个 AI 场景**的完整业务后端
+- **22 张表 / 96 个 HTTP 端点 / 6 个 AI 场景**的完整业务后端
 - **两套 LangGraph Agent**：统一协调 Agent（多智能体 + 反问）+ 技能树 AI（工具调用 + 危险操作确认）
 - **完整的登录鉴权**：JWT 双令牌 + 角色授权 + 可撤销 API Key，覆盖浏览器 / MCP / 脚本三类客户端
 
@@ -27,7 +27,7 @@ self_grow_system/
 │   │   ├── layout.css                # 布局（侧边栏 + 主内容区）
 │   │   ├── sidebar.css               # 侧边栏样式
 │   │   ├── components.css            # 组件样式（卡片、进度条、经验条等）
-│   │   └── pages.css                 # 各页面独立样式（~122 KB，含表达训练 ~300 行）
+│   │   └── pages.css                 # 各页面独立样式（~165 KB，含表达训练 ~300 行）
 │   │
 │   ├── js/                           # JavaScript（加载顺序严格）
 │   │   ├── auth.js                   # ★ 登录态管理：包装 window.fetch 自动带凭证 + 401 自动续期（必须最先加载）
@@ -52,8 +52,7 @@ self_grow_system/
 │   │       └── usercenter.js         # 用户中心 — 基础信息 + 账户安全（改密/API Key/登出）+ 多模型管理
 │   │
 │   ├── skill-tree/                   # 技能树编辑器（独立 SPA，支持查看器/编辑/管理三模式）
-│   │   ├── index.html                # 编辑器入口（角色模式：viewer/editor/admin）
-│   │   ├── viewer.html               # 查看器（可嵌入 iframe，用于 skills 页面）
+│   │   ├── index.html                # 入口（角色模式：?role=user 查看 / editor 编辑 / admin 管理）
 │   │   ├── css/
 │   │   │   ├── style.css             # 主样式
 │   │   │   ├── sidebar.css           # 侧边栏样式
@@ -78,13 +77,12 @@ self_grow_system/
 │   ├── main.py                       # 入口点：app 工厂、生命周期、路由注册、定时任务
 │   ├── config.py                     # 配置从 .env 加载（AI 端点、Key、模型、端口、前端目录、git 版本号）
 │   ├── mcp_server.py                 # MCP 插件 — FastMCP v2，24 个业务工具（stdio/HTTP 双传输）
-│   ├── database.py                   # 向后兼容层（re-export from db/ 子模块）
 │   │
 │   ├── models/                       # 数据模型
 │   │   ├── level.py                  # 等级公式（唯一来源，含满级处理）
 │   │   └── constants.py              # 8 维分类定义、10 段位表、颜色映射、维度经验计算规则
 │   ├── schemas/                      # Pydantic 请求/响应模型
-│   │   └── api.py                    # 26+ 个模型定义
+│   │   └── api.py                    # 20 个请求模型（响应都是直接返回 dict，未挂 response_model）
 │   │
 │   ├── db/                           # 数据访问层（每模块一个功能域）
 │   │   ├── connection.py             # DB_PATH + get_conn()
@@ -134,27 +132,27 @@ self_grow_system/
 │   │   ├── action_parse.py           # 行动解析提示词
 │   │   ├── habit_icon.py             # 习惯图标分配提示词
 │   │   ├── expression.py             # 表达训练出题/评分/提示生成提示词
-│   │   └── skill_tree.py             # [已废弃] 旧技能树 AI 提示词（新链路在 skill_tree_ai/prompts.py）
+│   │   └── action_parse.py           # AI 行动解析提示词 + 工具定义
 │   │
-│   ├── routers/                      # API 路由层
+│   ├── routers/                      # API 路由层（各文件端点数按 OpenAPI 实测）
 │   │   ├── deps.py                   # ★ 依赖注入：get_current_user（凭证解析链）+ require_admin（角色授权）
-│   │   ├── auth.py                   # ★ 登录鉴权 API（login/refresh/logout/password/me/api-keys）
+│   │   ├── auth.py                   # ★ 登录鉴权 API（8：login/refresh/logout/password/me + api-keys 增删查）
 │   │   ├── health.py                 # GET /api/health（含 git 版本号）
-│   │   ├── users.py                  # 用户 API（5 个端点）
-│   │   ├── habits.py                 # 习惯 API（9 个端点，含 AI 分析）
-│   │   ├── actions.py                # 行动记录 API（7 个端点，含 AI 对话 + 作息状态 + CSV 导出）
+│   │   ├── users.py                  # 用户 API（3：用户列表 + 个人资料 + 今日统计同步）
+│   │   ├── habits.py                 # 习惯 API（9 个端点，含 AI 图标生成）
+│   │   ├── actions.py                # 行动记录 API（9 个端点，含 AI 对话 + 作息状态 + CSV 导出）
 │   │   ├── goals.py                  # 目标 API（5 个端点）
-│   │   ├── tasks.py                  # 任务 API（8 个端点）
+│   │   ├── tasks.py                  # 任务 API（9 个端点）
 │   │   ├── scheduled_tasks.py        # 定时任务模板 API（4 个端点）
-│   │   ├── stats.py                  # 统计 API（5 个端点）
-│   │   ├── rewards.py                # 奖励商城 API（8 个端点）
-│   │   ├── coordinator.py            # 协调 Agent API（chat/resume/status，前两个是 SSE 流式）
-│   │   ├── model_configs.py          # 模型配置 API（5 端点 + 连通性测试）
-│   │   ├── skill_tree.py             # 技能树 CRUD API（9 个端点，写操作仅管理员）
-│   │   ├── skill_tree_ai.py          # 技能树 AI API（chat/resume，SSE 流式，LangGraph，仅管理员）
-│   │   └── expression.py             # 表达训练 API（10 个端点）
+│   │   ├── stats.py                  # 统计 API（4 个端点）
+│   │   ├── rewards.py                # 奖励商城 API（11 个端点）
+│   │   ├── coordinator.py            # 协调 Agent API（2：chat/resume，都是 SSE 流式）
+│   │   ├── model_configs.py          # 模型配置 API（6 个端点：CRUD + 切换启用 + 连通性测试）
+│   │   ├── skill_tree.py             # 技能树 CRUD API（10 个端点，写操作仅管理员）
+│   │   ├── skill_tree_ai.py          # 技能树 AI API（2：chat/resume，SSE 流式，LangGraph，仅管理员）
+│   │   └── expression.py             # 表达训练 API（11 个端点）
 │   │
-│   ├── tests/                        # pytest 测试（144 passed，LLM 全打桩、不联网）
+│   ├── tests/                        # pytest 测试（150 passed，LLM 全打桩、不联网）
 │   │   ├── conftest.py               # pytest 配置（★ 在此设置 SELF_GROW_JWT_SECRET，早于 config 导入）
 │   │   ├── helpers.py                # 测试用公共方法（ensure_test_accounts / get_auth_headers）
 │   │   ├── test_auth.py              # 登录鉴权（17）
@@ -163,6 +161,7 @@ self_grow_system/
 │   │   ├── test_streaming.py         # SSE 流式：事件协议 / 心跳 / 发射器并发隔离 / 端点契约（21）
 │   │   ├── test_skill_tree_permissions.py  # 技能树角色权限 / 越权拦截（11）
 │   │   ├── test_time_consistency.py  # 时间口径统一（任意时区下成立，10）
+│   │   ├── test_dimension_invariant.py     # 维度数据不变式：xp_to_next == exp_for_level（6）
 │   │   ├── test_coordinator_interrupt.py   # 反问交互：会话锁 / 连点 409 / skip 语义（10）
 │   │   ├── test_skill_tree_ai_tools.py     # 技能树 AI 工具（9）
 │   │   ├── test_mcp_auth.py          # MCP HTTP 传输的 API Key 鉴权（6）
@@ -174,11 +173,9 @@ self_grow_system/
 │   ├── requirements.txt              # 由 pixi 锁定的版本导出（供 pip / Docker 安装）
 │   ├── tools/export_reqs.py          # 从 pixi 导出 requirements.txt
 │   ├── tools/init_password.py        # 初始化 / 重置账号密码（pixi run init-password）
-│   ├── test_coordinator.py           # 协调 Agent 手动测试脚本
-│   ├── test_mcp_client.py            # MCP 插件验证脚本
 │   └── data.db                       # SQLite 数据库文件（首次启动自动创建）
 │
-├── docs/                             # 项目文档（19 篇）
+├── docs/                             # 项目文档（23 篇）
 │   ├── 登录鉴权方案选型.md            # ★ 9 种登录方式对比 + JWT 落地方案 + 实施进度
 │   ├── 安全设计说明.md                # ★ 威胁模型 / 令牌设计 / RBAC / 已知风险清单 10 条
 │   ├── 技能树编辑器技术详解.md         # ★ 1700+ 行：编辑器渲染与交互 + Agent 全解析
@@ -584,7 +581,10 @@ docker compose up -d
 ### 技能树开发
 
 - 编辑器入口：`frontend/skill-tree/index.html`（独立 SPA，支持 role 参数）
-- 查看器：`frontend/skill-tree/viewer.html`（通过 iframe 嵌入技能页面）
+- 查看器：**没有独立的查看器页面** —— 用 `frontend/skill-tree/index.html?role=user`，
+  由 `js/pages/skills.js` 通过 iframe 嵌入（技能详情预览 `?preview=true`、我的技能全屏）。
+  历史上曾有一个 `viewer.html`（649 行），已于 2026-09-17 删除：它零引用、
+  功能被 `?role=user` 完全覆盖，且只加载 utils/tree-renderer 两个 js（不含交互层），是更早的实现。
 - 主控制器：`skill-tree/js/app.js`（App 类，CRUD、撤销/重做、AI 集成）
 - 渲染引擎：`skill-tree/js/tree-renderer.js`（DOM + SVG 渲染）
 - AI 集成：`skill-tree/js/ai-bridge.js`（LangGraph 端点 `/api/skill-trees/{id}/chat`，服务端会话 + 确认卡片）
@@ -633,19 +633,18 @@ docker compose up -d
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/health` | 心跳检查（含 git 版本号） |
+| GET | `/api/config.js` | 动态注入前端 API 基址（**按请求 Host 反推**，不写死 127.0.0.1） |
 | GET | `/favicon.ico` | 站点图标 |
 | **POST** | **`/api/auth/login`** | **用户名 + 密码登录 → Access（body）+ Refresh（Cookie + body）** |
 | **POST** | **`/api/auth/refresh`** | **用 Refresh 换新 Access（旧的立即作废）** |
 | **POST** | **`/api/auth/logout`** | **登出（撤销当前 Refresh）** |
-| **POST** | **`/api/auth/logout-all`** | **登出所有设备** |
 | **POST** | **`/api/auth/password`** | **修改密码（token_version+1，旧 token 全失效）** |
 | **GET** | **`/api/auth/me`** | **当前身份与角色（权威来源）** |
-| **POST/GET/DELETE** | **`/api/auth/api-keys`** | **API Key 创建/列表/撤销（MCP 用）** |
-| POST | `/api/users/login` | [仅免鉴权模式] 卡片登录 |
+| **POST/GET** | **`/api/auth/api-keys`** | **API Key 创建 / 列表（MCP 用）** |
+| **DELETE** | **`/api/auth/api-keys/{id}`** | **撤销 API Key** |
 | GET | `/api/users` | 获取所有用户列表（登录页用，无需登录） |
 | GET | `/api/users/profile` | 获取用户完整数据 |
 | POST | `/api/users/stats/sync` | 同步今日统计 |
-| POST | `/api/users/exp/add` | 增加经验值 |
 | GET/POST | `/api/habits` | 习惯列表/创建 |
 | PUT/DELETE | `/api/habits/{id}` | 更新/删除习惯 |
 | POST | `/api/habits/{id}/toggle` | 打卡三态切换 |
@@ -666,30 +665,32 @@ docker compose up -d
 | PUT/DELETE | `/api/goals/{id}` | 更新/删除目标 |
 | POST | `/api/goals/{id}/claim` | 领取目标奖励 |
 | GET/POST | `/api/tasks` | 今日任务/创建 |
+| GET | `/api/tasks/week` | 本周任务 |
 | GET | `/api/tasks/all` | 所有任务分页 |
 | GET | `/api/tasks/history` | 历史任务分页 |
-| PUT/PATCH/DELETE | `/api/tasks/{id}` | 更新/状态变更/删除 |
+| PUT/DELETE | `/api/tasks/{id}` | 更新/删除任务 |
+| PATCH | `/api/tasks/{id}/status` | 变更任务状态 |
 | POST | `/api/tasks/{id}/claim` | 领取任务 EXP |
 | GET/POST | `/api/scheduled-tasks` | 定时任务模板 |
 | PUT/DELETE | `/api/scheduled-tasks/{id}` | 更新/删除模板 |
 | GET | `/api/stats/profile` | 6 项统计 + 8 维进度 |
 | GET | `/api/stats/yearly-activity` | 年度热力图 |
 | GET | `/api/stats/daily-exp` | 每日 EXP 趋势 |
-| POST | `/api/stats/recalc-dimensions` | 重算维度经验 |
 | GET/POST | `/api/rewards` | 奖励列表/创建 |
 | PUT/DELETE | `/api/rewards/{id}` | 更新/删除奖励 |
 | POST | `/api/rewards/{id}/claim` | 领取奖励 |
 | POST | `/api/rewards/{id}/manual-confirm` | 手动确认条件 |
 | POST | `/api/rewards/reevaluate` | 重新评估所有奖励 |
 | POST | `/api/rewards/{id}/image` | 上传奖励图片 |
+| DELETE | `/api/rewards/draft` | 清除奖励草稿 |
 | **POST** | **`/api/coordinator/chat`** ⚡ | **协调 Agent 对话（路由到子 Agent）｜SSE 流式** |
 | **POST** | **`/api/coordinator/resume`** ⚡ | **恢复协调 Agent 会话（回答反问 / `skip` 跳过）｜SSE 流式** |
-| **GET** | **`/api/coordinator/status/{thread_id}`** | **会话状态查询** |
 | **GET/POST** | **`/api/model-configs`** | **模型配置列表/新增** |
 | **PUT/DELETE** | **`/api/model-configs/{id}`** | **更新/删除模型配置** |
 | **POST** | **`/api/model-configs/{id}/activate`** | **切换启用模型（即时生效）** |
 | **POST** | **`/api/model-configs/test`** | **模型连通性测试** |
-| GET/POST/PUT/DELETE | `/api/skill-trees` | 技能树 CRUD |
+| GET/POST | `/api/skill-trees` | 技能树列表 / 创建 |
+| GET/PUT/DELETE | `/api/skill-trees/{id}` | 技能树详情 / 更新 / 删除 |
 | GET/PUT | `/api/skill-trees/user-skills/list` | 用户技能 ID 管理 |
 | PUT | `/api/skill-trees/{id}/publish` | 发布技能树 |
 | GET | `/api/skill-trees/{id}/published` | 获取已发布技能树 |
@@ -704,7 +705,9 @@ docker compose up -d
 | GET | `/api/expression/stats` | 训练统计 |
 | GET | `/api/expression/history` | 回答历史 |
 | GET | `/api/expression/question/{id}` | 题目详情 |
-| GET | `/api/expression/answer/{id}` | 回答详情 |
+| POST | `/api/expression/beautify` ⚡ | AI 美化自定义题目（SSE 流式） |
+| GET | `/api/expression/history/questions` | 出题历史（按题目聚合） |
+| GET | `/api/expression/history/questions/{id}/answers` | 某道题目的全部回答 |
 
 > 旧 `POST /api/chat`（无鉴权的技能树 AI 代理）已于 2026-09-03 下线，由 `/api/skill-trees/{id}/chat` 替代。
 
@@ -725,7 +728,7 @@ docker compose up -d
 - AI 服务在 `backend/services/` — 六个 AI 服务场景独立封装（含 coordinator/、skill_tree_ai/ 两个 LangGraph 包）
 - AI 提示词在 `backend/prompts/` — 每个功能独立文件
 - 等级公式唯一来源：`backend/models/level.py`
-- 运行后端测试：`cd backend && pixi run test`（当前 **144 passed**，AI 调用全打桩，不联网）
+- 运行后端测试：`cd backend && pixi run test`（当前 **150 passed**，AI 调用全打桩，不联网）
 - 运行前端逻辑测试：`node frontend/tests/interrupt-submit.test.mjs`（零依赖，不用开浏览器）
 - 依赖唯一事实源：`backend/pixi.toml`；导出锁定版到 pip/Docker：`cd backend && pixi run export-reqs`
 
@@ -754,16 +757,24 @@ cd .. && docker compose build --no-cache && docker compose up -d --force-recreat
 
 ## 8 个属性维度
 
-| 维度 | ID | 颜色 | EXP 倍率 | 说明 |
+| 维度 | ID | 颜色 | 全局倍率 | 说明 |
 |------|-----|-------|----------|------|
-| 健康 | health | `#FF7B72` | 10× | 运动、睡眠、饮食、冥想 |
-| 学习 | study | `#58D5C9` | 10× | 读书、课程、研究、刷信息 |
-| 关系 | relation | `#FF91A8` | 8× | 家人、朋友、社交、社群 |
-| 工作 | work | `#FFCA40` | 12× | 本职工作、项目推进、任务执行 |
-| 创作 | create | `#B794F6` | 8× | 写作、出内容、做模板、录视频 |
-| 财务 | finance | `#4ADE80` | 6× | 记账、理财、副业变现 |
-| 爱好 | hobby | `#F472B6` | 7× | 游戏、音乐、旅行、放松 |
-| 魅力 | soul | `#FBBF24` | 9× | 穿搭、气质、社交表达、个人形象 |
+| 健康 | health | `#FF7B72` | 1.0 | 运动、睡眠、饮食、冥想 |
+| 学习 | study | `#58D5C9` | 1.0 | 读书、课程、研究、刷信息 |
+| 关系 | relation | `#FF91A8` | 0.5 | 家人、朋友、社交、社群 |
+| 工作 | work | `#FFCA40` | 1.0 | 本职工作、项目推进、任务执行 |
+| 创作 | create | `#B794F6` | 0.5 | 写作、出内容、做模板、录视频 |
+| 财务 | finance | `#4ADE80` | 0.5 | 记账、理财、副业变现 |
+| 爱好 | hobby | `#F472B6` | 0.75 | 游戏、音乐、旅行、放松 |
+| 魅力 | soul | `#FBBF24` | 0.5 | 穿搭、气质、社交表达、个人形象 |
+
+> **全局倍率（`global_rate`）** 是真正生效的系数：全局经验 = `dimension_exp × global_rate`。
+> 各维度的具体分值由 `models/constants.py` 的 `_calc_*` 系列函数按「时长 / 子类型 /
+> 作息 / 连击」硬编码算出。
+>
+> 这里原来列的是另一个字段 `exp_rate`（10/10/8/12/8/6/7/9）——它**从来没有被任何
+> 计分函数读取过**，属于「设计了却没落地」的技术债，已于 2026-09-17 从代码里删除。
+> 详见 [`docs/维度经验计分规则.md`](docs/维度经验计分规则.md) §1。
 
 ---
 

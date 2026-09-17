@@ -4,7 +4,6 @@ Self Grow — 数据库初始化
 建表（15 张表）+ 插入默认用户和默认奖励。
 """
 
-import json
 import datetime
 
 from config import log
@@ -40,8 +39,14 @@ MAX_DIM_LEVEL = 140
 # (name, role, level, exp=本级进度, total_exp, streak, joined)
 # 注：users.total_exp 是**遗留字段**，真值一律以 8 维反推为准（见上面公式），
 #     这里填的就是反推之和，避免两处对不上。
+#
+# ⚠️ 三条恒等式（`tests/test_dimension_invariant.py` 会逐条断言）：
+#     ① total_exp == total_exp_for_level(level) + exp
+#     ② total_exp == 该用户名下 8 维的 Σ(total_exp_for_level(lv) + xp)
+#     ③ 每维 0 <= xp < xp_to_next 且 xp_to_next == exp_for_level(lv)
+#   2026-09-17 复核时 ① 在 test 上差 30（exp 填的是 145356，应为 145386），已修正。
 DEFAULT_DEMO_USERS = [
-    ("test", "user", 188, 145356, 12230686, 21, "2026-01-15"),
+    ("test", "user", 188, 145386, 12230686, 21, "2026-01-15"),
     ("admin", "admin", 99, 46923, 1795043, 7, "2026-06-01"),
 ]
 

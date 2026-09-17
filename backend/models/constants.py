@@ -4,47 +4,47 @@ Self Grow — 常量定义
 集中存放 CATEGORIES（8 维属性）、RANK_TABLE（10 段位）等全局常量。
 """
 
-import math
-from datetime import datetime, date
+from models.level import exp_for_level
+
 
 # ================================================================
 # 8 维属性分类定义
 # ================================================================
+# 注：每个分类原来还带一个 `exp_rate`（health 10 / study 10 / relation 8 /
+# work 12 / create 8 / finance 6 / hobby 7 / soul 9）。它从设计之初就**没有任何
+# 计分函数读取过** —— 实际经验全靠下面的 `_calc_*` 系列硬编码算出。
+# 已于 2026-09-17 作为技术债清理掉（详见 docs/维度经验计分规则.md §1）。
 CATEGORIES = [
-    {"id": "health",   "name": "健康", "color": "#FF7B72", "exp_rate": 10, "global_rate": 1.0},
-    {"id": "study",    "name": "学习", "color": "#58D5C9", "exp_rate": 10, "global_rate": 1.0},
-    {"id": "relation", "name": "关系", "color": "#FF91A8", "exp_rate": 8,  "global_rate": 0.5},
-    {"id": "work",     "name": "工作", "color": "#FFCA40", "exp_rate": 12, "global_rate": 1.0},
-    {"id": "create",   "name": "创作", "color": "#B794F6", "exp_rate": 8,  "global_rate": 0.5},
-    {"id": "finance",  "name": "财务", "color": "#4ADE80", "exp_rate": 6,  "global_rate": 0.5},
-    {"id": "hobby",    "name": "爱好", "color": "#F472B6", "exp_rate": 7,  "global_rate": 0.75},
-    {"id": "soul",     "name": "魅力", "color": "#FBBF24", "exp_rate": 9,  "global_rate": 0.5},
+    {"id": "health",   "name": "健康", "color": "#FF7B72", "global_rate": 1.0},
+    {"id": "study",    "name": "学习", "color": "#58D5C9", "global_rate": 1.0},
+    {"id": "relation", "name": "关系", "color": "#FF91A8", "global_rate": 0.5},
+    {"id": "work",     "name": "工作", "color": "#FFCA40", "global_rate": 1.0},
+    {"id": "create",   "name": "创作", "color": "#B794F6", "global_rate": 0.5},
+    {"id": "finance",  "name": "财务", "color": "#4ADE80", "global_rate": 0.5},
+    {"id": "hobby",    "name": "爱好", "color": "#F472B6", "global_rate": 0.75},
+    {"id": "soul",     "name": "魅力", "color": "#FBBF24", "global_rate": 0.5},
 ]
 
-DIMENSION_KEYS = ["health", "study", "relation", "work", "create", "finance", "hobby", "soul"]
+# ── 以下三个都从 CATEGORIES 派生，不再各自维护一份 ──────────────
+# 原来这里有三份**手工维护的副本**：DIMENSION_KEYS（id 列表）、
+# CATEGORY_MAP（id → (中文名, 颜色)）、DEFAULT_DIMENSIONS（初始行）。
+# 三份都只是把上面 CATEGORIES 的数据换个形状抄一遍 ——
+# 改维度时漏改任何一份就会静默不一致。2026-09-17 统一改为派生。
 
-DEFAULT_DIMENSIONS = [
-    ("health", 1, 0, 150),
-    ("study", 1, 0, 150),
-    ("relation", 1, 0, 150),
-    ("work", 1, 0, 150),
-    ("create", 1, 0, 150),
-    ("finance", 1, 0, 150),
-    ("hobby", 1, 0, 150),
-    ("soul", 1, 0, 150),
-]
+DIMENSION_KEYS = [c["id"] for c in CATEGORIES]
 
-# 维度颜色映射（用于统计页面的中文名+颜色）
-CATEGORY_MAP = {
-    "health": ("健康", "#FF7B72"),
-    "study": ("学习", "#58D5C9"),
-    "relation": ("关系", "#FF91A8"),
-    "work": ("工作", "#FFCA40"),
-    "create": ("创作", "#B794F6"),
-    "finance": ("财务", "#4ADE80"),
-    "hobby": ("爱好", "#F472B6"),
-    "soul": ("魅力", "#FBBF24"),
-}
+# 维度名+颜色映射（用于统计页面的中文名与配色）
+CATEGORY_MAP = {c["id"]: (c["name"], c["color"]) for c in CATEGORIES}
+
+# 新用户的初始维度行：(key, level, xp, xp_to_next)
+#
+# ⚠️ xp_to_next 必须用 exp_for_level(1) 算，**不能写死**。
+#    这里原来写死的是 150，而 exp_for_level(1) == 300 —— 违反不变式
+#    `xp_to_next == exp_for_level(level)`，新用户的维度进度条会显示错的刻度
+#    （表现为"还差 150 升级"，实际该是 300）。历史上真实踩过这个坑，
+#    详见 db/init.py 顶部那段「三个字段必须配套」的注释。
+#    现在直接从等级公式派生，公式改了这里自动跟上。
+DEFAULT_DIMENSIONS = [(k, 1, 0, exp_for_level(1)) for k in DIMENSION_KEYS]
 
 
 def get_category(category_id: str) -> dict:

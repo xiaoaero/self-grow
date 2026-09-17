@@ -9,7 +9,7 @@ import logging
 import re
 from services.llm import get_llm
 from services.coordinator.state import CoordinatorState, SubgraphTask
-from prompts.coordinator import COORDINATOR_ROUTER_SYSTEM_PROMPT, ROUTING_DECISION_SCHEMA
+from prompts.coordinator import COORDINATOR_ROUTER_SYSTEM_PROMPT
 
 log = logging.getLogger(__name__)
 

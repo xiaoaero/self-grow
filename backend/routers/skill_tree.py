@@ -4,7 +4,7 @@ Self Grow — 技能树 API 路由
 提供技能树的 CRUD 操作，替代前端 localStorage 存储。
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Body
+from fastapi import APIRouter, HTTPException, Depends, Body
 
 from db.skill_tree import (
     get_skill_trees, get_skill_tree_by_tree_id, create_skill_tree,

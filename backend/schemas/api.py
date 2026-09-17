@@ -4,27 +4,18 @@ Self Grow — Pydantic 请求/响应模型
 所有 API 的请求体和响应体定义。
 """
 
-from typing import Optional, List
+from typing import List
 from pydantic import BaseModel, Field
 
 
 # ================================================================
 # 用户
 # ================================================================
-class LoginRequest(BaseModel):
-    user_id: int
-
-
 class StatsSyncRequest(BaseModel):
     focus_minutes: int = 0
     tasks_done: int = 0
     habits_checked: int = 0
     exp_earned: int = 0
-
-
-class ExpAddRequest(BaseModel):
-    amount: int
-    category: str = None
 
 # ================================================================
 # 习惯
@@ -86,26 +77,9 @@ class CreateActionRequest(BaseModel):
     sleep_start: str = ''  # 睡觉时间 HH:MM（健康-睡眠模式用）
     sleep_end: str = ''  # 起床时间 HH:MM（健康-睡眠模式用）
 
-
-class ActionLogResponse(BaseModel):
-    id: int
-    category_id: str
-    category_name: str
-    start_time: str
-    end_time: str
-    duration: int
-    note: str
-    exp_earned: int
-    sub_type: str = ''
-    sleep_start: str = ''
-    sleep_end: str = ''
-
-
-class RoutineStatusResponse(BaseModel):
-    streak: int = 0
-    has_protection: bool = False
-    last_date: str = ''
-    next_bonus: int = 0
+# 注：原来的 ActionLogResponse / RoutineStatusResponse 两个响应模型
+# 已于 2026-09-17 删除 —— 全项目零引用（路由都是直接返回 dict，
+# 没有一处把它们挂成 response_model）。需要时再加，别留占位。
 
 
 # ================================================================

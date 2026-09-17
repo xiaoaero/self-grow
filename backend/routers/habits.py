@@ -10,7 +10,6 @@ from datetime import date as date_func, timedelta
 from db.connection import get_conn
 from db.habits import get_habits, get_habit, create_habit, update_habit, delete_habits
 from db.habits import get_checkins_in_range, get_all_checkins_in_range, upsert_checkin, delete_checkin, calculate_streak
-from db.users import get_user
 from schemas.api import CreateHabitRequest, UpdateHabitRequest, DeleteHabitsRequest, HabitAIIconRequest
 from routers.deps import get_current_user
 from services.ai_habit_service import call_ai_for_icon

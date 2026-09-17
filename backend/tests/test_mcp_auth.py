@@ -13,7 +13,6 @@ MCP Server HTTP 传输的 API Key 鉴权测试（2026-09-13）
 4. 身份注入：Key 属于谁，MCP 工具就操作谁的数据
 """
 
-import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,7 +21,6 @@ from main import app as rest_app
 from helpers import ensure_test_accounts
 
 from services import auth_service
-from db.auth import revoke_api_key as db_revoke_api_key
 
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")

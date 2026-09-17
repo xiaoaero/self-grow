@@ -6,7 +6,7 @@ Self Grow — 经验值服务
 """
 
 from db.dimensions import upsert_dimension, get_total_exp_from_dimensions
-from db.users import get_user, get_user_stats, upsert_user_stats, update_user_exp
+from db.users import get_user_stats, upsert_user_stats, update_user_exp
 from db.connection import get_conn
 from db.actions import create_action_log
 from models.level import exp_for_level, total_exp_for_level, level_from_total_exp

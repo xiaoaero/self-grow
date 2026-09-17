@@ -297,11 +297,6 @@
     flex-direction: column;
     gap: 16px;
 }
-.action-form__row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-}
 .action-form__label {
     font-size: 12px;
     font-weight: 600;
@@ -341,26 +336,6 @@
 }
 .action-category-item__icon {
     font-size: 36px;
-}
-.action-quick-log {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-.action-quick-btn {
-    padding: 8px 16px;
-    border-radius: var(--radius-full);
-    border: 1px solid var(--glass-border);
-    background: rgba(255,255,255,0.03);
-    color: var(--color-text-secondary);
-    font-size: 13px;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-.action-quick-btn:hover {
-    background: var(--color-primary-bg);
-    border-color: var(--color-primary);
-    color: var(--color-primary-light);
 }
 
 /* ================================================================
@@ -510,25 +485,6 @@
 }
 
 /* --- Describe mode --- */
-.qa-describe-area {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-.qa-describe-input {
-    min-height: 160px !important;
-    resize: vertical;
-    font-size: 14px;
-    line-height: 1.6;
-}
-.qa-describe-hint {
-    font-size: 12px;
-    color: var(--color-text-muted);
-    padding: 10px 14px;
-    background: rgba(107,163,184,0.08);
-    border-radius: var(--radius-sm);
-    border-left: 3px solid var(--color-info);
-}
 
 /* --- AI Chat mode --- */
 .qa-chat-history {
@@ -672,9 +628,6 @@
     gap: 12px;
     padding: 12px 0;
 }
-.qa-history-item--divider {
-    border-bottom: 1px solid var(--color-border);
-}
 .qa-history-item__left {
     display: flex;
     gap: 10px;
@@ -719,15 +672,6 @@
 }
 
 /* --- History modal --- */
-.qa-history-panel {
-    max-width: 800px;
-}
-.qa-history-search {
-    display: flex;
-    gap: 10px;
-    padding: 12px 24px;
-    border-bottom: 1px solid var(--color-border);
-}
 
 /* --- Responsive --- */
 @media (max-width: 1100px) {
@@ -748,83 +692,6 @@
 }
 
 /* ===== History ===== */
-.history-filters {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-}
-.history-calendar {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 4px;
-    margin-bottom: 24px;
-}
-.history-calendar__day-label {
-    font-size: 11px;
-    color: var(--color-text-muted);
-    text-align: center;
-    padding: 4px;
-}
-.history-calendar__day {
-    aspect-ratio: 1;
-    border-radius: var(--radius-sm);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-    position: relative;
-}
-.history-calendar__day--empty { color: var(--color-text-muted); }
-.history-calendar__day--low   { background: rgba(74,156,108,0.15); }
-.history-calendar__day--mid   { background: rgba(74,156,108,0.30); }
-.history-calendar__day--high  { background: rgba(74,156,108,0.50); }
-.history-calendar__day--peak  { background: rgba(74,156,108,0.70); }
-.history-calendar__day:hover  { outline: 2px solid var(--color-primary); outline-offset: -2px; }
-.history-calendar__day--today { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-
-.history-list-item {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 14px 16px;
-    border-radius: var(--radius-md);
-    transition: background var(--transition-fast);
-}
-.history-list-item:hover {
-    background: rgba(255,255,255,0.03);
-}
-.history-list-item__icon {
-    width: 40px; height: 40px;
-    border-radius: var(--radius-md);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-    flex-shrink: 0;
-}
-.history-list-item__info {
-    flex: 1;
-    min-width: 0;
-}
-.history-list-item__title {
-    font-size: 14px;
-    font-weight: 600;
-}
-.history-list-item__meta {
-    font-size: 12px;
-    color: var(--color-text-muted);
-    margin-top: 2px;
-}
-.history-list-item__exp {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--color-accent-light);
-}
 
 /* ===== Attributes — 属性详情表 ===== */
 .attr-table-card {
@@ -2300,17 +2167,6 @@
     align-items: center;
     justify-content: space-between;
 }
-.reward-card__cost {
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--color-accent-light);
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-.reward-card__cost svg {
-    width: 16px; height: 16px;
-}
 
 /* Reward conditions inside card */
 .reward-card__cond-section {
@@ -2369,13 +2225,6 @@
 }
 
 /* Ambiguous condition hint */
-.reward-cond-ambiguous {
-    font-size: 10px;
-    color: #ef4444;
-    padding: 2px 6px;
-    margin-top: 2px;
-    line-height: 1.4;
-}
 
 /* Reward modal condition row */
 .reward-condition-row .input {
@@ -2501,32 +2350,6 @@
 }
 
 /* ===== Quick add floating button ===== */
-.fab {
-    position: fixed;
-    bottom: 32px;
-    right: 32px;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-    border: none;
-    color: #fff;
-    font-size: 28px;
-    cursor: pointer;
-    box-shadow: var(--shadow-lg), 0 0 24px rgba(74,156,108,0.3);
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all var(--transition-fast);
-}
-.fab:hover {
-    transform: scale(1.08);
-    box-shadow: var(--shadow-lg), 0 0 36px rgba(74,156,108,0.5);
-}
-.fab:active {
-    transform: scale(0.95);
-}
 
 /* ================================================================
    Profile Stats Page — 个人主页
@@ -2584,15 +2407,6 @@
 }
 
 /* Profile heatmap title icon */
-.profile-heatmap__title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-.profile-heatmap__title svg {
-    width: 24px; height: 24px;
-    flex-shrink: 0;
-}
 
 /* --- Module 2: Yearly Activity Heatmap --- */
 .profile-heatmap {
@@ -2609,21 +2423,11 @@
     align-items: center;
     margin-bottom: 16px;
 }
-.profile-heatmap__title {
-    font-size: 16px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
 .profile-heatmap__grid {
     display: grid;
     grid-template-columns: repeat(53, 1fr);
     gap: 3px;
     width: 100%;
-}
-.profile-heatmap__row {
-    display: contents;
 }
 .profile-heatmap__cell {
     aspect-ratio: 1;
@@ -3239,31 +3043,6 @@
     font-size: 12px;
     color: var(--color-text-muted);
 }
-.ac-habit-btn {
-    padding: 6px 16px;
-    border-radius: var(--radius-sm);
-    border: none;
-    font-size: 12px;
-    font-weight: 600;
-    font-family: var(--font-family);
-    cursor: pointer;
-    background: linear-gradient(135deg, var(--color-accent), var(--color-accent-dark));
-    color: #fff;
-    transition: all var(--transition-fast);
-}
-.ac-habit-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 10px var(--color-accent-glow);
-}
-.ac-habit-btn--done {
-    background: rgba(255,255,255,0.08);
-    color: var(--color-text-muted);
-    cursor: default;
-}
-.ac-habit-btn--done:hover {
-    transform: none;
-    box-shadow: none;
-}
 
 /* ================================================================
    Module 4: 目标追踪
@@ -3456,10 +3235,6 @@
     white-space: nowrap;
     user-select: none;
 }
-.ac-task-th--check {
-    width: 40px;
-    text-align: center;
-}
 .ac-task-th--date {
     white-space: nowrap;
 }
@@ -3488,29 +3263,8 @@
     vertical-align: middle;
     color: var(--color-text-primary);
 }
-.ac-task-cell--check {
-    width: 40px;
-    text-align: center;
-}
 
 /* --- Checkbox --- */
-.ac-task-check {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    border: 1.5px solid rgba(255,255,255,0.2);
-    font-size: 11px;
-    color: #fff;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-}
-.ac-task-check--done {
-    background: var(--color-success);
-    border-color: var(--color-success);
-}
 
 /* --- Task name --- */
 .ac-task-cell--task {
@@ -3877,37 +3631,6 @@
    ================================================================ */
 
 /* --- Stats chips row --- */
-.task-history-stats {
-    display: flex;
-    gap: 16px;
-    margin-bottom: 20px;
-}
-.task-history-stat {
-    background: var(--color-bg-elevated);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    padding: 12px 18px;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-.task-history-stat strong {
-    color: var(--color-text-primary);
-    font-size: 18px;
-    font-weight: 700;
-}
-.task-history-stat--done strong {
-    color: var(--color-success);
-}
-.task-history-stat--expired strong {
-    color: #F26B68;
-}
-.task-history-stat--active strong {
-    color: #60A5FA;
-}
-
 
 /* --- Card list --- */
 .task-history-list {
@@ -4858,10 +4581,6 @@
     font-size: 10px;
     flex-shrink: 0;
 }
-.skill-mine-card__learning-done {
-    color: #4ade80;
-    font-size: 12px;
-}
 
 /* 进度区域 — flex: 1 → 10% */
 .skill-mine-card__progress-area {
@@ -5108,11 +4827,6 @@
 }
 .skill-edit-modal__btn--save:hover {
     background: #39b0e4;
-}
-
-.skill-mine-item__btn:hover {
-    background: var(--accent, #4fc3f7);
-    color: #000;
 }
 
 /* ===== 技能详情弹窗（库中查看） ===== */
@@ -6579,12 +6293,6 @@
 .expr__hint-toggle--open .expr__hint-arrow {
     transform: rotate(180deg);
 }
-.expr__hint-content {
-    padding: 0 14px 12px;
-    font-size: 12px;
-    color: var(--color-text-muted);
-    line-height: 1.7;
-}
 
 /* 提示方向 */
 .expr__hint-direction {
@@ -7169,15 +6877,6 @@
     gap: 8px;
 }
 
-/* 过渡动画 */
-.expr__fade-enter {
-    animation: exprFadeIn 0.25s ease forwards;
-}
-@keyframes exprFadeIn {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
 /* 滚动条美化 */
 .expr__detail-sidebar-list::-webkit-scrollbar,
 .expr__detail-main::-webkit-scrollbar {
@@ -7306,25 +7005,6 @@
 }
 
 /* 模型信息 */
-.usercenter-version {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    border-radius: var(--radius-md);
-    background: var(--color-bg-elevated);
-    margin-bottom: 18px;
-}
-.usercenter-version__label {
-    font-size: 13px;
-    color: var(--color-text-muted);
-}
-.usercenter-version__value {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--color-accent-light);
-    font-family: var(--font-mono);
-}
 .usercenter-loading {
     padding: 30px;
     text-align: center;

@@ -121,24 +121,12 @@ EXPRESSION_QUESTION_TOOLS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_hot_events",
-            "description": "【预留】搜索近期热门社会事件/话题。当前暂不可用，后续会接入。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "keywords": {
-                        "type": "string",
-                        "description": "搜索关键词",
-                    },
-                },
-                "required": [],
-            },
-        },
-    },
 ]
+
+# 注：这里原来还有一个 `search_hot_events`（【预留】联网搜索近期热门话题）工具声明，
+# 已于 2026-09-17 删除。它从来没有真正实现过 —— 调用只会拿到一句
+# 「该工具暂不可用」，白白多耗**一整轮 LLM 往返**（10~30s）。
+# 要做联网搜索时再加回来（连同 expression_service.py 里对应的处理分支）。
 
 # ================================================================
 # 提示生成系统提示词

@@ -4,7 +4,6 @@ Self Grow — 统一协调 Agent API
 三段式：
   POST /api/coordinator/chat   — 用户发送消息 → 主 agent 路由 + 并行派发 + （全部完成时）总结
   POST /api/coordinator/resume — 用户回答反问 → 直接接回对应子图继续（不重新路由）
-  GET  /api/coordinator/status/{thread_id} — 查询对话编排状态
 
 **/chat 与 /resume 是流式（SSE）的**，响应不再是 JSON 而是 `text/event-stream`：
 
@@ -17,9 +16,13 @@ Self Grow — 统一协调 Agent API
 所以原来读 `resp.json()` 的地方只要改成「读流、等 done」，
 拿到 done 之后的处理逻辑可以一字不改。
 
-顺带删掉了原来的 `GET /stream/{thread_id}`：它只发一个 done，**而且没挂鉴权**
-（任何人知道 thread_id 就能查），又因为是 GET 所以浏览器无法带 token —— 现在 /chat
-本身就是流式的，这个端点已无存在意义。
+同一个 `thread_id` 同时只允许一个写请求（见 `_acquire_session`），冲突返回 409 ——
+防止「连点 / 重试 / 多标签页」让子图重复执行（写库型工具会重复写入）。
+
+已删除的两个端点（2026-09-17 清理，都是零调用方）：
+  · `GET /stream/{thread_id}` —— 只发一个 done，**而且没挂鉴权**（任何人知道
+    thread_id 就能查），又因为是 GET 所以浏览器带不了 token
+  · `GET /status/{thread_id}` —— 调试用的编排状态快照，没有调用方
 """
 
 import time
@@ -168,7 +171,6 @@ async def chat(request: ChatRequest, user=Depends(get_current_user)):
         user_id=user["id"],
         user_message=request.message,
         thread_id=thread_id,
-        messages=[],
         pending_tasks=[],
         results=[],
         interrupts=[],
@@ -315,21 +317,8 @@ async def resume(request: ResumeRequest, user=Depends(get_current_user)):
     return sse_response(stream_events(runner))
 
 
-@router.get("/status/{thread_id}")
-def get_status(thread_id: str, user=Depends(get_current_user)):
-    """查询对话编排状态"""
-    state = _get_state(thread_id)
-    if not state:
-        raise HTTPException(status_code=404, detail="对话不存在或已过期")
-
-    if state.get("user_id") != user["id"]:
-        raise HTTPException(status_code=403, detail="无权访问该对话")
-
-    return {
-        "thread_id": thread_id,
-        "pending_tasks": state.get("pending_tasks", []),
-        "completed_domains": state.get("completed_domains", []),
-        "results": state.get("results", []),
-        "interrupts": state.get("interrupts", []),
-        "final_reply": state.get("final_reply", ""),
-    }
+# 注：这里原来有个 `GET /status/{thread_id}`（查询编排状态），
+# 已于 2026-09-17 删除 —— 全项目零调用方。想看编排过程有更好的办法：
+# `/chat` 的 SSE 流本身就是完整的阶段回放（routing → domain_start → tool →
+# synthesize → token），比读一份内存快照直观。要排查内存态就打日志：
+# `services/coordinator/graph.py` 里 `_thread_store` 的读写都有 log。

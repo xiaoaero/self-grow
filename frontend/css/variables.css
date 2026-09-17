@@ -20,12 +20,10 @@
 
     /* --- 语义色 --- */
     --color-success:        #5CAD6C;
-    --color-warning:        #D4943E;
     --color-danger:         #C85A4A;
     --color-info:           #6BA3B8;
 
     /* --- 中性色（暖灰） --- */
-    --color-bg-deep:        #1A1817;
     --color-bg-base:        #23211F;
     --color-bg-elevated:    #2C2927;
     --color-bg-surface:     #353230;
@@ -53,8 +51,6 @@
     --shadow-sm:            0 2px 8px rgba(0, 0, 0, 0.15);
     --shadow-md:            0 4px 16px rgba(0, 0, 0, 0.25);
     --shadow-lg:            0 8px 32px rgba(0, 0, 0, 0.35);
-    --shadow-glow-primary:  0 0 20px var(--color-primary-glow);
-    --shadow-glow-accent:   0 0 20px var(--color-accent-glow);
 
     /* --- 字体 --- */
     --font-family:          'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
@@ -62,7 +58,6 @@
 
     /* --- 尺寸 --- */
     --sidebar-width:        260px;
-    --header-height:        64px;
     --content-max-width:    1280px;
 
     /* --- 过渡 --- */

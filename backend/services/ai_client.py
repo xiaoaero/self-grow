@@ -7,13 +7,16 @@ Self Grow — 统一 AI 调用客户端
 优化点（2026-08-01）：
 - 显式 request_timeout：避免 httpx 默认 5s 超时在网关慢时静默重试，放大延迟
 - LLM 实例模块级缓存：复用连接池，省去每次调用的 DNS/TLS 握手
-- 流式生成接口：供习惯分析等长文本场景打字机式输出
+
+注：原来这里还有一个 `call_ai_text_stream()`（异步生成器，逐段 yield 文本），
+已于 2026-09-17 删除 —— 全项目零调用。现在需要逐 token 流式的地方
+（协调 Agent 的总结节点）直接用 `llm.astream()`，并且事件通过
+`services/sse.py` 的 `emit_token` 往 SSE 流里推，不需要中间再包一层生成器。
 """
 
 import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.outputs import ChatGenerationChunk
 
 from config import AI_API_KEY, AI_MODEL
 from db.model_configs import get_active_config
@@ -73,55 +76,3 @@ async def call_ai_text(
         log.exception("AI 调用失败")
         raise RuntimeError(f"AI 调用失败: {str(e)}") from e
 
-
-async def call_ai_text_stream(
-    system_prompt: str,
-    user_message: str,
-    temperature: float = 0.7,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    user_id: int = None,
-):
-    """
-    调用 AI 模型，流式产出文本增量（异步生成器）。
-
-    逐段产出字符串，供 SSE 等场景即时转发，缓解长文本"等待数分钟"的体验问题。
-    仅使用模型的流式接口，不进行重试（生成中断后重试无意义）。
-
-    Args:
-        system_prompt: 系统提示词
-        user_message: 用户消息内容
-        temperature: 温度参数（默认 0.7）
-        max_tokens: 最大输出 token 数（默认 1024）
-        user_id: 用户ID（用于读取其启用的模型配置，默认 1）
-
-    Yields:
-        str: 文本增量块
-
-    Raises:
-        RuntimeError: 当 AI_API_KEY 未配置时
-    """
-    cfg = get_active_config(user_id or 1, "llm")
-    effective_key = (cfg or {}).get("api_key") or AI_API_KEY
-    if not effective_key:
-        raise RuntimeError("AI_API_KEY 未配置")
-
-    llm = get_llm(temperature=temperature, max_tokens=max_tokens, timeout=REQUEST_TIMEOUT, user_id=user_id)
-
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_message),
-    ]
-
-    log.info(f"→ AI 流式请求: {AI_MODEL}, system_prompt={system_prompt[:40]}...")
-    try:
-        async for chunk in llm.astream(messages):
-            if isinstance(chunk, ChatGenerationChunk):
-                text = chunk.text
-            else:
-                text = getattr(chunk, "content", "") or ""
-            if text:
-                yield text
-        log.info(f"← AI 流式回复完成: {AI_MODEL}")
-    except Exception as e:
-        log.exception("AI 流式调用失败")
-        raise RuntimeError(f"AI 流式调用失败: {str(e)}") from e

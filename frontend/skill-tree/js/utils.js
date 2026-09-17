@@ -264,13 +264,6 @@ function getEdgePoint(cx, cy, size, targetCx, targetCy) {
 }
 
 /**
- * 网格吸附
- */
-function snapToGrid(value, gridSize = 20) {
-  return Math.round(value / gridSize) * gridSize;
-}
-
-/**
  * 限制范围
  */
 function clamp(value, min, max) {

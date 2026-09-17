@@ -189,19 +189,19 @@ FastAPI 里，函数参数按来源分成三类，靠默认值声明：
 **项目结合**：看 `backend/routers/users.py`，三种都有：
 
 ```python
-# ① 请求体：LoginRequest 是 Pydantic 模型
-@router.post("/api/users/login")
-async def login(req: LoginRequest):
+# ① 请求体：CreateHabitRequest 是 Pydantic 模型
+@router.post("/api/habits")
+def create_habit(req: CreateHabitRequest, user=Depends(get_current_user)):
     ...
 
-# ② 查询参数：user_id 从 URL ?user_id= 来
-@router.get("/api/users/profile")
-async def user_profile(user=Depends(get_current_user)):
+# ② 查询参数：limit 从 URL ?limit= 来（有默认值即为可选）
+@router.get("/api/activities/recent")
+def recent_activities(user=Depends(get_current_user), limit: int = 10):
     ...
 
-# ③ 路径参数（协调器的 stream 端点）
-@router.get("/stream/{thread_id}")
-async def stream_events(thread_id: str):    # thread_id 从 URL 路径里来
+# ③ 路径参数：task_id 从 URL 路径里来
+@router.get("/api/tasks/{task_id}")
+def get_task(task_id: int, user=Depends(get_current_user)):
     ...
 ```
 
@@ -209,15 +209,15 @@ async def stream_events(thread_id: str):    # thread_id 从 URL 路径里来
 
 FastAPI 用 `HTTPException` 抛错误，框架会自动转成对应状态码的 JSON 响应。
 
-**项目结合**：`users.py` 的登录逻辑：
+**项目结合**：`expression.py` 的题目详情（资源不存在就 404）：
 
 ```python
-@router.post("/api/users/login")
-async def login(req: LoginRequest):
-    user = get_user(req.user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")   # 404
-    return {"id": user["id"], "name": user["name"], "role": user["role"]}
+@router.get("/api/expression/question/{question_id}")
+def api_get_question(question_id: int, user=Depends(get_current_user)):
+    question = get_question(question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail="题目不存在")   # 404
+    return _format_question(question)
 ```
 
 客户端收到 404 时，响应体是 `{"detail": "用户不存在"}`。

@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends
 from datetime import datetime
 
 from db.stats import get_profile_stats, get_yearly_activity, get_daily_exp_trend, get_recent_activities
-from db.dimensions import get_user_dimensions, recalc_dimensions_from_actions
 from routers.deps import get_current_user
 
 router = APIRouter()
@@ -42,9 +41,8 @@ def recent_activities(user=Depends(get_current_user), limit: int = 10):
     return {"activities": activities}
 
 
-@router.post("/api/stats/recalc-dimensions")
-def recalc_dimensions(user=Depends(get_current_user)):
-    """从 action_logs 重算所有维度经验"""
-    recalc_dimensions_from_actions(user["id"])
-    dims = get_user_dimensions(user["id"])
-    return {"dimensions": dims}
+# 注：这里原来有个 `POST /api/stats/recalc-dimensions`（从 action_logs 重算所有维度），
+# 已于 2026-09-17 删除 —— 全项目零调用方（前端没有任何入口、测试也不打它）。
+# 它在 db/dimensions.py 里的实现 `recalc_dimensions_from_actions()` 也一起删了。
+# 现在的自愈走另一条路：db/init.py 的 `normalize_dimension_rows()` 在每次
+# `init_db()` 时把违反不变式的行修正回来，不需要人工触发。

@@ -248,11 +248,6 @@ class SkillTreeManager {
     showToast(isUpdate ? '🔄 已更新上线版本' : '🚀 已上线：' + (entry ? entry.name : ''), 'success');
   }
 
-  /** 检查是否已发布 */
-  _isPublished(treeId) {
-    return loadFromStorage(this._getPublishedKey(treeId)) !== null;
-  }
-
   /** 获取发布版存储 key */
   _getPublishedKey(treeId) {
     return treeId + '_published';

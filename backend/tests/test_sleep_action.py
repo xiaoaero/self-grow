@@ -4,8 +4,6 @@
 运行方式：cd backend && pixi run pytest tests/test_sleep_action.py -v
 """
 
-import os
-import tempfile
 import pytest
 from datetime import datetime
 

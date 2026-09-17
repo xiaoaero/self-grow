@@ -9,7 +9,7 @@ import os
 import sys
 import json
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 
 # 确保 backend 目录在 Python 路径中
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

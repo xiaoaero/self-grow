@@ -701,12 +701,6 @@ const AIChat = {
 
         return card;
     },
-
-    /** 渲染反问卡片（兼容旧接口，实际走队列） */
-    _renderInterrupts(interrupts) {
-        this.interruptQueue.push(...interrupts);
-        this._refreshInterruptArea();
-    },
 };
 
 // 全局初始化（在 app.js 之后）

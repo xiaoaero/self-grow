@@ -35,9 +35,6 @@ class CoordinatorState(TypedDict, total=False):
     user_message: str
     thread_id: str
 
-    # 对话历史（预留，供主 agent 上下文管理）
-    messages: list[dict]
-
     # 路由决策（router_node 输出）
     pending_tasks: list[SubgraphTask]
 

@@ -202,11 +202,9 @@ async def _call_llm_with_tools(system_prompt: str, user_message: str, tools: lis
                     limit = args.get("limit", 20)
                     existing = get_existing_questions(types=q_types if q_types else None, limit=limit)
                     result_text = json.dumps(existing, ensure_ascii=False)
-                elif name == "search_hot_events":
-                    # 预留：联网搜索，暂不可用
-                    await emit_stage("tool", "联网搜索（暂不可用）", tool=name)
-                    result_text = "【该工具暂不可用】联网搜索功能尚未接入，请基于已有知识生成题目。"
                 else:
+                    # 兜底：只在模型幻觉出未声明的工具名时走到这里。
+                    # （原来的 `search_hot_events` 分支已随该工具的声明一起删除）
                     result_text = "未知工具"
 
                 messages.append(ToolMessage(content=result_text, tool_call_id=tc["id"]))

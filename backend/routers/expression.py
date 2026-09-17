@@ -7,7 +7,6 @@ import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Depends, Query, WebSocket, WebSocketDisconnect
-from datetime import datetime
 
 from db.expressions import (
     get_question,
@@ -321,14 +320,10 @@ def api_get_question_detail(question_id: int, user=Depends(get_current_user)):
     }
 
 
-@router.get("/api/expression/answer/{answer_id}")
-def api_get_answer_detail(answer_id: int, user=Depends(get_current_user)):
-    """获取单条回答详情"""
-    answer = get_answer(answer_id)
-    if not answer:
-        raise HTTPException(status_code=404, detail="回答记录不存在")
-
-    return _format_answer(answer)
+# 注：这里原来有个 `GET /api/expression/answer/{answer_id}`（单条回答详情），
+# 已于 2026-09-17 删除 —— 全项目零调用方。回答内容由
+# `/api/expression/history`（列表）与 `/api/expression/history/questions/{id}/answers`
+# （按题目取）两条路径返回，前端用的就是它们，不需要单条详情接口。
 
 
 @router.post("/api/expression/beautify")

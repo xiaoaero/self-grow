@@ -5,7 +5,6 @@ Self Grow — 等级公式（唯一来源）
 前端 utils.js 中的等级公式应从此处同步，不再各自维护。
 """
 
-import math
 
 
 def exp_for_level(L: int) -> int:

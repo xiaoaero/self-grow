@@ -5,9 +5,13 @@ Self Grow — 登录鉴权 API
     POST /api/auth/login       用户名 + 密码登录
     POST /api/auth/refresh     用 refresh cookie 换新的 access token（轮换）
     POST /api/auth/logout      登出（撤销当前 refresh）
-    POST /api/auth/logout-all  登出所有设备
-    POST /api/auth/password    修改密码（旧 token 全部失效）
+    POST /api/auth/password    修改密码（旧 token 全部失效，等价于"登出所有设备"）
     GET  /api/auth/me          当前身份（权威来源）
+    GET/POST/DELETE /api/auth/api-keys  API Key 管理（MCP 用）
+
+注：原来的 `POST /api/auth/logout-all`（登出所有设备）已于 2026-09-17 删除 ——
+全项目零调用方（用户中心没有对应按钮）。它的能力并没有丢：
+底层 `auth_service.revoke_all_refresh()` 仍被「修改密码」使用。
 
 凭证设计（见 docs/登录鉴权方案选型.md）：
     Access  → 响应体返回，前端存内存 + localStorage，请求时放 Authorization 头
@@ -25,9 +29,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from config import SELF_GROW_REFRESH_TTL
 from db.auth import bump_token_version, set_password_hash
-from db.users import get_user
 from routers.deps import get_current_user
 from services import auth_service
 
@@ -147,13 +149,6 @@ def logout(request: Request, response: Response, req: RefreshRequest | None = No
     if raw:
         auth_service.revoke_refresh_token(raw)
     response.delete_cookie(REFRESH_COOKIE, path=COOKIE_PATH)
-    return {"success": True}
-
-
-@router.post("/api/auth/logout-all")
-def logout_all(user=Depends(get_current_user)):
-    """登出所有设备：撤销该用户全部 refresh token"""
-    auth_service.revoke_all_refresh(user["id"])
     return {"success": True}
 
 

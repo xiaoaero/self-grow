@@ -245,8 +245,8 @@ langchain-core = ">=0.3.0"
 |---|---|---|---|
 | POST | `/api/coordinator/chat` | 发送消息：路由 → 并行派发 →（全部完成时）总结 | `get_current_user` |
 | POST | `/api/coordinator/resume` | 回答反问：接回指定子图继续，**不重新路由** | `get_current_user` + 归属校验 |
-| GET | `/api/coordinator/status/{thread_id}` | 查询编排状态 | `get_current_user` + 归属校验 |
 | ~~GET~~ | ~~`/api/coordinator/stream/{thread_id}`~~ | **已删除**（占位且无鉴权；`/chat` 本身已流式） | — |
+| ~~GET~~ | ~~`/api/coordinator/status/{thread_id}`~~ | **已删除**（2026-09-17，零调用方；要看编排过程直接看 `/chat` 的 SSE 流） | — |
 
 > ✅ **2026-09-16**：`/chat` 与 `/resume` 已改为 **SSE 流式** —— 推阶段事件
 > （routing / 每个子 Agent 的起止 / 工具执行）+ 协调 Agent 的总结**逐 token** 输出。

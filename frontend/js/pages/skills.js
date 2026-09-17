@@ -75,22 +75,10 @@ async function saveMySkillsAsync(list) {
     }
 }
 
-/** 从后端获取学习进度，降级到 localStorage */
-async function fetchLearnerAsync(treeId) {
-    const uid = getCurrentUser()?.id;
-    if (uid) {
-        try {
-            const res = await fetch(API_BASE + '/api/skill-trees/' + treeId + '/published');
-            if (res.ok) {
-                const data = await res.json();
-                if (data && data.published_data && data.published_data.learner) {
-                    return data.published_data.learner;
-                }
-            }
-        } catch(e) {}
-    }
-    return loadLearnerLocal(treeId);
-}
+/* 注：原来这里有个 `fetchLearnerAsync(treeId)`（单独拉 learner 进度），
+   已于 2026-09-17 删除 —— 全文件零调用。列表渲染走的是
+   `fetchPublishedTreeAsync(t.id)` 然后读 `publishedTree.learner`，
+   比它少一次请求（每棵树只打一次 /published）。 */
 
 /** 从后端获取已发布的技能树，降级到 localStorage */
 async function fetchPublishedTreeAsync(treeId) {
@@ -139,15 +127,6 @@ function saveMySkillsLocal(list) {
 /** 判断某技能是否已被添加 */
 function isSkillAdded(treeId) {
     return loadMySkillsLocal().indexOf(treeId) !== -1;
-}
-
-/** 读取 tree_{id}_learner_{userId} 进度（localStorage 降级） */
-function loadLearnerLocal(treeId) {
-    try {
-        const uid = getCurrentUser()?.id || 'guest';
-        const raw = localStorage.getItem(treeId + '_learner_' + uid);
-        return raw ? JSON.parse(raw) : {};
-    } catch(e) { return {}; }
 }
 
 /** 读取 tree_{id}_published（localStorage 降级） */

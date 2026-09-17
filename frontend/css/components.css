@@ -16,12 +16,6 @@
     border-color: rgba(255,255,255,0.15);
     box-shadow: var(--shadow-md);
 }
-.card--clickable {
-    cursor: pointer;
-}
-.card--clickable:active {
-    transform: scale(0.985);
-}
 
 /* ===== Stat Card ===== */
 .stat-card {
@@ -39,9 +33,6 @@
     flex-shrink: 0;
 }
 .stat-card__icon--primary { background: rgba(74,156,108,0.08); }
-.stat-card__icon--accent  { background: rgba(212,154,62,0.08); }
-.stat-card__icon--success { background: rgba(92,173,108,0.08); }
-.stat-card__icon--danger  { background: rgba(200,90,74,0.08); }
 .stat-card__icon svg {
     width: 42px; height: 42px;
 }
@@ -145,9 +136,6 @@
     border-radius: var(--radius-full);
     transition: width var(--transition-slow);
 }
-.progress__fill--primary { background: linear-gradient(90deg, var(--color-primary), var(--color-primary-light)); }
-.progress__fill--accent  { background: linear-gradient(90deg, var(--color-accent), var(--color-accent-light)); }
-.progress__fill--danger  { background: linear-gradient(90deg, var(--color-danger), #E07060); }
 
 /* ===== Badge / Tag ===== */
 .badge {

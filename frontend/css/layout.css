@@ -121,11 +121,6 @@ body {
 }
 
 /* ===== 三列布局 ===== */
-.grid-3col {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
-}
 
 /* ===== 四列布局 ===== */
 .grid-4col {

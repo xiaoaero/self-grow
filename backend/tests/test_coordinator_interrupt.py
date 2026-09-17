@@ -21,7 +21,6 @@ Self Grow — 协调 Agent 反问（interrupt）交互的回归测试
 
 import asyncio
 import json
-import sys
 
 import httpx
 import pytest

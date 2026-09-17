@@ -533,7 +533,7 @@ function renderHistoryList() {
                 <div class="expr__history-meta">
                     <span class="expr__history-type ${r.question_type}">${getTypeName(r.question_type)}</span>
                     ${r.score_total != null ? `<span class="expr__history-score">${r.score_total}分</span>` : ''}
-                    <span class="expr__history-date">${formatDate(r.created_at)}</span>
+                    <span class="expr__history-date">${formatDateTime(r.created_at)}</span>
                 </div>
             </div>
         `;
@@ -2368,7 +2368,7 @@ function renderHistoryQuestionItem(q) {
                     </span>
                     <span class="expr__history-question-time">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-                        ${formatDate(q.last_answer_time)}
+                        ${formatDateTime(q.last_answer_time)}
                     </span>
                 </div>
             </div>
@@ -2398,7 +2398,7 @@ function renderAnswerRows(answers) {
              onmouseleave="cancelHoverPopup(this)">
             <div class="expr__answer-attempt">${a.attempt}</div>
             <div class="expr__answer-info">
-                <div class="expr__answer-time">${formatDate(a.created_at)}</div>
+                <div class="expr__answer-time">${formatDateTime(a.created_at)}</div>
                 <div class="expr__answer-text">${answerPreview}${(a.answer || '').length > 80 ? '...' : ''}</div>
             </div>
             <button class="expr__answer-detail-btn" onclick="event.stopPropagation();handleViewDetail(${STATE.expandedQuestionId}, ${a.attempt})">
@@ -2630,7 +2630,7 @@ function renderDetailSidebar() {
         <div class="expr__detail-sidebar-item ${item.question_id === currentId ? 'expr__detail-sidebar-item--active' : ''}"
              onclick="switchDetailQuestion(${item.question_id})">
             <div class="expr__detail-sidebar-q">${escapeHtml(item.question)}</div>
-            <div class="expr__detail-sidebar-time">${formatDate(item.last_answer_time)}</div>
+            <div class="expr__detail-sidebar-time">${formatDateTime(item.last_answer_time)}</div>
         </div>
     `).join('');
 }
@@ -2942,12 +2942,11 @@ function debounce(fn, delay) {
     };
 }
 
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
+/* 注：这里原来有个本地 `escapeHtml()`，已于 2026-09-17 删除。
+   它与 `js/utils.js` 的实现等价（都是 createElement + textContent 转义），
+   却因为本文件是 router 动态注入的、顶层 function 会挂到 window 上，
+   **把 utils.js 的那份覆盖掉**（本文件只要被访问过，覆盖就是永久的）。
+   留着纯属风险：删掉后这里的 29 处调用自动走 utils.js 那份。 */
 
 function escapeRegex(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -2964,7 +2963,18 @@ function getTypeName(type) {
     return map[type] || type || '未知';
 }
 
-function formatDate(dateStr) {
+/**
+ * 把时间格式化成「09-17 15:30」（表达训练页专用）
+ *
+ * ⚠️ 名字必须是 formatDateTime，**不能叫 formatDate**：
+ * `js/utils.js` 已经有一个全局 `formatDate`，返回的是「9月17日」（只有月日）。
+ * 之前这里同名覆盖，导致一个真实 bug ——
+ * `tasks.js` 有 7 处用 `formatDate(new Date())` 生成任务时间戳，
+ * 用户只要先访问过「表达训练」，再去「任务」页，
+ * 时间戳就会从「9月17日」变成「09-17 15:30」。
+ * 两个函数各有用途，所以是**改名**而不是删除。
+ */
+function formatDateTime(dateStr) {
     if (!dateStr) return '';
     try {
         const d = new Date(dateStr);

@@ -20,7 +20,8 @@ from .expression import router as expression_router
 from .coordinator import router as coordinator_router
 from .model_configs import router as model_configs_router
 
-# 注：routers/ai.py（旧 /api/chat 技能树 AI 代理）已下线。
-# 原因：无用户鉴权（全后端唯一裸奔的 AI 端点，任何人可直接消耗 API 配额），
+# 注：routers/ai.py（旧 /api/chat 技能树 AI 代理）曾于 2026-09-03 下线、
+# 2026-09-17 全代码审查时**文件本体已删除**。下线原因：无用户鉴权
+# （全后端唯一裸奔的 AI 端点，任何人可直接消耗 API 配额），
 # 且功能已被 skill_tree_ai_router 的 LangGraph 版本完全替代。
-# 文件保留仅作历史参考，未在 main.py 注册。
+# 需要回看旧实现：`git log --all -- backend/routers/ai.py`。

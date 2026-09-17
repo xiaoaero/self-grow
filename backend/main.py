@@ -6,7 +6,6 @@ FastAPI 应用创建、生命周期管理、路由注册、启动入口。
 
 import os
 import json
-import logging
 import datetime
 from contextlib import asynccontextmanager
 

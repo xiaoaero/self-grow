@@ -61,23 +61,6 @@ def upsert_dimension(user_id: int, dimension_key: str, xp_add: float = 0, conn=N
     return {"level": level, "xp": xp, "xp_to_next": xp_to_next}
 
 
-def recalc_dimensions_from_actions(user_id: int):
-    """从 action_logs 按 category_id 聚合重算所有维度"""
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT category_id, SUM(exp_earned) as total_xp FROM action_logs WHERE user_id = ? GROUP BY category_id",
-        (user_id,),
-    ).fetchall()
-    conn.close()
-
-    for r in rows:
-        upsert_dimension(user_id, r["category_id"], r["total_xp"])
-
-    # 确保所有 8 维都有数据（没 action 的维度保持 0）
-    from db.init import init_default_dimensions
-    init_default_dimensions(user_id)
-
-
 def get_total_exp_from_dimensions(user_id: int) -> int:
     """从 8 维表 SUM 出全局总经验（level 累计经验 + 剩余经验，返回整数）"""
     conn = get_conn()

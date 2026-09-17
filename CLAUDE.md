@@ -35,7 +35,6 @@ self_grow_system/
 │   ├── mcp_server.py      # MCP 插件 — FastMCP，24 个业务工具（stdio 免鉴权 / HTTP 强制 X-API-Key）
 │   ├── tools/init_password.py  # 初始化/重置账号密码（pixi run init-password）
 │   ├── pixi.toml          # pixi 环境（唯一依赖事实源，见 tools/export_reqs.py）
-│   ├── database.py        # 向后兼容层（re-export from db/ 子模块）
 │   ├── models/            # 数据模型（等级公式、常量、段位表）
 │   ├── schemas/           # Pydantic 请求/响应模型
 │   ├── db/                # 数据访问层（每个模块一个功能域，含 auth.py、model_configs.py、task_history.py）
@@ -47,7 +46,7 @@ self_grow_system/
 │   │   │   ├── router_node.py    # LLM 路由决策
 │   │   │   ├── synthesize_node.py # 汇总回复
 │   │   │   ├── agents/    # action/query/goal/task/habit/reward 6 个子 Agent
-│   │   │   └── llm.py     # 动态 LLM 实例（get_llm，缓存 key 含模型配置）
+│   │   │   └── (LLM 实例见 services/llm.py — 跨协调 Agent 与技能树 AI 共用)
 │   │   ├── skill_tree_ai/ # 技能树 AI 编辑（LangGraph）
 │   │   │   ├── graph.py   # StateGraph 编译 + run/resume + _format_result
 │   │   │   ├── node.py    # Agent 节点（LLM + 工具循环 + 消息截断防孤儿 ToolMessage）
@@ -57,21 +56,28 @@ self_grow_system/
 │   │   ├── expression_service.py  # 表达训练 AI 出题/评分 + 提示生成
 │   │   └── ...            # 其他服务模块
 │   ├── prompts/           # AI 系统提示词模板（技能树 AI 的在新链路 services/skill_tree_ai/prompts.py）
-│   ├── routers/           # API 路由层（共 102 个端点）
+│   ├── routers/           # API 路由层（共 96 个端点，OpenAPI 实测）
 │   │   ├── deps.py            # ★ get_current_user（凭证解析链）+ require_admin（角色授权）
-│   │   ├── auth.py            # ★ 登录鉴权 API（login/refresh/logout/logout-all/password/me/api-keys）
-│   │   ├── coordinator.py     # 协调 Agent API（chat/resume/status/stream）
-│   │   ├── skill_tree_ai.py   # 技能树 AI API（chat/resume/stream，替代旧 /api/chat，仅管理员）
-│   │   ├── model_configs.py   # 模型配置 API（5 端点 + 连通性测试）
-│   │   ├── skill_tree.py      # 技能树 CRUD API（9 个端点，写操作仅管理员）
+│   │   ├── auth.py            # ★ 登录鉴权 API（login/refresh/logout/password/me/api-keys）
+│   │   ├── coordinator.py     # 协调 Agent API（chat/resume，**都是 SSE 流式**）
+│   │   ├── skill_tree_ai.py   # 技能树 AI API（chat/resume，SSE 流式，替代旧 /api/chat，仅管理员）
+│   │   ├── model_configs.py   # 模型配置 API（6 端点，含连通性测试）
+│   │   ├── skill_tree.py      # 技能树 CRUD API（10 个端点，写操作仅管理员）
 │   │   └── ...            # 其他 11 个路由模块
-│   └── tests/             # 测试（101 passed）
+│   └── tests/             # 测试（150 passed，LLM 全打桩、不联网）
 │       ├── conftest.py    # ★ 在此设置 SELF_GROW_JWT_SECRET（必须早于 config 导入）
 │       ├── helpers.py     # ensure_test_accounts / get_auth_headers
-│       ├── test_auth.py   # 登录鉴权 17
+│       ├── test_auth.py              # 登录鉴权 17
+│       ├── test_sleep_action.py      # 睡眠行动 + 经验计算 38
+│       ├── test_ai_action.py         # AI 行动解析 20
+│       ├── test_streaming.py         # SSE 流式：协议/心跳/发射器并发隔离 21
 │       ├── test_skill_tree_permissions.py  # 角色权限与越权拦截 11
-│       └── test_mcp_auth.py   # MCP HTTP API Key 鉴权 6
-├── docs/                  # 项目文档（19 篇，见 README「项目结构」）
+│       ├── test_time_consistency.py  # 时间口径统一 10
+│       ├── test_coordinator_interrupt.py   # 反问交互：会话锁/skip 10
+│       ├── test_skill_tree_ai_tools.py     # 技能树 AI 工具 9
+│       ├── test_dimension_invariant.py     # 维度不变式 6
+│       └── test_mcp_auth.py          # MCP HTTP API Key 鉴权 6
+├── docs/                  # 项目文档（23 篇，见 README「项目结构」）
 │   ├── 登录鉴权方案选型.md / 安全设计说明.md / 技能树编辑器技术详解.md   # ★ 三份主力文档
 │   └── services/代码学习顺序.md   # backend/services 层学习路线
 └── memory/                # 开发记录
@@ -101,7 +107,7 @@ cd backend
 pixi install                 # 首次
 pixi run init-password       # 初始化账号密码（test / admin）
 pixi run start               # http://localhost:3001（自动拉起 APScheduler 定时任务）
-pixi run test                # 运行 pytest（当前 101 passed）
+pixi run test                # 运行 pytest（当前 150 passed）
 pixi run mcp                 # MCP 插件服务器（stdio，见 docs/MCP插件说明.md）
 pixi run export-reqs         # 导出锁定版 requirements.txt
 ```
@@ -186,7 +192,8 @@ npx http-server -p 3000 -c-1     # 或 python -m http.server 3000
 
 ### 技能树开发
 - 编辑器入口：`frontend/skill-tree/index.html`（独立页面，不依赖主 SPA，支持 role 参数）
-- 查看器：`frontend/skill-tree/viewer.html`（通过 iframe 嵌入技能页面）
+- 查看器：`frontend/skill-tree/index.html?role=user`（由 skills.js 通过 iframe 嵌入；
+  历史上的 `viewer.html` 已于 2026-09-17 删除，功能被它完全覆盖）
 - 主控制器：`skill-tree/js/app.js`（App 类，包含 CRUD、撤销/重做、AI 集成）
 - 渲染引擎：`skill-tree/js/tree-renderer.js`（DOM + SVG 渲染）
 - AI 集成：`skill-tree/js/ai-bridge.js`（LangGraph 端点 `/api/skill-trees/{id}/chat`，服务端会话 + 确认卡片）
@@ -199,7 +206,7 @@ npx http-server -p 3000 -c-1     # 或 python -m http.server 3000
 
 ### 登录鉴权（JWT，2026-09-13 落地）
 - 凭证解析链：`backend/routers/deps.py` —— ① TRUSTED_MODE ② `Authorization: Bearer` ③ `X-API-Key` ④ 401。**旧的 `?user_id=` 不再作为身份依据**
-- 端点：`backend/routers/auth.py`（login / refresh / logout / logout-all / password / me / api-keys）
+- 端点：`backend/routers/auth.py`（login / refresh / logout / password / me / api-keys）
 - 服务：`backend/services/auth_service.py`（bcrypt 哈希、JWT 签发验签、Refresh 轮换、API Key）；SQL 在 `backend/db/auth.py`
 - 前端：`frontend/js/auth.js` —— **包装 `window.fetch` 自动带 `Authorization` 并处理 401 自动续期**，因此 52 处 `fetch(...?user_id=)` 无需修改。**必须最先加载**（主应用 `js/auth.js`、技能树 `../js/auth.js`）
 - 环境变量：`SELF_GROW_JWT_SECRET`（缺失即拒绝启动）、`SELF_GROW_JWT_OLD_SECRET`、`SELF_GROW_ACCESS_TTL`、`SELF_GROW_REFRESH_TTL`、`SELF_GROW_TRUSTED_MODE`、`SELF_GROW_CORS_ORIGINS`
@@ -229,7 +236,7 @@ npx http-server -p 3000 -c-1     # 或 python -m http.server 3000
 ### 表达训练开发
 - 前端页面：`frontend/js/pages/agent.js`（`renderAgent()`，两视图，训练/历史滑块切换）
 - 填充词检测：`agent.js` 中 `detectFillerWordsV2()` — 四重规则（密度、高频重复、句首、簇拥）
-- 后端路由：`backend/routers/expression.py`（10 个端点）
+- 后端路由：`backend/routers/expression.py`（11 个端点）
 - 数据库操作：`backend/db/expressions.py`（题目 CRUD + 回答 CRUD + 用户统计）
 - 业务逻辑：`backend/services/expression_service.py`（出题/评分/提示生成，含 LLM 调用）
 - AI 提示词：`backend/prompts/expression.py`（三套提示词：出题、评分、提示生成）
