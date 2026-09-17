@@ -34,8 +34,9 @@ self_grow_system/
 │   │   ├── data.js                   # AppData 全局数据模型 + 8 维 SVG 图标定义
 │   │   ├── router.js                 # SPA 路由 + 页面 JS 懒加载（PAGE_JS_MAP）
 │   │   ├── utils.js                  # 工具函数（toast、模态框、等级公式、段位配色、后端 API 封装 60+ 函数）
+│   │   ├── sse.js                    # ★ SSE 流式读取（fetch + getReader，零依赖；主应用与 skill-tree 共用）
 │   │   ├── components.js             # 可复用渲染函数（统计卡片、经验条、进度条）
-│   │   ├── chat.js                   # 协调 Agent 悬浮球对话框（FIFO 反问卡片队列）
+│   │   ├── chat.js                   # 协调 Agent 悬浮球对话框（流式渲染 + 反问卡片串行队列）
 │   │   ├── app.js                    # 应用入口初始化（并行加载 8 个后端 API，降级容错 + 全局版本号）
 │   │   └── pages/                    # 每页一个渲染器，首次访问时动态加载
 │   │       ├── dashboard.js          # 仪表盘 — 打卡习惯列表、EXP 进度条、统计卡片、近期动态
@@ -66,6 +67,9 @@ self_grow_system/
 │   │       ├── sidebar.js            # 侧边栏 UI
 │   │       ├── history.js            # 撤销/重做历史
 │   │       └── utils.js              # 工具函数
+│   │
+│   ├── tests/                        # 前端逻辑回归测试（Node + 极简假 DOM，零依赖不开浏览器）
+│   │   └── interrupt-submit.test.mjs # 反问卡片提交逻辑：连点防抖 / 串行队列 / 草稿保留 / 跳过（7 组场景）
 │   │
 │   └── assets/                       # 静态资源
 │       └── icons/                    # 属性图标 SVG（8 维 + 行动 + 成长记录 + 标题等）
@@ -144,20 +148,25 @@ self_grow_system/
 │   │   ├── scheduled_tasks.py        # 定时任务模板 API（4 个端点）
 │   │   ├── stats.py                  # 统计 API（5 个端点）
 │   │   ├── rewards.py                # 奖励商城 API（8 个端点）
-│   │   ├── coordinator.py            # 协调 Agent API（chat/resume/status/stream）
+│   │   ├── coordinator.py            # 协调 Agent API（chat/resume/status，前两个是 SSE 流式）
 │   │   ├── model_configs.py          # 模型配置 API（5 端点 + 连通性测试）
 │   │   ├── skill_tree.py             # 技能树 CRUD API（9 个端点，写操作仅管理员）
-│   │   ├── skill_tree_ai.py          # 技能树 AI API（chat/resume/stream，LangGraph，仅管理员）
+│   │   ├── skill_tree_ai.py          # 技能树 AI API（chat/resume，SSE 流式，LangGraph，仅管理员）
 │   │   └── expression.py             # 表达训练 API（10 个端点）
 │   │
-│   ├── tests/                        # 测试（101 passed）
+│   ├── tests/                        # pytest 测试（144 passed，LLM 全打桩、不联网）
 │   │   ├── conftest.py               # pytest 配置（★ 在此设置 SELF_GROW_JWT_SECRET，早于 config 导入）
 │   │   ├── helpers.py                # 测试用公共方法（ensure_test_accounts / get_auth_headers）
 │   │   ├── test_auth.py              # 登录鉴权（17）
+│   │   ├── test_sleep_action.py      # 睡眠行动 + 经验计算（38）
+│   │   ├── test_ai_action.py         # AI 行动解析（20）
+│   │   ├── test_streaming.py         # SSE 流式：事件协议 / 心跳 / 发射器并发隔离 / 端点契约（21）
 │   │   ├── test_skill_tree_permissions.py  # 技能树角色权限 / 越权拦截（11）
+│   │   ├── test_time_consistency.py  # 时间口径统一（任意时区下成立，10）
+│   │   ├── test_coordinator_interrupt.py   # 反问交互：会话锁 / 连点 409 / skip 语义（10）
+│   │   ├── test_skill_tree_ai_tools.py     # 技能树 AI 工具（9）
 │   │   ├── test_mcp_auth.py          # MCP HTTP 传输的 API Key 鉴权（6）
-│   │   ├── test_ai_action.py         # AI 行动解析测试
-│   │   └── test_sleep_action.py      # 睡眠行动测试
+│   │   └── locustfile.py             # 压测脚本（非 pytest）
 │   │
 │   ├── .env                          # AI 配置 + 鉴权密钥 + 前端目录（不入 git）
 │   ├── .env.example                  # 配置模板
@@ -167,7 +176,6 @@ self_grow_system/
 │   ├── tools/init_password.py        # 初始化 / 重置账号密码（pixi run init-password）
 │   ├── test_coordinator.py           # 协调 Agent 手动测试脚本
 │   ├── test_mcp_client.py            # MCP 插件验证脚本
-│   ├── test_hints.json               # 表达训练提示测试数据
 │   └── data.db                       # SQLite 数据库文件（首次启动自动创建）
 │
 ├── docs/                             # 项目文档（19 篇）
@@ -294,9 +302,9 @@ cp .env.example .env    # 编辑 .env 填写 AI 配置
 
 AI 配置（`backend/.env`）：
 ```
-AI_API_BASE_URL=https://one.loll.xyz/v1
+AI_API_BASE_URL=https://ws-ihdcftaqkyq514nr.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
 AI_API_KEY=sk-你的key
-AI_MODEL=gemini-2.5-pro-exp-03-25
+AI_MODEL=qwen3
 PORT=3001
 SELF_GROW_JWT_SECRET=用 openssl rand -hex 32 生成
 ```
@@ -587,11 +595,19 @@ docker compose up -d
 
 ### 统一协调 Agent 开发
 
-- 前端：`frontend/js/chat.js`（悬浮球 + 对话框 + 反问卡片队列）
-- 后端主图：`backend/services/coordinator/graph.py`
+- 前端：`frontend/js/chat.js`（悬浮球 + 对话框 + 流式渲染 + 反问卡片串行队列）
+- 后端主图：`backend/services/coordinator/graph.py`（`run_coordinator` 非流式 / `run_coordinator_stream` 流式）
 - 子 Agent：`backend/services/coordinator/agents/`（6 个域 Agent + ask_user 工具）
+- SSE 统一层：`backend/services/sse.py`（事件协议 + 心跳 + ContextVar 发射器）
 - 提示词：`backend/prompts/coordinator.py`
 - 设计文档：[`docs/统一协调Agent设计方案.md`](docs/统一协调Agent设计方案.md)
+
+> ⚠️ 改反问相关逻辑前先看设计文档的 §6.1/§6.2：`/chat` 与 `/resume` 有**会话级处理中锁**
+> （同一 `thread_id` 并发写返回 409），前端配套**串行提交队列**，两边是配套的。
+> `skip: true` 表示跳过提问 —— 不告诉后端的话该域永远完不成，这条记录的总结不会生成。
+>
+> 回归测试：`backend/tests/test_coordinator_interrupt.py` +
+> `frontend/tests/interrupt-submit.test.mjs`
 
 ### 表达训练开发
 
@@ -604,6 +620,15 @@ docker compose up -d
 - 样式：`frontend/css/pages.css`（`.expr__*` 类，~300 行）
 
 ### 后端 API 路由一览
+
+> ⚡ = **SSE 流式端点**（`text/event-stream`）。统一实现在 `backend/services/sse.py`，
+> 事件只有四种：`stage`（阶段进度）/ `token`（逐字文本）/ `error` / `done`（最终结果）。
+> 前端的读取工具是 `frontend/js/sse.js` 的 `streamSSE()`。
+>
+> ⚠️ 为什么不用原生 `EventSource`：它**不能自定义请求头**，而本项目的身份是
+> `js/auth.js` 包装 `fetch` 注入的 `Authorization: Bearer` —— 用 EventSource 必然 401。
+> 所以走 `fetch` + `resp.body.getReader()` 自己解析（也正因如此端点都做成 POST）。
+> 部署侧注意：Nginx 必须关 `proxy_buffering`，否则事件会被攒着一次性发。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -627,7 +652,7 @@ docker compose up -d
 | GET | `/api/habits/stats` | 习惯统计卡片 |
 | GET | `/api/habits/insights` | 4 条智能洞察（AI 分析） |
 | GET | `/api/habits/last-week` | 上周打卡数据 |
-| POST | `/api/habits/ai-icon` | AI 分配习惯图标 |
+| POST | `/api/habits/ai-icon` ⚡ | AI 生成习惯图标（SSE 流式） |
 | GET/POST | `/api/actions` | 行动记录查询/提交 |
 | GET | `/api/actions/export` | 行动记录 CSV 导出 |
 | GET | `/api/actions/today-stats` | 今日行动统计 |
@@ -657,10 +682,9 @@ docker compose up -d
 | POST | `/api/rewards/{id}/manual-confirm` | 手动确认条件 |
 | POST | `/api/rewards/reevaluate` | 重新评估所有奖励 |
 | POST | `/api/rewards/{id}/image` | 上传奖励图片 |
-| **POST** | **`/api/coordinator/chat`** | **协调 Agent 对话（路由到子 Agent）** |
-| **POST** | **`/api/coordinator/resume`** | **恢复协调 Agent 会话（回答反问）** |
+| **POST** | **`/api/coordinator/chat`** ⚡ | **协调 Agent 对话（路由到子 Agent）｜SSE 流式** |
+| **POST** | **`/api/coordinator/resume`** ⚡ | **恢复协调 Agent 会话（回答反问 / `skip` 跳过）｜SSE 流式** |
 | **GET** | **`/api/coordinator/status/{thread_id}`** | **会话状态查询** |
-| **GET** | **`/api/coordinator/stream/{thread_id}`** | **SSE 流式事件** |
 | **GET/POST** | **`/api/model-configs`** | **模型配置列表/新增** |
 | **PUT/DELETE** | **`/api/model-configs/{id}`** | **更新/删除模型配置** |
 | **POST** | **`/api/model-configs/{id}/activate`** | **切换启用模型（即时生效）** |
@@ -670,14 +694,13 @@ docker compose up -d
 | PUT | `/api/skill-trees/{id}/publish` | 发布技能树 |
 | GET | `/api/skill-trees/{id}/published` | 获取已发布技能树 |
 | PUT | `/api/skill-trees/{id}/learner` | 保存学习进度 |
-| **POST** | **`/api/skill-trees/{id}/chat`** | **技能树 AI 编辑对话（LangGraph）** |
-| **POST** | **`/api/skill-trees/{id}/chat/resume`** | **技能树 AI 确认/恢复** |
-| **GET** | **`/api/skill-trees/{id}/chat/stream`** | **SSE 流式事件（占位）** |
-| POST | `/api/expression/generate` | 表达训练出题 |
+| **POST** | **`/api/skill-trees/{id}/chat`** ⚡ | **技能树 AI 编辑对话（LangGraph）｜SSE 流式** |
+| **POST** | **`/api/skill-trees/{id}/chat/resume`** ⚡ | **技能树 AI 确认/恢复｜SSE 流式** |
+| POST | `/api/expression/generate` ⚡ | 表达训练出题（SSE 流式） |
 | POST | `/api/expression/answer` | 创建回答记录 |
-| POST | `/api/expression/generate-hints` | 生成答题提示 |
+| POST | `/api/expression/generate-hints` ⚡ | 生成答题提示（SSE 流式） |
 | POST | `/api/expression/answer/{id}/text` | 更新回答文本 |
-| POST | `/api/expression/evaluate/{id}` | AI 评分 |
+| POST | `/api/expression/evaluate/{id}` ⚡ | AI 评分（SSE 流式） |
 | GET | `/api/expression/stats` | 训练统计 |
 | GET | `/api/expression/history` | 回答历史 |
 | GET | `/api/expression/question/{id}` | 题目详情 |
@@ -702,7 +725,8 @@ docker compose up -d
 - AI 服务在 `backend/services/` — 六个 AI 服务场景独立封装（含 coordinator/、skill_tree_ai/ 两个 LangGraph 包）
 - AI 提示词在 `backend/prompts/` — 每个功能独立文件
 - 等级公式唯一来源：`backend/models/level.py`
-- 运行测试：`cd backend && pixi run test`（当前 101 passed）
+- 运行后端测试：`cd backend && pixi run test`（当前 **144 passed**，AI 调用全打桩，不联网）
+- 运行前端逻辑测试：`node frontend/tests/interrupt-submit.test.mjs`（零依赖，不用开浏览器）
 - 依赖唯一事实源：`backend/pixi.toml`；导出锁定版到 pip/Docker：`cd backend && pixi run export-reqs`
 
 ### 生产部署（Docker）
@@ -750,19 +774,17 @@ cd .. && docker compose build --no-cache && docker compose up -d --force-recreat
 **遗留技术问题**
 
 - 异步渲染函数缺少 `await` 可能引发竞态（中优先级）
-- `int(dimension_exp)` 截断而非四舍五入（中优先级）
 - 数据库连接未使用上下文管理器（低优先级）
-- 协调 Agent / 技能树 AI 的 `/stream` SSE 端点为占位实现（未接入 astream_events）
+- 编排状态存内存（`_thread_store`，TTL 30min）→ 重启即失，多实例不通用（中优先级）
+- 技能树 AI 未做资源级隔离：所有 admin 可改所有技能树（中优先级）
 
-**安全方面（明确知道并接受的代价）**
+**已完成（不再是限制）**
 
-- Access Token 存 localStorage → **XSS 场景下会被窃取**。接受它是因为机器客户端必须走 Bearer；缓解手段为短有效期 + Refresh 同源时走 httpOnly
-- 未做 HTTPS（局域网可接受，**公网暴露必须前置 Nginx + Let's Encrypt**）
-- 登录失败锁定在内存中，多实例部署会失效
-- 所有 admin 可改所有技能树，未做资源级隔离
-- 未做 MFA、审计日志、请求限流
-
-**其他**
-
-- 多用户模型隔离：`model_configs` 等场景仍按 user_id 参数取（协调 Agent 已随凭证走）
-- ~~CORS 允许所有来源~~ → 已修复：显式来源 + 本机来源正则，且支持 credentials
+- ~~协调 Agent / 技能树 AI 的 `/stream` SSE 端点为占位实现~~ →
+  **2026-09-16 已全部改为真流式**。原来那两个 `GET .../stream` 占位端点已删除
+  （其中一个还没挂鉴权），改由 `/chat` 与 `/resume` 本身推 SSE。
+  协调 Agent 是**真逐 token**；技能树 AI 与表达训练只推**阶段进度** ——
+  前者回复是 LLM 通过 `send_reply` 工具参数生成、后者的产物是 JSON，
+  逐字符传过去等于逼前端做增量 JSON 解析，是负优化。
+- ~~反问并发提交会重复执行子图~~ → **2026-09-16 已加会话锁**：
+  同一 `thread_id` 同时只允许一个写请求（冲突 409），前端配套串行队列
