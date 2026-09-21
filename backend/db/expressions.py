@@ -5,7 +5,6 @@ Self Grow — 表达训练数据库 CRUD
 """
 
 import json
-import sqlite3
 
 from db.connection import get_conn
 
@@ -214,12 +213,16 @@ def get_user_stats(user_id: str) -> dict:
         type_summary = {r["question_type"]: r["cnt"] for r in types}
 
         # 平均分（近5次）
+        #
+        # ⚠️ 子查询必须带别名 `AS recent` —— **MySQL 强制要求**
+        #    （errno 1248 «Every derived table must have its own alias»），
+        #    SQLite 不要求，所以本地用 SQLite 开发时这个问题不会暴露。
         avg_row = conn.execute(
             """SELECT AVG(score_total) as avg_score FROM (
                 SELECT score_total FROM expression_answers
                 WHERE user_id = ? AND score_total IS NOT NULL
                 ORDER BY created_at DESC LIMIT 5
-            )""",
+            ) AS recent""",
             (user_id,),
         ).fetchone()
         avg_score = round(avg_row["avg_score"], 1) if avg_row and avg_row["avg_score"] else None
@@ -302,7 +305,9 @@ def get_question_history_list(
             having_sql = ""
 
         # 查询总数
-        count_sql = f"SELECT COUNT(*) as cnt FROM ({base_sql} {having_sql})"
+        # ⚠️ `AS cnt_sub` 不能省 —— MySQL 要求派生表必须有别名（errno 1248），
+        #    SQLite 不要求。见本文件 get_user_stats() 里的同款注释。
+        count_sql = f"SELECT COUNT(*) as cnt FROM ({base_sql} {having_sql}) AS cnt_sub"
         total = conn.execute(count_sql, params).fetchone()["cnt"]
 
         # 查询分页数据
@@ -372,6 +377,13 @@ def get_recent_answers(question_id: int, user_id: str = None, limit: int = 5) ->
 # 辅助函数
 # ================================================================
 
-def _row_to_dict(row: sqlite3.Row) -> dict:
-    """将 sqlite3.Row 转为普通 dict"""
+def _row_to_dict(row) -> dict:
+    """行对象 → 普通 dict
+
+    两个后端的行对象都支持 `dict()`：
+      · SQLite：`sqlite3.Row`（由 row_factory 设置）
+      · MySQL ：PyMySQL 的 `DictCursor` 本来就返回 `dict`（`dict(dict)` 是浅拷贝）
+
+    所以这里不写死 `sqlite3.Row` 注解 —— 写了会让人以为只有 SQLite 能用。
+    """
     return dict(row) if row else None
