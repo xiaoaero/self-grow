@@ -44,7 +44,9 @@ async def generate_question(types: list[str], user_id: int = 1) -> dict:
     生成题目 + 3 条思考提示。
 
     调用 LLM（Tool Use 模式），先查历史题目防重复，再生成新题。
-    当前热搜搜索工具预留，暂不实现。
+    工具集只有「历史题目查重」一个 —— 原来还声明过一个联网搜索工具，
+    但它从未实现、只会让模型白跑一轮，已于 2026-09-17 删除
+    （详见 prompts/expression.py 的注释）。
     """
     # 查询已有题目（用于查重）
     existing = get_existing_questions(types=types if types else None, limit=30)

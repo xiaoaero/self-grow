@@ -4,6 +4,17 @@ Self Grow — AI 行动解析提示词和工具定义
 包含完整的计分规则和工具定义，供 AI 行动解析服务使用。
 """
 
+from models.constants import CATEGORIES
+
+# 维度枚举：**从单一来源派生**，别在这里手写一份。
+#
+# 原来 category_id 的 description 里手写着
+# "维度ID: health/study/relation/work/create/finance/hobby/soul" ——
+# 既没有 enum 约束（模型可能传错），加维度时又要记得改这里。
+# 现在 enum 由 CATEGORIES 派生，并在 description 里带上中文名（给模型更好读）。
+_DIMENSION_IDS = [c["id"] for c in CATEGORIES]
+_DIMENSION_HINT = "、".join(f"{c['id']}={c['name']}" for c in CATEGORIES)
+
 ACTION_PARSE_SYSTEM_PROMPT = """你是一个个人成长行动记录助手。你的任务是通过对话了解用户做了什么，然后根据精确的计分规则计算经验值，并整理成结构化的行动记录。
 
 ## 8个维度
@@ -129,7 +140,8 @@ ACTION_PARSE_TOOLS = [
                             "properties": {
                                 "category_id": {
                                     "type": "string",
-                                    "description": "维度ID: health/study/relation/work/create/finance/hobby/soul",
+                                    "enum": _DIMENSION_IDS,
+                                    "description": f"维度ID（{_DIMENSION_HINT}）",
                                 },
                                 "sub_type": {
                                     "type": "string",
