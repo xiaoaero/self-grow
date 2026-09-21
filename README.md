@@ -85,13 +85,16 @@ self_grow_system/
 │   │   └── api.py                    # 20 个请求模型（响应都是直接返回 dict，未挂 response_model）
 │   │
 │   ├── db/                           # 数据访问层（每模块一个功能域）
-│   │   ├── connection.py             # DB_PATH + get_conn()
+│   │   ├── backend.py                # ★ 双后端分派（sqlite / mysql）+ MySQL 连接池 + 连接代理
+│   │   ├── dialect.py                # SQLite→MySQL 方言自动转换（DDL 8 条规则 + DML 的 upsert / INSERT IGNORE）
+│   │   ├── connection.py             # 门面：re-export get_conn / now_str（业务代码只认它）
+│   │   ├── testing.py                # 测试库隔离（MySQL 下无文件可换 → 删表重建，带安全闸）
 │   │   ├── init.py                   # 建表（22 张）+ 默认用户/奖励 + 数据迁移
 │   │   ├── auth.py                   # 登录鉴权 SQL（refresh_tokens / api_keys / 密码与 token_version）
 │   │   ├── users.py                  # 用户 + 每日统计 CRUD
 │   │   ├── habits.py                 # 习惯 + 打卡记录 CRUD
 │   │   ├── actions.py                # 行动记录 CRUD + 今日统计 + 动态播报 + 睡眠/复盘限制检测
-│   │   ├── routines.py               # 规律作息持久化（SQLite 替代内存缓存）
+│   │   ├── routines.py               # 规律作息持久化（落库替代内存缓存）
 │   │   ├── goals.py                  # 目标 CRUD
 │   │   ├── tasks.py / task_history.py # 任务 CRUD + 历史归档
 │   │   ├── scheduled_tasks.py        # 定时任务模板 CRUD
@@ -152,7 +155,7 @@ self_grow_system/
 │   │   ├── skill_tree_ai.py          # 技能树 AI API（2：chat/resume，SSE 流式，LangGraph，仅管理员）
 │   │   └── expression.py             # 表达训练 API（11 个端点）
 │   │
-│   ├── tests/                        # pytest 测试（150 passed，LLM 全打桩、不联网）
+│   ├── tests/                        # pytest 测试（167 passed，LLM 全打桩、不联网）
 │   │   ├── conftest.py               # pytest 配置（★ 在此设置 SELF_GROW_JWT_SECRET，早于 config 导入）
 │   │   ├── helpers.py                # 测试用公共方法（ensure_test_accounts / get_auth_headers）
 │   │   ├── test_auth.py              # 登录鉴权（17）
@@ -165,6 +168,8 @@ self_grow_system/
 │   │   ├── test_coordinator_interrupt.py   # 反问交互：会话锁 / 连点 409 / skip 语义（10）
 │   │   ├── test_skill_tree_ai_tools.py     # 技能树 AI 工具（9）
 │   │   ├── test_mcp_auth.py          # MCP HTTP 传输的 API Key 鉴权（6）
+│   │   ├── test_expression_endpoints.py    # 表达训练接口 / 派生表别名（12）
+│   │   ├── test_sql_dialect_lint.py  # SQL 方言静态检查：派生表必须有别名（5）
 │   │   └── locustfile.py             # 压测脚本（非 pytest）
 │   │
 │   ├── .env                          # AI 配置 + 鉴权密钥 + 前端目录（不入 git）
@@ -173,9 +178,10 @@ self_grow_system/
 │   ├── requirements.txt              # 由 pixi 锁定的版本导出（供 pip / Docker 安装）
 │   ├── tools/export_reqs.py          # 从 pixi 导出 requirements.txt
 │   ├── tools/init_password.py        # 初始化 / 重置账号密码（pixi run init-password）
-│   └── data.db                       # SQLite 数据库文件（首次启动自动创建）
+│   ├── tools/migrate_sqlite_to_mysql.py # SQLite → MySQL 数据迁移（保留 id / 重置自增 / 逐表核对）
+│   └── data.db                       # SQLite 数据库文件（DB_BACKEND=sqlite 时用；默认后端已是 MySQL）
 │
-├── docs/                             # 项目文档（23 篇）
+├── docs/                             # 项目文档（24 篇）
 │   ├── 登录鉴权方案选型.md            # ★ 9 种登录方式对比 + JWT 落地方案 + 实施进度
 │   ├── 安全设计说明.md                # ★ 威胁模型 / 令牌设计 / RBAC / 已知风险清单 10 条
 │   ├── 技能树编辑器技术详解.md         # ★ 1700+ 行：编辑器渲染与交互 + Agent 全解析
@@ -189,6 +195,7 @@ self_grow_system/
 │   ├── 维度经验计分规则.md           # 8 维经验计算规则详情
 │   ├── 前端浏览器缓存与存储详解.md     # 浏览器缓存与存储
 │   ├── 数据库知识深入学习指南.md       # 数据库学习资料
+│   ├── SQLite迁移MySQL方案.md         # ★ 双后端迁移：改动面实测 / 分阶段步骤 / 8 项验证清单
 │   ├── 网络知识深入学习指南.md         # 网络学习资料
 │   ├── 异步编程学习指南.md            # asyncio 学习资料
 │   ├── 性能优化学习指南.md            # 性能优化学习资料
@@ -265,7 +272,16 @@ echo "SELF_GROW_JWT_SECRET=$(openssl rand -hex 32)" >> backend/.env
 
 > 改密码：`pixi run init-password admin 新密码`，或在「用户中心 → 账户安全」自助修改。
 
-后端首次运行自动创建 SQLite 数据库 `data.db`（22 张表）；启动时自动拉起 **APScheduler 定时任务**（每日 03:00 归档任务/刷新模板/习惯结算/统计快照，每周一 03:00 刷新周模板任务）。
+后端首次运行自动建表（22 张）。**数据库有两个后端，靠环境变量切换**：
+
+```bash
+SELF_GROW_DB_BACKEND=mysql    # 默认。连接参数见 backend/.env（SELF_GROW_MYSQL_*）
+SELF_GROW_DB_BACKEND=sqlite   # 回退到 data.db —— 改这一行即可整体回滚
+```
+
+同一套业务代码跑在两个后端上，SQL 方言在连接层自动转换（详见「数据库（双后端）」一节）。
+
+启动时自动拉起 **APScheduler 定时任务**（每日 03:00 归档任务/刷新模板/习惯结算/统计快照，每周一 03:00 刷新周模板任务）。
 
 ### 2. 前端（两种形态任选）
 
@@ -336,11 +352,23 @@ curl -X POST http://localhost:8000/mcp -H "X-API-Key: sgk_xxx" \
 
 ```bash
 # 在项目根目录（与 .gitignore 同级）放置 Dockerfile / .dockerignore / docker-compose.yml
-echo "AI_API_KEY=你的真实API密钥" > .env      # AI 配置，不会提交到 git
+cp .env.example .env
+sed -i "s|^SELF_GROW_JWT_SECRET=.*|SELF_GROW_JWT_SECRET=$(openssl rand -hex 32)|" .env
+# 顺手改掉 MySQL 口令（模板里是占位值）：MYSQL_ROOT_PASSWORD / MYSQL_PASSWORD
 
-docker compose up -d
+docker compose up -d          # 会拉起 mysql + app + mcp
+docker compose exec app python tools/init_password.py
 # 浏览器访问 http://服务器IP:3001
 ```
+
+> ⚠️ **已经在跑 SQLite 版本、想切到 MySQL**：先迁数据再切，否则 app 会在空库里
+> 重建 22 张表、看起来像「数据全丢了」：
+>
+> ```bash
+> docker compose up -d mysql
+> docker compose run --rm app python tools/migrate_sqlite_to_mysql.py
+> docker compose up -d app mcp
+> ```
 
 镜内依赖安装走 `backend/requirements.txt`（由 `pixi run export-reqs` 从 pixi 锁定版本生成，与开发环境版本一致）。
 
@@ -352,8 +380,9 @@ docker compose up -d
 |------|------|
 | **前端** | 原生 HTML/CSS/JS，零框架依赖 |
 | **图表** | Chart.js 4.4.0（雷达图、折线图、热力图） |
-| **状态管理** | AppData 全局对象 + 后端 SQLite 持久化；localStorage 仅存登录凭证（Access/Refresh） |
-| **后端** | Python FastAPI + httpx + SQLite（WAL） |
+| **状态管理** | AppData 全局对象 + 后端持久化；localStorage 仅存登录凭证（Access/Refresh） |
+| **后端** | Python FastAPI + httpx |
+| **数据库** | **MySQL 8.0**（PyMySQL + DBUtils 连接池）／**SQLite**（WAL）—— 双后端，`SELF_GROW_DB_BACKEND` 切换，方言在连接层自动转换 |
 | **登录鉴权** | PyJWT（HS256 Access 2h + Refresh 30d 轮换）+ bcrypt(cost=12) + API Key（SHA-256 落库） |
 | **AI 编排** | LangGraph（协调 Agent 多智能体图 + 技能树 AI 工具调用图，MemorySaver checkpointer） |
 | **MCP** | FastMCP（24 业务工具，stdio 免鉴权 / HTTP 强制 X-API-Key） |
@@ -494,7 +523,8 @@ docker compose up -d
 | **页面 JS 懒加载** | 首次只加载 core（data.js/router.js/utils.js/components.js/app.js ~30 KB），页面 JS 按需动态加载 |
 | **后端请求并行化** | 启动时 8 个后端 API 请求通过 `Promise.all` 并行发出 |
 | **失败容错** | 后端不可用时降级使用模拟数据，页面 JS 加载失败显示友好提示 |
-| **SQLite WAL 模式** | 读写并发优化 |
+| **MySQL 连接池** | `DBUtils.PooledDB` 复用连接，省掉每次请求的 TCP + 认证握手（池大小 20，须 ≥ 并发线程数） |
+| **SQLite WAL 模式** | sqlite 后端下的读写并发优化（`journal_mode=WAL` + `busy_timeout=5000`） |
 | **APScheduler 定时任务** | 每日归档/刷新/结算由后端定时执行，前端无需轮询 |
 
 ### 开发里程碑
@@ -728,9 +758,51 @@ docker compose up -d
 - AI 服务在 `backend/services/` — 六个 AI 服务场景独立封装（含 coordinator/、skill_tree_ai/ 两个 LangGraph 包）
 - AI 提示词在 `backend/prompts/` — 每个功能独立文件
 - 等级公式唯一来源：`backend/models/level.py`
-- 运行后端测试：`cd backend && pixi run test`（当前 **150 passed**，AI 调用全打桩，不联网）
+- 运行后端测试：`cd backend && pixi run test`（当前 **167 passed**，AI 调用全打桩，不联网）
 - 运行前端逻辑测试：`node frontend/tests/interrupt-submit.test.mjs`（零依赖，不用开浏览器）
 - 依赖唯一事实源：`backend/pixi.toml`；导出锁定版到 pip/Docker：`cd backend && pixi run export-reqs`
+
+### 数据库（SQLite / MySQL 双后端）
+
+2026-09-19 起支持 MySQL，**默认就是 MySQL**；两条通路靠**一个环境变量**切换：
+
+```bash
+SELF_GROW_DB_BACKEND=mysql    # 默认。SELF_GROW_MYSQL_HOST/PORT/USER/PASSWORD/DATABASE
+SELF_GROW_DB_BACKEND=sqlite   # 回退到 data.db —— 改这一行即可整体回滚
+```
+
+**怎么做到「151 个 `get_conn()` 调用点、150 处 `?` 占位符，一行没改」**：
+
+| 层 | 文件 | 作用 |
+|---|---|---|
+| 连接层 | `backend/db/backend.py` | 按 `DB_BACKEND` 分派。MySQL 侧用 `DBUtils.PooledDB` + `MysqlConn`/`MysqlCursor` 代理，让既有的 `get_conn()` / `cursor()` / `execute()` / `commit()` / `close()` 语义不变（`close()` = 归还连接） |
+| 方言层 | `backend/db/dialect.py` | SQLite → MySQL 自动转换：`AUTO_INCREMENT`、时间函数默认值、TEXT 带默认值／进键位置、索引 `IF NOT EXISTS`、`INSERT OR IGNORE`、`ON CONFLICT ... DO UPDATE`、保留字加反引号；并把 `?` 翻成 `%s` |
+| 测试隔离 | `backend/db/testing.py` | SQLite 靠换库文件；MySQL 没有文件可换 → **删表重建**（带「库名必须含 test」安全闸） |
+
+> 转换放在连接层而不是改 SQL：改 SQL 会让 **SQLite 通路也要反向转换**，
+> 等于两条路各维护一份；放这里，两边共用同一份 SQL 文本。
+
+**四个必须知道的点**
+
+1. **连接池不能小。** 协调 Agent 会用 `asyncio.gather` 并行跑多个子 Agent，每个工具调用都
+   `to_thread` + `get_conn()`。池满时 `DBUtils` 的 `blocking=True` 是**无限等待（没有超时）**
+   → 整站卡死。默认 20，别往下调
+2. **时区靠连接层补偿。** MySQL 服务端已设 `--default-time-zone=+08:00`（compose），
+   连接层再 `SET time_zone='+08:00'` 兜一层 —— 与容器/宿主机时区**解耦**，
+   换镜像也不会重演「刚记录完却显示 8 小时前」
+3. **MySQL 的 `TEXT` 不能有默认值、也不能进索引**（errno 1101 / 1170）。
+   写 SQL 时：短文本用 `VARCHAR(n) DEFAULT ''`，长文本用 `TEXT NULL`（去掉 `NOT NULL DEFAULT`）
+4. **`ON CONFLICT (col) DO UPDATE` 与 SQLite 的语义有细微差别**：SQLite 只在**指定的那组列**
+   冲突时才 upsert，MySQL 是**任意唯一键**冲突都触发。现有表都只有一组相关唯一约束所以行为一致 ——
+   将来给这些表加第二组 `UNIQUE` 时要重新确认
+
+**迁移与回滚**
+
+- 方案与实测改动面：[`docs/SQLite迁移MySQL方案.md`](docs/SQLite迁移MySQL方案.md)
+- 数据搬迁：`cd backend && python tools/migrate_sqlite_to_mysql.py`（保留原 id、迁完重置 `AUTO_INCREMENT`、逐表核对行数与聚合值）
+- 验证：SQLite 通路 **167 passed**；MySQL 通路 **158 passed + 9 skipped**（跳过的是检查 SQLite 专有元数据 `PRAGMA`/`sqlite_master` 的用例）
+- ⚠️ **MySQL 全量测试请分批跑**（每个用例都要重置测试库，约 4~5 分钟；一次性跑容易被工具/CI 的超时掐断）。示例：
+  `pytest tests/test_auth.py tests/test_ai_action.py tests/test_streaming.py -q`
 
 ### 生产部署（Docker）
 
@@ -741,7 +813,9 @@ docker compose up -d
 | 环节 | 说明 |
 |------|------|
 | 镜像 | `python:3.12-slim`，`pip install -r backend/requirements.txt`（版本与 pixi 开发环境一致） |
-| 数据 | `data.db` 与 `uploads/` 存 Docker 卷，容器删除数据不丢 |
+| 数据库 | **MySQL 8.0 容器**（`mysql_data` 卷；utf8mb4 + 时区 `+08:00`；**不对外发布端口**，只有 compose 网络内可连）|
+| 回退 | `SELF_GROW_DB_BACKEND=sqlite` 时改读 `data.db`（`data` 卷），两种模式共用同一个镜像 |
+| 附件 | `uploads/` 存在 `data` 卷，容器删除数据不丢 |
 | 前端 | `SELF_GROW_FRONTEND_DIR=/app/frontend`，由 FastAPI 自动 serve |
 | AI 配置 | `.env` 传入 `AI_API_KEY` 等，不写入镜像 |
 
