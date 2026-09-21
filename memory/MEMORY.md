@@ -62,3 +62,17 @@
 - [2026-09-13 工作记录](2026-09-13-work.md) — JWT登录鉴权全栈落地S1~S6(101 passed)：passlib换bcrypt踩坑 / refresh_tokens+api_keys表 / auth_service(密钥强制校验·token_version·refresh轮换·API Key) / deps凭证解析链(73端点零改动) / routers/auth.py八个端点 / 前端auth.js包装window.fetch覆盖52处调用 / refresh双通道应对SameSite / CORS从*收紧 / 登录页密码表单+用户中心账户安全 / MCP HTTP传输加ApiKeyMiddleware(发现原HTTP模式裸奔)+ContextVar多用户身份 / docs/安全设计说明.md(威胁模型+已知风险10条)
 
 - [2026-09-14 工作记录](2026-09-14-work.md) — 鉴权上线后的启动排障与文档同步：favicon 404清理 / 点0.0.0.0打不开三原因(监听地址·根路由404·JWT密钥缺失→改为启动即校验) / CORS漏3000端口导致登录页误报"后端未启动"→改allow_origin_regex放行本机任意端口且登录页报错展示真实原因 / README(763行)+CLAUDE.md(275行)按实测全面重写(22表·102端点·101 passed)
+
+- [2026-09-15 工作记录](2026-09-15-work.md) — 首次真正跑上服务器：Docker镜像首次构建成功(567MB/100秒)+端到端冒烟 / 砍掉apt装tzdata(Debian required包,slim自带)构建从4分钟到100秒 / MCP服务补进compose并修init_db缺失bug(23表) / Nginx反代补齐(缺/mcp块·证书挂载三处不一致·服务整段被注释) / **生产事故:config.js写死127.0.0.1导致前端连不上**(改为按请求Host反推) / 新库7维显示"Lv1·5625XP·需要150·100%"根因(migrate写死level=1/xp_to_next=150违约)→seed改真实数据+normalize_dimension_rows自愈迁移 / **全项目时间口径统一为本地时间naive**(修一族UTC混用bug:行动时间早8h·最近行动恒显示8小时前·前端今天用UTC日期)+12用例
+
+- [2026-09-16 工作记录](2026-09-16-work.md) — 四条主线：①修AppData.profile缓存永不失效(5个写钩子调refreshProfileCache) ②测试连通性支持留空Key(回落已存Key·防越权) ③修MCP query_action_history字段名bug(从上线起就没成功过)+25项全量体检 ④**8个AI端点全部SSE化**(services/sse.py·ContextVar发射器穿透router→graph→agent→tool·心跳保活·前端sse.js零依赖·删2个假端点·21用例) ⑤端到端验SSE穿Nginx(89秒长任务不中断;发现X-Accel-Buffering会被Nginx消费掉属正确行为) ⑥**反问并发复现出四个缺陷**(重复执行子图/静默吞掉/清空另一卡片输入/跳过导致总结为空)→会话锁409+skip语义+前端串行队列+假DOM测试当场抓到'idle'真值bug / 113→134→144 passed
+
+- [2026-09-17 工作记录](2026-09-17-work.md) — 推送18个提交+README同步(数端点必须用app.openapi,别遍历app.routes) / **全代码审查删净死代码**(45文件 +175/-1120行:6死端点·viewer.html 649行·68条废弃CSS;核心原则"假阳性比漏报危险得多",调用方语料必须覆盖仓库根) / 抓到两个静默真bug(agent.js的formatDate覆盖utils.js同名全局函数·DEFAULT_DIMENSIONS的xp_to_next写死150) / 常量改为从CATEGORIES单一来源派生 / README端点表双向核对B组8→0 / **多智能体token实测**(单体每轮6659 vs 子Agent平均1382)并修正归因:真省token的是"按域装载工具与提示词"而非"多Agent" / 挖出4个独特设计(反问做成工具·动态改工具集约束LLM·防幻觉兜底·自己解多Agent引入的竞态与事件串扰)
+
+- [2026-09-18 工作记录](2026-09-18-work.md) — 由用户两个提问引出的提示词与工具定义治理：清掉"预留工具"残留注释(search_hot_events已删;**给LLM声明工具≠前端留TODO**,模型会真去调、白烧一整轮往返10~30s) / 讲清项目里两套工具挂载方式并存的合法性(@tool+bind_tools vs 手写OpenAI schema+bind(tools=);判据是工具背后有没有真实本地函数) / **ACTION_PARSE_TOOLS.category_id补上enum约束**(从CATEGORIES派生,原来只在description里手写ID) / 未修:sub_type 12个子类型无单一来源·mcp_server的CategoryId=Literal只能手写(可加运行时断言) / 150 passed
+
+- [2026-09-19 工作记录](2026-09-19-work.md) — **SQLite/MySQL双后端迁移完成**(项目最大一次架构改造)：先侦察改动面(151个get_conn调用点·150处?占位符·36处TEXT DEFAULT是头号坑·18个FOREIGN KEY)出方案文档 / 新增db/backend.py(PooledDB+连接代理)·db/dialect.py(方言自动转换)·db/testing.py·迁移脚本 / **151个调用点与150处占位符一行没改** / 10个"跑起来才炸"的坑(反引号与DDL转换顺序·幂等标记不能含VARCHAR(·TEXT进键1170三种位置·保留字需保护ORDER BY DESC·池太小死锁无超时·date()返回类型不同) / 验证:SQLite 150 passed / MySQL 141+9 skipped / 22表逐字段核对一致·时区偏差0秒
+
+- [2026-09-20 工作记录](2026-09-20-work.md) — 迁移后收尾三件事+两处加固：①compose加mysql服务(不发布端口·mysqladmin ping healthcheck因初始化期有临时server·$$转义·depends_on健康门控) ②🐛真bug:派生表缺别名→MySQL 1248(全库扫出2处,第二处是f-string拼接grep搜不到)→固化为test_sql_dialect_lint.py(含灵敏度自检,因为"永远返回0的检查器比没有更危险") ③⚠️隐患:MySQL lock_wait_timeout默认一年+DBUtils无限等待→整站静默挂死(无任何日志)→连接层设30秒 ④TRUNCATE重置测试库实测卡死已回退 ⑤README/CLAUDE.md数据库表述全面同步(新增"双后端"一节) / SQLite 167 passed,MySQL 158+9 skipped
+
+- [2026-09-21 工作记录](2026-09-21-work.md) — 推送7个提交(按主题拆分) / **推送前扫出两个含明文API Key的未跟踪文件**(bocha.py/gitsearch.py,确认从未进过git历史→加gitignore并建议吊销重发) / remote从HTTPS改SSH(非交互环境凭据助手弹不出窗)并双向验证(rev-list 0 0 + ls-tree查敏感文件无命中) / 协作笔记MEMORY.md涨到22KB被注入截断→拆为核心(9.8KB)+细节(13.9KB)两份
