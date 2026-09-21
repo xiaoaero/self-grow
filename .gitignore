@@ -33,3 +33,11 @@ backend/uploads/*
 # Nginx 真实配置与证书（模板 self-grow.conf.example 可提交）
 nginx/*.conf
 nginx/certs/
+
+# ⚠️ 本地探索脚本：源码里硬编码了真实 API Key（BoCha / GitHub Token）
+#    提交 = 密钥泄露到公开仓库，且从 git 历史里删不干净。此类脚本一律不入库。
+backend/bocha.py
+backend/gitsearch.py
+
+# 个人求职材料（简历），与项目无关
+resume-self-grow.html
