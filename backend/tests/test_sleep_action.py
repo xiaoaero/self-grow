@@ -7,6 +7,17 @@
 import pytest
 from datetime import datetime
 
+from db.backend import backend_name
+
+# 有一批用例是在**检查 SQLite 的表结构元数据**（`PRAGMA table_info` /
+# `sqlite_master`）。MySQL 后端下这些语句根本不存在，且语义也有等价物
+# （`information_schema`）——但它们要验证的是"老库迁移后列是否补齐"，
+# 属于 SQLite 特定的历史包袱检查，MySQL 侧没有对应意义，直接跳过。
+_sqlite_only = pytest.mark.skipif(
+    backend_name() == "mysql",
+    reason="检查 SQLite 特有元数据（PRAGMA / sqlite_master），MySQL 后端跳过",
+)
+
 
 # ================================================================
 # Fixtures
@@ -14,7 +25,16 @@ from datetime import datetime
 
 @pytest.fixture
 def tmp_db(monkeypatch, tmp_path):
-    """创建临时数据库，monkeypatch DB_PATH 指向它"""
+    """临时数据库
+
+    - SQLite：monkeypatch DB_PATH 指向临时文件（原做法）
+    - MySQL ：没有"文件"可换，改为**删掉测试库所有表后重建**
+              （效果等价于全新库；测试库名必须含 test，有安全闸保护）
+    """
+    from db.testing import reset_test_database
+    if reset_test_database():
+        return "mysql"
+
     db_path = str(tmp_path / "test.db")
     from db import connection
     monkeypatch.setattr(connection, "DB_PATH", db_path)
@@ -38,6 +58,7 @@ def user_id(tmp_db):
 # 测试1：数据库迁移 — 新列存在
 # ================================================================
 
+@_sqlite_only
 class TestMigration:
     def test_action_logs_has_sub_type_column(self, tmp_db):
         """action_logs 表应有 sub_type 列"""
@@ -196,6 +217,7 @@ class TestSleepExpCalculation:
 # ================================================================
 
 class TestRoutineStreak:
+    @_sqlite_only
     def test_routine_streak_table_exists(self, tmp_db):
         """routine_streak 表应存在"""
         from db.connection import get_conn

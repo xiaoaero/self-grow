@@ -16,6 +16,17 @@ import datetime
 
 import pytest
 
+from db.backend import backend_name
+
+# 这一批用例检查的是 **SQLite 建表语句的文本**（`sqlite_master` 里的 DDL），
+# 验证默认值用的是 localtime 而不是裸的 datetime('now')。
+# MySQL 后端下元数据表是 information_schema、默认值文本也不同
+# （CURRENT_TIMESTAMP），所以整类跳过 —— 时间口径本身由别处的用例保证。
+_sqlite_only = pytest.mark.skipif(
+    backend_name() == "mysql",
+    reason="检查 SQLite 建表语句文本（sqlite_master），MySQL 后端跳过",
+)
+
 
 # ================================================================
 # Fixtures（与 test_sleep_action.py 保持一致的做法）
@@ -23,7 +34,16 @@ import pytest
 
 @pytest.fixture
 def tmp_db(monkeypatch, tmp_path):
-    """临时数据库，monkeypatch DB_PATH 指向它"""
+    """临时数据库
+
+    - SQLite：monkeypatch DB_PATH 指向临时文件（原做法）
+    - MySQL ：没有"文件"可换，改为**删掉测试库所有表后重建**
+              （效果等价于全新库；测试库名必须含 test，有安全闸保护）
+    """
+    from db.testing import reset_test_database
+    if reset_test_database():
+        return "mysql"
+
     db_path = str(tmp_path / "test.db")
     from db import connection
     monkeypatch.setattr(connection, "DB_PATH", db_path)
@@ -188,13 +208,17 @@ class TestTaskTimestamp:
         today = datetime.date.today().isoformat()
         delta = abs((_local_now() - _parse(row["created_at"])).total_seconds())
         assert delta < 5, f"tasks.created_at 与本地时间相差 {delta:.0f}s"
-        assert row["d"] == today, f"date(created_at)={row['d']}，本地今天={today}"
+        # ⚠️ SQLite 的 date() 返回**字符串**，MySQL 的 DATE() 返回 DATE 类型
+        #    （PyMySQL 再转成 datetime.date）—— 两者值相同、类型不同，
+        #    所以统一 str() 后再比。这是驱动的正常行为，不是数据问题。
+        assert str(row["d"]) == today, f"date(created_at)={row['d']}，本地今天={today}"
 
 
 # ================================================================
 # 5. 建表默认值：新库必须是 localtime（老库改不掉，靠显式写入兜底）
 # ================================================================
 
+@_sqlite_only
 class TestTableDefaults:
     @pytest.mark.parametrize("table,column", [
         ("action_logs", "created_at"),
