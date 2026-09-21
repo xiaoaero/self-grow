@@ -115,8 +115,40 @@ except (ValueError, TypeError):
     log.warning("⚠️ PORT 环境变量格式错误，使用默认端口 3001")
     PORT = 3001
 
-# 数据库路径
+# 数据库路径（sqlite 后端用；mysql 后端不看这个）
 DB_PATH = os.path.join(DATA_DIR, "data.db")
+
+# ================================================================
+# 数据库后端选择（2026-09-19 加入）
+# ================================================================
+#   SELF_GROW_DB_BACKEND=sqlite  → 走原来的 data.db（默认，行为完全不变）
+#   SELF_GROW_DB_BACKEND=mysql   → 走 MySQL
+#
+# 保留两条通路是**有意为之**：迁移期任何一步出问题，把这个变量改回 sqlite
+# 就能整体回退。详见 docs/SQLite迁移MySQL方案.md 第九节。
+DB_BACKEND = os.getenv("SELF_GROW_DB_BACKEND", "sqlite").strip().lower()
+
+MYSQL_HOST = os.getenv("SELF_GROW_MYSQL_HOST", "127.0.0.1")
+MYSQL_PORT = int(os.getenv("SELF_GROW_MYSQL_PORT", "3306") or 3306)
+MYSQL_USER = os.getenv("SELF_GROW_MYSQL_USER", "self_grow")
+MYSQL_PASSWORD = os.getenv("SELF_GROW_MYSQL_PASSWORD", "")
+MYSQL_DATABASE = os.getenv("SELF_GROW_MYSQL_DATABASE", "self_grow")
+
+# 连接池上限。⚠️ 必须 ≥ 并发线程数：协调 Agent 会用 asyncio.gather 并行跑多个
+# 子 Agent，每个工具调用都 asyncio.to_thread + get_conn()。
+#
+# **池太小会死锁，而且没有超时**：DBUtils 的 blocking=True 在池满时无限等待，
+# 而等待者本身可能正持有连接（嵌套调用），于是谁也拿不到连接。
+# 实测踩过：池设 12 时，跑 tests/test_sleep_action.py（每个用例都要
+# DROP+CREATE 22 张表）会**卡死**；提到 40 立刻通过。
+# 生产侧的并发没测试那么夸张，取 20 留足余量。
+MYSQL_POOL_SIZE = int(os.getenv("SELF_GROW_MYSQL_POOL_SIZE", "20") or 20)
+
+# 会话时区。MySQL 容器默认跑 UTC，而本项目全项目统一「本地时间」——
+# 不设这个，NOW() / CURRENT_TIMESTAMP 会比本地时间早 8 小时，重演当年
+# 「刚记录完却显示 8 小时前」的坑（见 docs/时间口径统一方案.md）。
+# 在连接层设而不是改容器，好处是与容器/服务器时区**解耦**。
+MYSQL_TIME_ZONE = os.getenv("SELF_GROW_MYSQL_TIME_ZONE", "+08:00")
 
 # 上传目录
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")

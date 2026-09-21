@@ -129,7 +129,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS user_stats_daily (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
+            date VARCHAR(32) NOT NULL,   -- MySQL: 出现在键位置（PK/UNIQUE/INDEX），TEXT 不能当键
             focus_minutes INTEGER NOT NULL DEFAULT 0,
             tasks_done INTEGER NOT NULL DEFAULT 0,
             habits_checked INTEGER NOT NULL DEFAULT 0,
@@ -162,7 +162,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS habit_checkins (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             habit_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
+            date VARCHAR(32) NOT NULL,   -- MySQL: 出现在键位置（PK/UNIQUE/INDEX），TEXT 不能当键
             status TEXT NOT NULL,
             UNIQUE(habit_id, date),
             FOREIGN KEY (habit_id) REFERENCES habits(id)
@@ -175,8 +175,8 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             category_id TEXT NOT NULL,
-            start_time TEXT NOT NULL,
-            end_time TEXT NOT NULL,
+            start_time VARCHAR(32) NOT NULL,   -- MySQL: 被 idx_action_logs_user_date 引用，TEXT 不能建索引
+            end_time VARCHAR(32) NOT NULL,
             duration INTEGER NOT NULL,
             note TEXT DEFAULT '',
             exp_earned INTEGER NOT NULL,
@@ -207,10 +207,10 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_dimensions (
             user_id INTEGER NOT NULL,
-            dimension_key TEXT NOT NULL,
+            dimension_key VARCHAR(32) NOT NULL,   -- MySQL: 复合主键的一部分，TEXT 不能做主键
             level INTEGER NOT NULL DEFAULT 1,
             xp REAL NOT NULL DEFAULT 0,
-            xp_to_next INTEGER NOT NULL DEFAULT 150,
+            xp_to_next INTEGER NOT NULL DEFAULT 300,   -- exp_for_level(1)=300，别写回 150
             PRIMARY KEY (user_id, dimension_key),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
@@ -294,7 +294,7 @@ def init_db():
             source_type TEXT NOT NULL,
             completed_at TEXT,
             created_at TEXT NOT NULL,
-            archived_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            archived_at VARCHAR(32) NOT NULL DEFAULT (datetime('now','localtime')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
@@ -364,7 +364,8 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_monthly_stats (
             user_id INTEGER NOT NULL,
-            year_month TEXT NOT NULL,
+            year_month VARCHAR(16) NOT NULL,   -- MySQL: 出现在键位置（PK/UNIQUE/INDEX），TEXT 不能当键
+
             habit_count INTEGER NOT NULL DEFAULT 0,
             habit_xp INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (user_id, year_month),
@@ -497,7 +498,7 @@ def init_auth_tables():
         CREATE TABLE IF NOT EXISTS refresh_tokens (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
-            token_hash TEXT NOT NULL,
+            token_hash VARCHAR(128) NOT NULL,
             user_agent TEXT DEFAULT '',
             expires_at TEXT NOT NULL,
             revoked INTEGER NOT NULL DEFAULT 0,
@@ -518,7 +519,7 @@ def init_auth_tables():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             name TEXT NOT NULL,
-            key_hash TEXT NOT NULL,
+            key_hash VARCHAR(128) NOT NULL,
             last_used_at TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
             revoked INTEGER NOT NULL DEFAULT 0
@@ -703,7 +704,8 @@ def init_expression_tables():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS expression_answers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL DEFAULT 'test',
+            user_id VARCHAR(64) NOT NULL,   -- MySQL: 键位置；注意这里存的是**用户名**（路由传 user["name"]）
+                                             -- 原来的 DEFAULT 'test' 已去掉：漏传时会静默串到别人名下
             question_id INTEGER NOT NULL,
             attempt INTEGER DEFAULT 1,
             answer TEXT,

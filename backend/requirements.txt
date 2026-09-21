@@ -1,9 +1,11 @@
 APScheduler==3.11.3
 Authlib==1.7.2
 Brotli==1.2.0
+DBUtils==3.2.0
 Jinja2==3.1.6
 MarkupSafe==3.0.3
 PyJWT==2.13.0
+PyMySQL==1.2.3
 PySocks==1.7.1
 PyYAML==6.0.3
 Pygments==2.20.0
