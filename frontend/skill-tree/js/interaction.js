@@ -39,9 +39,16 @@ class InteractionManager {
     // 空格平移
     this.spaceDown = false;
 
-    // 右键菜单
+    // 右键菜单（单选 / 多选两套）
     this.contextMenu = document.getElementById('context-menu');
+    this.multiMenu = document.getElementById('context-menu-multi');
     this.contextNode = null;
+
+    // 「移动」模式：选中一批节点后跟随鼠标，再次点击才放下
+    this.isMoveMode = false;
+    this._moveModeStart = 0;
+    this._moveLast = null;
+    this.moveModeMinMs = 100;   // 防抖：进入模式后 0.1s 内的点击不算"放下"
 
     // 防快速重复点击：记录上次选中节点和时间
     this._lastClickNodeId = null;
@@ -88,6 +95,7 @@ class InteractionManager {
   onGlobalClick(e) {
     // 不处理右键菜单项上的点击
     if (this.contextMenu.contains(e.target)) return;
+    if (this.multiMenu && this.multiMenu.contains(e.target)) return;
     this.hideContextMenu();
   }
 
@@ -95,6 +103,17 @@ class InteractionManager {
 
   onMouseDown(e) {
     if (e.button === 2) return; // 右键单独处理
+
+    // 「移动」模式：这次点击 = 放下（但要看防抖时间）
+    if (this.isMoveMode) {
+      e.preventDefault && e.preventDefault();
+      if (Date.now() - this._moveModeStart < this.moveModeMinMs) {
+        // 刚进入模式（比如鼠标没松开就又点了一下），忽略这次点击
+        return;
+      }
+      this.endMoveMode();
+      return;
+    }
 
     // 左键点任何地方都关闭右键菜单
     this.hideContextMenu();
@@ -157,8 +176,17 @@ class InteractionManager {
         this.app.selectNode(node.id, false);
       }
 
-      // --- Ctrl+左键 拖拽 ---
-      if (e.ctrlKey || e.metaKey) {
+      // --- 拖拽 ---
+      // ⚠️ 用户明确的约定（2026-09-24，别再改）：
+      //    **左键不能拖节点**，必须 **Ctrl/Cmd + 左键** 才拖；
+      //    框选多个之后同样要按 Ctrl+左键才能整体拖。
+      //    Shift = 加减选（不拖）；右键菜单里的「移动」是另一套（跟随鼠标、再点放下）。
+      //
+      //    位移超过 4px 才算拖动，所以 Ctrl+单击仍然只是选中。
+      const wantDrag = e.ctrlKey || e.metaKey;
+      // 上面的选中逻辑已经处理过「点未选中的节点 → 选它一个」，
+      // 所以这里只需要在「已是选中项」或「刚被选中」时进入拖动。
+      if (wantDrag && !multi) {
         const sel = this.app.getSelectedNodes();
         if (sel.length > 0) {
           this.isDragging = true;
@@ -166,7 +194,6 @@ class InteractionManager {
           this.dragMoved = false;
         }
       }
-      // 不按 Ctrl 不拖拽，只选中
     } else {
       // 空白区域
       if (this.app.isUser) {
@@ -185,10 +212,7 @@ class InteractionManager {
       this.isSelecting = true;
       this.selectStart = { x: pos.x, y: pos.y };
       this.selectionBox.style.display = 'block';
-      this.selectionBox.style.left = pos.x + 'px';
-      this.selectionBox.style.top = pos.y + 'px';
-      this.selectionBox.style.width = '0px';
-      this.selectionBox.style.height = '0px';
+      this._setSelectionBox(pos.x, pos.y, 0, 0);
     }
   }
 
@@ -197,12 +221,22 @@ class InteractionManager {
   onMouseMove(e) {
     const pos = this.screenToCanvas(e.clientX, e.clientY);
 
+    // 「移动」模式：选中的节点整体跟随鼠标（1:1 位移）
+    if (this.isMoveMode) {
+      if (!this._moveLast) this._moveLast = { x: pos.x, y: pos.y };
+      const dx = pos.x - this._moveLast.x;
+      const dy = pos.y - this._moveLast.y;
+      this._moveLast = { x: pos.x, y: pos.y };
+      this._moveSelectedBy(dx, dy);
+      return;
+    }
+
     // 平移
     if (this.isPanning) {
       this.panX = e.clientX - this.panStart.x;
       this.panY = e.clientY - this.panStart.y;
       this.updateTransform();
-      this.app.renderer.renderGrid(this.scale, this.panX, this.panY);
+      this.app.renderer.renderGrid(this.scale, this.panX, this.panY, this.app.nodes);
       return;
     }
 
@@ -229,10 +263,11 @@ class InteractionManager {
 
     // 框选
     if (this.isSelecting) {
-      this.selectionBox.style.left = Math.min(this.selectStart.x, pos.x) + 'px';
-      this.selectionBox.style.top = Math.min(this.selectStart.y, pos.y) + 'px';
-      this.selectionBox.style.width = Math.abs(pos.x - this.selectStart.x) + 'px';
-      this.selectionBox.style.height = Math.abs(pos.y - this.selectStart.y) + 'px';
+      const x = Math.min(this.selectStart.x, pos.x);
+      const y = Math.min(this.selectStart.y, pos.y);
+      this._setSelectionBox(x, y,
+        Math.abs(pos.x - this.selectStart.x),
+        Math.abs(pos.y - this.selectStart.y));
       return;
     }
 
@@ -303,7 +338,7 @@ class InteractionManager {
     this.panX = mx - (mx - this.panX) * ratio;
     this.panY = my - (my - this.panY) * ratio;
     this.updateTransform();
-    this.app.renderer.renderGrid(this.scale, this.panX, this.panY);
+    this.app.renderer.renderGrid(this.scale, this.panX, this.panY, this.app.nodes);
     this.app.renderConnections();
   }
 
@@ -329,17 +364,22 @@ class InteractionManager {
     if (e.key === 'Delete' && !this.isInputFocused()) {
       e.preventDefault(); this.app.deleteSelectedNodes();
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    // ⚠️ 输入框里的 Ctrl+Z / Ctrl+A 不能劫持（在 AI 面板打字时按 Ctrl+Z
+    //    应该是撤销文字，而不是把整棵树回滚一步）
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey && !this.isInputFocused()) {
       e.preventDefault(); this.app.undo();
     }
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))
+        && !this.isInputFocused()) {
       e.preventDefault(); this.app.redo();
     }
-    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !this.isInputFocused()) {
       e.preventDefault(); this.app.selectAll();
     }
     if (e.key === 'Escape') {
       this.app.deselectAll(); this.hideContextMenu(); this.cancelConnecting();
+      // Esc 也算"放下"（移动模式里没法点画布空白，不然会一直挂着）
+      if (this.isMoveMode) this.endMoveMode();
     }
     if (e.key === 'l' && !this.isInputFocused() && this.app.selectedIds.size === 1) {
       this.startConnecting([...this.app.selectedIds][0]);
@@ -366,20 +406,11 @@ class InteractionManager {
 
     const sel = this.app.getSelectedNodes();
 
-    // 直接应用位移
-    sel.forEach(n => { n.x += dx; n.y += dy; });
-
-    // 更新 DOM
-    sel.forEach(n => {
-      const el = this.app.renderer.nodeEls.get(n.id);
-      if (el) el.style.transform = `translate(${n.x}px, ${n.y}px)`;
-    });
+    // 直接应用位移 + 更新 DOM / 连线 / 网格（与「移动」模式同一套逻辑）
+    this._moveSelectedBy(dx, dy);
 
     // 对齐参考线
     this.app.renderer.showAlignLines(sel, this.app.nodes);
-
-    // 增量更新连线
-    this.app.renderer.updateConnectionPaths(this.app.connections, this.app.nodes);
   }
 
   /* ---- 连线模式 ---- */
@@ -427,40 +458,115 @@ class InteractionManager {
     if (this.tempLine) { this.tempLine.remove(); this.tempLine = null; }
   }
 
+  /**
+   * 画框选矩形
+   *
+   * ⚠️ 这是**SVG `<rect>`**，不是 HTML div：必须用 `x/y/width/height` **属性**。
+   *    以前这里写的是 `style.left/top/width/height` —— 那些对 SVG 元素**完全无效**
+   *    （CSS 里还有一条对 SVG 无效的 `#selection-box { border: … }`），
+   *    所以框选矩形**从来没显示过**（用户原话：「框呢？鼠标拖动我都不知道我拖了多大」）。
+   *
+   * 坐标是**画布坐标**：这个 rect 在 `#tree-canvas` 里，跟着画布一起做 transform。
+   */
+  _setSelectionBox(x, y, w, h) {
+    const r = this.selectionBox;
+    r.setAttribute('x', x);
+    r.setAttribute('y', y);
+    r.setAttribute('width', Math.max(0, w));
+    r.setAttribute('height', Math.max(0, h));
+  }
+
   /* ---- 右键菜单 ---- */
 
   onContextMenu(e) {
     if (this.app.isUser) return;
+    // 「移动」模式下右键 = 取消移动（原地放下）
+    if (this.isMoveMode) { e.preventDefault(); this.endMoveMode(); return; }
     e.preventDefault();
     const pos = this.screenToCanvas(e.clientX, e.clientY);
     const node = this.app.renderer.hitTestNode(pos.x, pos.y, this.app.nodes);
-    if (node) {
-      this.contextNode = node;
-      if (!this.app.selectedIds.has(node.id)) this.app.selectNode(node.id, false);
-      this.contextMenu.style.left = e.clientX + 'px';
-      this.contextMenu.style.top = e.clientY + 'px';
-      this.contextMenu.classList.remove('hidden');
-      this.contextMenu.querySelectorAll('.context-item').forEach(item => {
-        item.onclick = (ev) => {
-          ev.stopPropagation();
-          this.handleContextAction(item.dataset.action, node);
-          this.hideContextMenu();
-        };
-      });
+    if (!node) return;
+
+    // 右键落在"没被选中的节点"上 → 只选它一个（单选菜单）
+    if (!this.app.selectedIds.has(node.id)) {
+      this.app.selectNode(node.id, false);
     }
+
+    const multi = this.app.selectedIds.size > 1;
+    const menu = multi ? this.multiMenu : this.contextMenu;
+    this.contextNode = multi ? null : node;
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+    menu.classList.remove('hidden');
+    menu.querySelectorAll('.context-item').forEach(item => {
+      item.onclick = (ev) => {
+        ev.stopPropagation();
+        this.handleContextAction(item.dataset.action, node);
+        this.hideContextMenu();
+      };
+    });
   }
 
   hideContextMenu() {
     this.contextMenu.classList.add('hidden');
-    // 右键菜单关闭时，取消相关节点的选中态
+    if (this.multiMenu) this.multiMenu.classList.add('hidden');
+    // 右键菜单关闭时，取消相关节点的选中态（仅单选菜单记了 contextNode）
     if (this.contextNode && this.app.selectedIds.has(this.contextNode.id)) {
       this.app.deselectNode(this.contextNode.id);
     }
     this.contextNode = null;
   }
 
+  /* ---- 「移动」模式 ---- */
+
+  startMoveMode() {
+    const sel = this.app.getSelectedNodes();
+    if (!sel.length) return;
+    this.isMoveMode = true;
+    this._moveModeStart = Date.now();
+    this._moveLast = null;
+    this.container.style.cursor = 'move';
+    showToast(`移动 ${sel.length} 个节点：移动鼠标定位，再点一下放下`);
+  }
+
+  endMoveMode() {
+    if (!this.isMoveMode) return;
+    this.isMoveMode = false;
+    this._moveLast = null;
+    this.container.style.cursor = 'default';
+    // 让 Ctrl+Z 能撤销这次移动
+    this.app.saveHistory();
+    this.app.renderer.hideAlignLines();
+    showToast('已放下');
+  }
+
+  /**
+   * 把选中的节点整体位移（拖动 / 移动模式共用）
+   */
+  _moveSelectedBy(dx, dy) {
+    const sel = this.app.getSelectedNodes();
+    sel.forEach(n => {
+      n.x += dx;
+      n.y += dy;
+      const el = this.app.renderer.nodeEls.get(n.id);
+      if (el) el.style.transform = `translate(${n.x}px, ${n.y}px)`;
+    });
+    this.app.renderer.updateConnectionPaths(this.app.connections, this.app.nodes);
+    // 节点被拖出「单位区域」时，网格在那个方向多补一格
+    this.app.renderer.renderGrid(this.scale, this.panX, this.panY, this.app.nodes);
+  }
+
   handleContextAction(action, node) {
     switch (action) {
+      case 'move-selected':
+        this.startMoveMode();
+        break;
+      case 'delete-edges':
+        this.app.deleteEdgesAmongSelected();
+        break;
+      case 'delete-selected':
+        this.app.deleteSelectedNodes();
+        break;
       case 'edit': this.app.openNodeEditor(node.id); break;
       case 'add-child': this.app.addChildNode(node.id); break;
       case 'connect': this.startConnecting(node.id); break;
@@ -492,7 +598,7 @@ class InteractionManager {
     this.panX = (cw - tw * this.scale) / 2 - minX * this.scale;
     this.panY = (ch - th * this.scale) / 2 - minY * this.scale;
     this.updateTransform();
-    this.app.renderer.renderGrid(this.scale, this.panX, this.panY);
+    this.app.renderer.renderGrid(this.scale, this.panX, this.panY, this.app.nodes);
     this.app.renderConnections();
   }
 }

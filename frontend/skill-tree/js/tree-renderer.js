@@ -8,8 +8,10 @@ class TreeRenderer {
     this.nodeLayer = document.getElementById('node-layer');
     this.connectionLayer = document.getElementById('connection-layer');
     this.gridLayer = document.getElementById('grid-layer');
-    this.gridSize = 30;
+    this.gridSize = 30;        // 细网格（画布单位）
+    this.unitSize = 300;       // 一个「单位区域」的边长（= 10 格），区域按它扩展
     this.showGrid = true;
+    this._gridKey = '';        // 上次画出来的区域，避免重复重绘
 
     // 缓存
     this.nodeEls = new Map();       // nodeId -> DOM element
@@ -43,27 +45,91 @@ class TreeRenderer {
 
   /* ---------- 网格 ---------- */
 
-  renderGrid(scale = 1, panX = 0, panY = 0) {
+  /**
+   * 内容包围盒（含节点自身尺寸）；没有节点返回 null
+   * （区域计算本身在 utils.js::gridRegionFor 里，纯函数好测）
+   */
+  _boundsOf(nodes) {
+    if (!nodes || !nodes.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      const s = n.size || 70;
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x + s > maxX) maxX = n.x + s;
+      if (n.y + s > maxY) maxY = n.y + s;
+    }
+    return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+  }
+
+  /**
+   * 画「单位区域」网格
+   *
+   * 行为（用户要的）：
+   *   · 一开始只有一个单位区域；空树时 = **视口中心那一格**
+   *   · 节点跑到区域外面 → 就在那个方向再补一格（区域按 unitSize 向外取整）
+   *
+   * ⚠️ 原来的实现把网格画在**固定矩形** (0,0)-(容器宽, 容器高) 上，
+   *    于是平移/缩放走远一点就只剩中间那一块有网格、四周空着。
+   *
+   * 坐标系：以下都按**画布坐标**算（容器整体做 CSS 变换），
+   * 所以间距要用 canvas 单位，不能拿屏幕像素的 pan 去取模。
+   *
+   * @param {number} scale 缩放
+   * @param {number} panX  平移（屏幕像素）
+   * @param {number} panY  平移（屏幕像素）
+   * @param {Array}  nodes 当前节点（用于算区域；不传则沿用上次的区域）
+   */
+  renderGrid(scale = 1, panX = 0, panY = 0, nodes = null) {
     if (!this.showGrid) {
       this.gridLayer.innerHTML = '';
+      this._gridKey = '';
       return;
     }
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
-    const size = this.gridSize * scale;
-    const effectiveSize = size < 15 ? size * 2 : size;
+    const sc = scale || 1;
+    const unit = this.unitSize;
 
-    const offsetX = ((panX % effectiveSize) + effectiveSize) % effectiveSize;
-    const offsetY = ((panY % effectiveSize) + effectiveSize) % effectiveSize;
+    // ① 决定「单位区域」的外框（纯函数，见 utils.js::gridRegionFor）
+    const region = (nodes && nodes.length)
+      ? gridRegionFor(nodes, unit, null)
+      : (this._gridKey ? null : gridRegionFor([], unit, { w, h, panX, panY, scale: sc }));
+    if (!region) return;              // 空树且区域上次已画过 → 保持现状
+    const { x0, y0, x1, y1 } = region;
+
+    // 区域没变就不重画（拖拽时每帧都会调到这里）
+    const key = `${x0},${y0},${x1},${y1},${sc}`;
+    if (key === this._gridKey) return;
+    this._gridKey = key;
+
+    // ② 细网格：缩得太小时抽稀（避免 0.2 倍下一堆 1px 线糊成一片）
+    let step = this.gridSize;
+    if (step * sc < 12) step *= 2;
+    while ((x1 - x0) / step > 600 || (y1 - y0) / step > 600) step *= 4;
 
     let html = '';
-    for (let x = offsetX; x < w; x += effectiveSize) {
-      html += `<line x1="${x}" y1="0" x2="${x}" y2="${h}" class="grid-line"/>`;
+    for (let x = Math.ceil(x0 / step) * step; x < x1; x += step) {
+      html += `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" class="grid-line"/>`;
     }
-    for (let y = offsetY; y < h; y += effectiveSize) {
-      html += `<line x1="0" y1="${y}" x2="${w}" y2="${y}" class="grid-line"/>`;
+    for (let y = Math.ceil(y0 / step) * step; y < y1; y += step) {
+      html += `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" class="grid-line"/>`;
     }
-    this.gridLayer.innerHTML = `<g>${html}</g>`;
+
+    // ③ 单位区域之间的**接缝**：只画**内部**的（含边界的那几条由外框 rect 负责）
+    //
+    //    ⚠️ 刻意画得很淡：以前接缝和外框同色同宽，多格区域看起来像
+    //    「几块板子拼起来的」，用户明确要求变浅。区域感由外框（.grid-region）表达就够了。
+    let units = '';
+    for (let x = x0 + unit; x < x1 - 0.5; x += unit) {
+      units += `<line x1="${x}" y1="${y0}" x2="${x}" y2="${y1}" class="grid-unit-seam"/>`;
+    }
+    for (let y = y0 + unit; y < y1 - 0.5; y += unit) {
+      units += `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}" class="grid-unit-seam"/>`;
+    }
+
+    const border = `<rect x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" class="grid-region"/>`;
+    this.gridLayer.innerHTML = `<g>${border}${html}${units}</g>`;
   }
 
   /* ---------- 节点 ---------- */

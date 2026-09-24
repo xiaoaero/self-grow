@@ -78,13 +78,13 @@ class App {
     document.getElementById('btn-zoom-in').addEventListener('click', () => {
       this.interaction.scale = clamp(this.interaction.scale + 0.15, this.interaction.minScale, this.interaction.maxScale);
       this.interaction.updateTransform();
-      this.renderer.renderGrid(this.interaction.scale, this.interaction.panX, this.interaction.panY);
+      this.renderer.renderGrid(this.interaction.scale, this.interaction.panX, this.interaction.panY, this.nodes);
       this.renderConnections();
     });
     document.getElementById('btn-zoom-out').addEventListener('click', () => {
       this.interaction.scale = clamp(this.interaction.scale - 0.15, this.interaction.minScale, this.interaction.maxScale);
       this.interaction.updateTransform();
-      this.renderer.renderGrid(this.interaction.scale, this.interaction.panX, this.interaction.panY);
+      this.renderer.renderGrid(this.interaction.scale, this.interaction.panX, this.interaction.panY, this.nodes);
       this.renderConnections();
     });
     document.getElementById('btn-fit').addEventListener('click', () => {
@@ -106,10 +106,19 @@ class App {
     });
 
     // 清空 AI 对话（同时丢弃服务端会话）
+    //
+    // ⚠️ 它不只是清屏：还会把 thread_id 丢掉 → 服务端那轮会话结束，
+    //    AI 不再记得前面说过什么。所以：① 有消息时先确认 ② 没消息时按钮禁用
+    //    （避免"点了个没反应的按钮"，也避免手滑把上下文清掉）。
     document.getElementById('btn-clear-ai').addEventListener('click', () => {
-      this.ai.resetSession();
-      showToast('已清空 AI 对话');
+      if (!this._hasAiMessages()) return;
+      showConfirm('清空对话会同时结束当前会话（AI 将不再记得前面的内容），确定吗？', () => {
+        this.ai.resetSession();
+        showToast('已清空 AI 对话');
+        this.refreshAiClearButton();
+      });
     });
+    this.refreshAiClearButton();
 
     // 设置
     document.getElementById('btn-settings').addEventListener('click', () => {
@@ -294,6 +303,29 @@ class App {
     showToast(`已删除 ${ids.length} 个节点`);
   }
 
+  /**
+   * 删除「选中的这些节点之间」的连线（多选右键菜单 → 删除边）
+   *
+   * ⚠️ 只删两端都在选中集合里的边；连向外部节点的边要留着 ——
+   *    那条边也属于外面那个节点，不该被顺手删掉。
+   */
+  deleteEdgesAmongSelected() {
+    if (this.isUser) return;
+    if (this.selectedIds.size < 2) {
+      showToast('先框选至少 2 个节点');
+      return;
+    }
+    const doomed = edgesAmong(this.connections, this.selectedIds);
+    if (!doomed.length) {
+      showToast('选中的节点之间没有连线');
+      return;
+    }
+    this.connections = this.connections.filter(c => !doomed.includes(c));
+    this.renderConnections();
+    this.saveHistory();
+    showToast(`已删除 ${doomed.length} 条连线`);
+  }
+
   addConnection(fromId, toId) {
     if (this.isUser) return;
     // 检查是否已存在
@@ -401,12 +433,16 @@ class App {
 
   renderConnections() {
     this.renderer.renderConnections(this.connections, this.nodes);
+    // 顺带刷新网格区域：增删/移动节点后内容包围盒可能变化，
+    // 「单位区域」要跟着扩（renderGrid 内部比对了区域，没变就是空操作）
+    this.renderer.renderGrid(this.interaction.scale, this.interaction.panX,
+                             this.interaction.panY, this.nodes);
   }
 
   renderAll() {
     this.renderer.renderAllNodes(this.nodes);
     this.renderConnections();
-    this.renderer.renderGrid(this.interaction.scale, this.interaction.panX, this.interaction.panY);
+    this.renderer.renderGrid(this.interaction.scale, this.interaction.panX, this.interaction.panY, this.nodes);
   }
 
   /* ================================================================
@@ -760,6 +796,18 @@ class App {
     document.getElementById('btn-update').disabled = !isPublished;
   }
 
+  /** AI 面板里还有没有消息（决定「清空对话」能不能点） */
+  _hasAiMessages() {
+    const box = document.getElementById('ai-messages');
+    return !!(box && box.querySelector('.ai-message'));
+  }
+
+  /** 刷新「清空对话」按钮的可用状态（ai-bridge 增删消息后会调） */
+  refreshAiClearButton() {
+    const btn = document.getElementById('btn-clear-ai');
+    if (btn) btn.disabled = !this._hasAiMessages();
+  }
+
   loadData(data) {
     // 清空撤销栈：加载新数据（切换树/初始化）是全新基线。
     // 注意不能在开头压栈——否则会把当前树的内容带进新树的撤销栈，
@@ -781,6 +829,11 @@ class App {
     // 压入加载后的基线快照（栈底），保证加载后的第一次编辑可撤销
     this.saveHistory();
     this._updatePublishButtons();
+    // AI 对话跟着树走：切树 / 新建 / 初始加载都会经过这里，
+    // 所以"恢复这棵树的历史对话"挂在这一处就够了（树没变时是空操作）。
+    if (this.ai && typeof this.ai.syncTree === 'function') {
+      this.ai.syncTree(this.sidebar.currentId);
+    }
   }
 
   /* ================================================================
@@ -918,12 +971,22 @@ class App {
   initDefaultTree() {
     var self = this;
 
-    // 先尝试从后端加载索引
+    // 先把「只存在于浏览器」的技能树补传到服务器。
+    // ⚠️ 不做的话 AI 编辑会一直回「技能树不存在」：AI 端点要按 tree_id + user_id
+    //    校验归属，服务器上没有这棵树就直接 404（详见 syncLocalTreesToServer 注释）。
+    this.syncLocalTreesToServer().then(function(r) {
+      if (r.synced > 0) {
+        showToast('✅ 已把 ' + r.synced + ' 棵本地技能树同步到服务器', 'success');
+      } else if (r.failed > 0) {
+        showToast('⚠️ ' + r.failed + ' 棵技能树同步服务器失败，AI 编辑会提示"技能树不存在"', 'error');
+      }
+    });
+
+    // 再尝试从后端加载索引
     fetchSkillTreeIndex().then(function(serverTrees) {
       if (serverTrees && serverTrees.length > 0) {
-        // 后端有数据，加载第一棵
-        self.sidebar.trees = serverTrees;
-        self.sidebar._saveIndex();
+        // 后端有数据，加载第一棵（useServerTrees 会保留本地独有的树）
+        self.sidebar.useServerTrees(serverTrees);
         self.sidebar.currentId = serverTrees[0].id;
 
         // 从后端加载草稿数据
@@ -951,9 +1014,62 @@ class App {
     });
   }
 
+  /**
+   * 把「服务器上没有」的本地技能树补传上去（幂等，管理员才有效）
+   *
+   * ⚠️ 为什么需要（2026-09-23 用户报「AI 一直说技能树不存在」）：
+   *   技能树的同步本来是"发出去就不管"的后台调用 ——
+   *   `createSkillTreeOnServer` / `saveSkillTreeDraft` 的返回值没人看，
+   *   加上后端 `data` 列宽不够（varchar(255)）导致真实树必然存不进去，
+   *   于是树一直只活在 localStorage 里。
+   *   而 AI 编辑端点第一件事就是按 `tree_id + user_id` 查库校验归属，
+   *   查不到 → 404「技能树不存在」（前端把 detail 原样显示）。
+   *   ⇒ 这里在启动时"现查服务器"，把缺的补上，用户不用做任何操作。
+   *
+   * @returns {Promise<{synced:number, failed:number, total:number}>}
+   */
+  async syncLocalTreesToServer() {
+    const none = (reason) => ({ synced: 0, failed: 0, total: 0, reason });
+    if (this.isUser) return none('readonly');    // 普通用户只读，服务器侧也要求 admin
+
+    const localTrees = normalizeTreeEntries(loadFromStorage('skill_tree_index', []));
+    if (localTrees.length === 0) return none('no-local-trees');
+
+    // 现查服务器（不依赖启动时的快照，避免与 _initIndex 的竞态）
+    const serverTrees = await fetchSkillTreeIndex();
+    if (!serverTrees) return none('backend-unreachable');   // 后端不可达，别乱传
+    const serverIds = new Set(serverTrees.map(t => t.id));
+
+    let synced = 0, failed = 0, skipped = 0;
+    for (const t of localTrees) {
+      if (serverIds.has(t.id)) { skipped++; continue; }
+      const data = loadFromStorage('tree_' + t.id, null);
+      if (!data) continue;
+
+      const created = await createSkillTreeOnServer(t.id, t.name || '未命名技能树', t.description || '');
+      if (!created) { failed++; continue; }
+      const saved = await saveSkillTreeDraft(t.id, {
+        name: data.name || t.name || '未命名技能树',
+        description: data.description || t.description || '',
+        data: data,
+        node_count: (data.nodes || []).length,
+        completed_count: 0,
+        image: t.image || '',
+        remark: t.remark || '',
+      });
+      if (saved) synced++; else failed++;
+    }
+    // 一棵都没缺 = 服务器上本来就有 → 这不是失败。
+    // ⚠️ 单独标出来：否则调用方只能看到 synced=0/failed=0，
+    //    会给出"补传失败"这种**误导性结论**（2026-09-24 实测踩到：
+    //    真正的毛病是页面用的 id 与服务端要的 id 不是同一个）。
+    const reason = (synced === 0 && failed === 0 && skipped > 0) ? 'nothing-missing' : 'ok';
+    return { synced, failed, skipped, total: localTrees.length, reason };
+  }
+
   /** 从 localStorage 初始化默认树（降级方案） */
   _initDefaultTreeFromLocal() {
-    const index = loadFromStorage('skill_tree_index', []);
+    const index = normalizeTreeEntries(loadFromStorage('skill_tree_index', []));
     const validTrees = index.filter(t => {
       const data = loadFromStorage('tree_' + t.id);
       return data !== null;

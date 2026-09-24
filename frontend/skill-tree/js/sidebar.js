@@ -25,11 +25,8 @@ class SkillTreeManager {
   async _initIndex() {
     const serverTrees = await fetchSkillTreeIndex();
     if (serverTrees && serverTrees.length > 0) {
-      // 后端有数据，以后端为准
-      this.trees = serverTrees;
-      this.trees.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-      // 同步到 localStorage 作为缓存
-      saveToStorage('skill_tree_index', this.trees);
+      // 后端有数据
+      this.useServerTrees(serverTrees);
       this._renderList();
       // 注意：树数据的加载由 App 统一负责（admin: initDefaultTree / user: initUserMode）。
       // 此处不再触发 switchToTree——避免与 App 的初始化并发加载同一棵树产生竞态，
@@ -44,13 +41,31 @@ class SkillTreeManager {
   /* ---- 索引管理 ---- */
 
   _loadIndex() {
-    this.trees = loadFromStorage('skill_tree_index', []);
+    // 规整：历史缓存里可能有「id 是数据库自增主键」的条目（见 utils.js::normalizeTreeEntry）
+    this.trees = normalizeTreeEntries(loadFromStorage('skill_tree_index', []));
     // 按创建时间升序排列，保证列表顺序固定
     this.trees.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }
 
   _saveIndex() {
     saveToStorage('skill_tree_index', this.trees);
+  }
+
+  /**
+   * 把「后端索引」同步进列表 —— **只补不删**
+   *
+   * ⚠️ 必须保留本地独有的树：它们只是还没同步上服务器（或者服务器那次写失败了）。
+   * 原来两处调用点都是直接 `this.trees = serverTrees` 再写回 localStorage，
+   * 后端只要有一点数据，本地独有树就从列表里消失（`tree_<id>` 数据还在，但没了入口）。
+   */
+  useServerTrees(serverTrees) {
+    const serverIds = new Set(serverTrees.map(t => t.id));
+    const localOnly = (loadFromStorage('skill_tree_index', []) || [])
+      .filter(t => t && t.id && !serverIds.has(t.id));
+    this.trees = serverTrees.concat(localOnly);
+    this.trees.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    this._saveIndex();
+    return this.trees;
   }
 
   _getStorageKey(treeId) {
@@ -82,11 +97,21 @@ class SkillTreeManager {
     const data = { name, description, nodes: [], connections: [] };
     saveToStorage(this._getStorageKey(id), data);
 
-    // 异步同步到后端
-    createSkillTreeOnServer(id, name, description);
-    saveSkillTreeDraft(id, {
-      name, description, data,
-      node_count: 0, completed_count: 0, image: '', remark: '',
+    // 异步同步到后端。
+    // ⚠️ **必须看结果**：以前这两句是"发出去就不管"，失败了也没人知道 ——
+    // 于是「本地有树、服务器没有」能一直存在，而 AI 编辑按 tree_id 校验归属，
+    // 每次都回「技能树不存在」。现在失败会明确提示。
+    createSkillTreeOnServer(id, name, description).then(ok => {
+      if (!ok) {
+        showToast('⚠️ 技能树只保存到了浏览器，同步服务器失败（AI 编辑会报"技能树不存在"）', 'error');
+        return;
+      }
+      saveSkillTreeDraft(id, {
+        name, description, data,
+        node_count: 0, completed_count: 0, image: '', remark: '',
+      }).then(saved => {
+        if (!saved) showToast('⚠️ 草稿同步服务器失败，将只保存在浏览器里', 'error');
+      });
     });
 
     return id;
@@ -119,8 +144,9 @@ class SkillTreeManager {
     this._saveCurrentTree();
 
     this.currentId = treeId;
-    // 切换树后 AI 会话上下文已失效（服务端 thread 绑定旧树），重置
-    if (this.app.ai) this.app.ai.resetSession();
+    // 切树**不再清空** AI 对话：每棵树的对话各存一份，切回来原样恢复。
+    // 实际的切换动作由 `app.loadData()` 末尾的 `ai.syncTree(currentId)` 完成
+    // （树没变时它是空操作，所以这里不用再写一遍）。
     const data = this.getCurrentTreeData();
     if (data) {
       this.app.loadData(data);
@@ -152,7 +178,8 @@ class SkillTreeManager {
       this._saveIndex();
     }
 
-    // 异步同步到后端
+    // 异步同步到后端。⚠️ 必须看结果 —— 失败时界面不能装作已保存
+    // （2026-09-23：这里静默失败过很久，用户以为存上了，服务器其实一行没有）
     saveSkillTreeDraft(this.currentId, {
       name: this.app.treeName,
       description: this.app.treeDescription,
@@ -161,6 +188,8 @@ class SkillTreeManager {
       completed_count: this.app.nodes.filter(n => n.progress === 100).length,
       image: entry && entry.image ? entry.image : '',
       remark: entry && entry.remark ? entry.remark : '',
+    }).then(ok => {
+      if (!ok) showToast('⚠️ 保存到服务器失败，本次只存在浏览器里（检查登录态/网络）', 'error');
     });
   }
 
@@ -396,7 +425,8 @@ class SkillTreeManager {
 
     const id = this.createTree(name, description);
     this.currentId = id;
-    if (this.app.ai) this.app.ai.resetSession();
+    // 新树没有历史对话 —— 但也要让 AI 面板**切到**这棵树（清掉上一棵的残留）
+    if (this.app.ai) this.app.ai.syncTree(id);
     this._renderList();
     this.app.newTree();
     this.app.treeName = name;
@@ -414,9 +444,11 @@ class SkillTreeManager {
     showConfirm(`确定要删除「${entry.name}」吗？此操作不可恢复。`, () => {
       this.deleteTree(treeId);
 
+      // 树删了 → 连它的对话记录一起删（别把垃圾留在 localStorage 里）
+      if (this.app.ai) this.app.ai.forgetTree(treeId);
+
       if (this.currentId === treeId) {
         this.currentId = null;
-        if (this.app.ai) this.app.ai.resetSession();
         this.app.newTree();
         this.app._updatePublishButtons();
       }

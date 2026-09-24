@@ -248,8 +248,14 @@
         <!-- 网格背景层 -->
         <svg id="grid-layer"></svg>
         <!-- 框选层 -->
-        <svg id="selection-box-layer" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10">
-          <rect id="selection-box" style="display:none;fill:rgba(79,195,247,0.12);stroke:#4fc3f7;stroke-width:1.5;stroke-dasharray:4 2" />
+        <svg id="selection-box-layer">
+          <!-- ⚠️ 这是 SVG <rect>：位置必须用 x/y/width/height **属性**（见 interaction.js::
+               _setSelectionBox）。用 style.left/top 是无效的，框根本不会出现。
+               vector-effect 让虚线粗细不随画布缩放变化 -->
+          <rect id="selection-box" style="display:none"
+                fill="rgba(79,195,247,0.14)" stroke="#4fc3f7"
+                stroke-width="1.5" stroke-dasharray="5 3"
+                vector-effect="non-scaling-stroke" />
         </svg>
         <!-- 连线层 -->
         <svg id="connection-layer"></svg>
@@ -258,7 +264,7 @@
       </div>
       <!-- 画布提示 -->
       <div id="canvas-hint">
-        <span class="editor-only">🖱 右键拖拽平移 | 滚轮缩放 | 空格+拖拽平移 | Shift+点击多选 | 拖拽节点移动</span>
+        <span class="editor-only">🖱 空白处拖拽=框选 | Shift+点击=加减选 | <b>Ctrl+拖拽=移动节点</b> | 右键拖拽/空格+拖拽=平移 | 滚轮=缩放</span>
       </div>
     </div>
 
@@ -276,9 +282,20 @@
     <!-- AI 助手面板 -->
     <div id="ai-panel" class="panel-open">
       <div id="ai-panel-header">
-        <span>🤖 AI 助手</span>
-        <button id="btn-clear-ai" title="清空对话">🗑</button>
-        <button id="btn-minimize-ai" title="折叠面板">−</button>
+        <span class="ai-panel-title">AI 助手</span>
+        <div class="ai-panel-actions">
+          <button id="btn-clear-ai" class="ai-clear-btn" title="清空对话（会同时结束当前会话）">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6"/>
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+            清空对话
+          </button>
+          <button id="btn-minimize-ai" title="折叠面板">−</button>
+        </div>
       </div>
       <div id="ai-chat">
         <div id="ai-messages"></div>
@@ -372,6 +389,14 @@
     <div class="context-item" data-action="expand-ai">🤖 AI扩展子节点</div>
     <div class="context-separator"></div>
     <div class="context-item danger" data-action="delete">🗑 删除</div>
+  </div>
+
+  <!-- 右键菜单：**多选**（选中 ≥2 个节点）时用它 -->
+  <div id="context-menu-multi" class="hidden">
+    <div class="context-item" data-action="move-selected">✥ 移动（跟随鼠标，再点一下放下）</div>
+    <div class="context-separator"></div>
+    <div class="context-item" data-action="delete-edges">✂️ 删除边（只删选中节点之间的连线）</div>
+    <div class="context-item danger" data-action="delete-selected">🗑 删除结点（含其连线）</div>
   </div>
 
   <!-- 确认弹窗遮罩层 -->
