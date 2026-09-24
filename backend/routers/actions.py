@@ -13,6 +13,7 @@ from db.routines import get_routine_streak, upsert_routine_streak
 from db.users import get_user_stats
 from models.constants import get_category, calculate_exp, _calc_routine_bonus
 from schemas.api import CreateActionRequest, AIChatActionRequest, AISubmitActionsRequest
+from schemas.limits import check_history
 from routers.deps import get_current_user
 from services.ai_action_service import call_action_ai
 
@@ -307,6 +308,13 @@ def activity_feed(user=Depends(get_current_user)):
 @router.post("/api/actions/ai-chat")
 async def ai_chat_action(req: AIChatActionRequest, user=Depends(get_current_user)):
     """AI 行动解析对话：支持多轮交互，AI 可反问用户"""
+    # 对话历史的长度校验（条数 + 总字符数）。
+    #
+    # ⚠️ 这里**必须**显式调 —— `req.messages` 在 schema 里是裸 `list`，
+    #    pydantic 给不出长度约束；而且这些消息会整段拼进 prompt，
+    #    之前是完全没上限的。见 schemas/limits.py。
+    check_history(req.messages)
+
     result = await call_action_ai(req.messages, user_id=user["id"])
     if "tool_calls" in result:
         return {"tool_calls": result["tool_calls"]}

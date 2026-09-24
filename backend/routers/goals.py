@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from db.goals import get_goals, get_goal, create_goal, update_goal, delete_goal, claim_goal_reward
 from schemas.api import CreateGoalRequest, UpdateGoalRequest
-from routers.deps import get_current_user
+from routers.deps import get_current_user, ensure_owner
 
 router = APIRouter()
 
@@ -31,11 +31,12 @@ def create_new_goal(req: CreateGoalRequest, user=Depends(get_current_user)):
 
 
 @router.put("/api/goals/{goal_id}")
-def update_existing_goal(goal_id: int, req: UpdateGoalRequest):
+def update_existing_goal(goal_id: int, req: UpdateGoalRequest, user=Depends(get_current_user)):
     """更新目标"""
     goal = get_goal(goal_id)
     if not goal:
         raise HTTPException(status_code=404, detail="目标不存在")
+    ensure_owner(goal, user, "他人的目标")
 
     update_goal(
         goal_id,
@@ -51,21 +52,23 @@ def update_existing_goal(goal_id: int, req: UpdateGoalRequest):
 
 
 @router.delete("/api/goals/{goal_id}")
-def delete_existing_goal(goal_id: int):
+def delete_existing_goal(goal_id: int, user=Depends(get_current_user)):
     """删除目标"""
     goal = get_goal(goal_id)
     if not goal:
         raise HTTPException(status_code=404, detail="目标不存在")
+    ensure_owner(goal, user, "他人的目标")
     delete_goal(goal_id)
     return {"deleted": True}
 
 
 @router.post("/api/goals/{goal_id}/claim")
-def claim_goal(goal_id: int):
+def claim_goal(goal_id: int, user=Depends(get_current_user)):
     """领取目标 EXP 奖励"""
     goal = get_goal(goal_id)
     if not goal:
         raise HTTPException(status_code=404, detail="目标不存在")
+    ensure_owner(goal, user, "他人的目标")
     if goal["claimed"]:
         raise HTTPException(status_code=400, detail="目标已领取过奖励")
     if goal["progress"] < 100:

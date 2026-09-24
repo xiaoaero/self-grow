@@ -2,11 +2,14 @@
 Self Grow — 定时任务模板 API 路由
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
-from db.scheduled_tasks import get_scheduled_tasks, create_scheduled_task, update_scheduled_task, delete_scheduled_task
+from db.scheduled_tasks import (
+    get_scheduled_tasks, get_scheduled_task,
+    create_scheduled_task, update_scheduled_task, delete_scheduled_task,
+)
 from schemas.api import CreateScheduledTaskRequest, UpdateScheduledTaskRequest
-from routers.deps import get_current_user
+from routers.deps import get_current_user, ensure_owner
 
 router = APIRouter()
 
@@ -31,14 +34,22 @@ def create_new_scheduled_task(req: CreateScheduledTaskRequest, user=Depends(get_
 
 
 @router.put("/api/scheduled-tasks/{task_id}")
-def update_scheduled_task_route(task_id: int, req: UpdateScheduledTaskRequest):
+def update_scheduled_task_route(task_id: int, req: UpdateScheduledTaskRequest, user=Depends(get_current_user)):
     """更新定时任务模板"""
+    template = get_scheduled_task(task_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="定时任务模板不存在")
+    ensure_owner(template, user, "他人的定时任务模板")
     update_scheduled_task(task_id, **{k: v for k, v in req.dict().items() if v is not None})
     return {"updated": True}
 
 
 @router.delete("/api/scheduled-tasks/{task_id}")
-def delete_scheduled_task_route(task_id: int):
+def delete_scheduled_task_route(task_id: int, user=Depends(get_current_user)):
     """删除定时任务模板"""
+    template = get_scheduled_task(task_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="定时任务模板不存在")
+    ensure_owner(template, user, "他人的定时任务模板")
     delete_scheduled_task(task_id)
     return {"deleted": True}

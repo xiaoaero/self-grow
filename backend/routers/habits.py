@@ -11,7 +11,7 @@ from db.connection import get_conn
 from db.habits import get_habits, get_habit, create_habit, update_habit, delete_habits
 from db.habits import get_checkins_in_range, get_all_checkins_in_range, upsert_checkin, delete_checkin, calculate_streak
 from schemas.api import CreateHabitRequest, UpdateHabitRequest, DeleteHabitsRequest, HabitAIIconRequest
-from routers.deps import get_current_user
+from routers.deps import get_current_user, ensure_owner
 from services.ai_habit_service import call_ai_for_icon
 from services.sse import stream_events, sse_response, use_emitter, emit_stage
 
@@ -116,11 +116,12 @@ def create_new_habit(req: CreateHabitRequest, user=Depends(get_current_user)):
 
 
 @router.put("/api/habits/{habit_id}")
-def update_existing_habit(habit_id: int, req: UpdateHabitRequest):
+def update_existing_habit(habit_id: int, req: UpdateHabitRequest, user=Depends(get_current_user)):
     """更新习惯"""
     habit = get_habit(habit_id)
     if not habit:
         raise HTTPException(status_code=404, detail="习惯不存在")
+    ensure_owner(habit, user, "他人的习惯")
 
     update_habit(
         habit_id,
@@ -140,16 +141,26 @@ def update_existing_habit(habit_id: int, req: UpdateHabitRequest):
 @router.delete("/api/habits")
 def delete_habits_batch(req: DeleteHabitsRequest, user=Depends(get_current_user)):
     """批量删除习惯"""
-    delete_habits(req.ids)
-    return {"deleted": len(req.ids)}
+    # ⚠️ 必须按归属过滤：底层 `delete_habits(ids)` 是 `DELETE ... WHERE id IN (...)`
+    #    的跨用户删除，光挂鉴权挡不住"删他人习惯"。
+    #    这里把不属于当前用户的 id 静默滤掉（而不是报 403）——
+    #    批量操作里更合理，也避免通过 403 反推出"哪些 id 真实存在"。
+    owned = []
+    for hid in req.ids:
+        habit = get_habit(hid)
+        if habit and int(habit["user_id"]) == int(user["id"]):
+            owned.append(hid)
+    delete_habits(owned)
+    return {"deleted": len(owned)}
 
 
 @router.post("/api/habits/{habit_id}/toggle")
-def toggle_habit_checkin(habit_id: int):
+def toggle_habit_checkin(habit_id: int, user=Depends(get_current_user)):
     """打卡三态切换：done → skipped → pending → done"""
     habit = get_habit(habit_id)
     if not habit:
         raise HTTPException(status_code=404, detail="习惯不存在")
+    ensure_owner(habit, user, "他人的习惯")
 
     today = date_func.today()
     today_str = today.isoformat()
@@ -265,7 +276,7 @@ def habit_stats(user=Depends(get_current_user)):
     year_month = today.strftime("%Y-%m")
     conn = get_conn()
     row = conn.execute(
-        "SELECT habit_count, habit_xp FROM user_monthly_stats WHERE user_id = ? AND year_month = ?",
+        """SELECT habit_count, habit_xp FROM user_monthly_stats WHERE user_id = %s AND `year_month` = %s""",
         (user_id, year_month),
     ).fetchone()
     conn.close()

@@ -30,9 +30,10 @@ import uuid
 import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from routers.deps import get_current_user
+from schemas.limits import MAX_USER_MESSAGE
 from services.coordinator.state import CoordinatorState
 from services.coordinator.graph import (
     run_coordinator_stream, resume_subgraph, finalize_record,
@@ -113,27 +114,33 @@ def _acquire_session(thread_id: str) -> None:
     在端点函数里释放等于业务还没跑就把锁丢了。
     """
     if thread_id in _inflight:
+        # 这条日志以前是缺失的：用户连点被 409 拒绝时，服务端**什么都不记**，
+        # 排查「我怎么点了没反应」时完全看不到线索
+        log.warning("会话锁冲突：%s 仍在处理中 → 409", thread_id)
         raise HTTPException(
             status_code=409,
             detail="上一条内容还在处理中，请等它结束再提交",
         )
     _inflight.add(thread_id)
+    log.info("会话锁：已占用 %s（当前在途 %d 个）", thread_id, len(_inflight))
 
 
 def _release_session(thread_id: str) -> None:
     """释放会话（幂等，可以重复调）"""
     _inflight.discard(thread_id)
 
-
 class ChatRequest(BaseModel):
-    message: str
+    # max_length 会返回 422（并由 main.py 的 422 handler 记下字段级原因）。
+    # 加这个限制的原因见 schemas/limits.py 的模块说明 ——
+    # 用户消息会被整段拼进 prompt，之前没有任何长度上限。
+    message: str = Field(..., max_length=MAX_USER_MESSAGE)
     thread_id: Optional[str] = None
 
 
 class ResumeRequest(BaseModel):
     thread_id: str
     sub_thread_id: str
-    answer: str = ""
+    answer: str = Field("", max_length=MAX_USER_MESSAGE)
     # 用户点「跳过」时置 true：**不重新执行子图**，直接把这个域标记为已完成。
     # 必须有这个语义，否则「跳过一个提问」会让该域永远完不成 →
     # pending_domains 永远不是 completed 的子集 → 这条记录的总结**永远不会生成**。

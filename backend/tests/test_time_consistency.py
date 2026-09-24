@@ -16,17 +16,6 @@ import datetime
 
 import pytest
 
-from db.backend import backend_name
-
-# 这一批用例检查的是 **SQLite 建表语句的文本**（`sqlite_master` 里的 DDL），
-# 验证默认值用的是 localtime 而不是裸的 datetime('now')。
-# MySQL 后端下元数据表是 information_schema、默认值文本也不同
-# （CURRENT_TIMESTAMP），所以整类跳过 —— 时间口径本身由别处的用例保证。
-_sqlite_only = pytest.mark.skipif(
-    backend_name() == "mysql",
-    reason="检查 SQLite 建表语句文本（sqlite_master），MySQL 后端跳过",
-)
-
 
 # ================================================================
 # Fixtures（与 test_sleep_action.py 保持一致的做法）
@@ -34,22 +23,15 @@ _sqlite_only = pytest.mark.skipif(
 
 @pytest.fixture
 def tmp_db(monkeypatch, tmp_path):
-    """临时数据库
+    """干净库：清空测试库所有表再重建
 
-    - SQLite：monkeypatch DB_PATH 指向临时文件（原做法）
-    - MySQL ：没有"文件"可换，改为**删掉测试库所有表后重建**
-              （效果等价于全新库；测试库名必须含 test，有安全闸保护）
+    ⚠️ 项目已只支持 MySQL（2026-09-23 移除 SQLite），这里不再有
+    「monkeypatch DB_PATH 指向临时文件」那条路 —— MySQL 没有"文件"可换，
+    只能清空重建。测试库名必须含 `test`（`db/testing.py` 的安全闸，**不要绕过**）。
     """
     from db.testing import reset_test_database
-    if reset_test_database():
-        return "mysql"
-
-    db_path = str(tmp_path / "test.db")
-    from db import connection
-    monkeypatch.setattr(connection, "DB_PATH", db_path)
-    from db.init import init_db
-    init_db()
-    return db_path
+    reset_test_database()
+    return "mysql"
 
 
 @pytest.fixture
@@ -159,7 +141,7 @@ class TestRecentActivityRelativeTime:
 
         # created_at 由代码写入本地时间，这里直接改成 30 分钟前以构造场景
         conn = get_conn()
-        conn.execute("UPDATE action_logs SET created_at = ? WHERE note = ?",
+        conn.execute("""UPDATE action_logs SET created_at = %s WHERE note = %s""",
                      (ts.strftime("%Y-%m-%d %H:%M:%S"), "半小时前"))
         conn.commit()
         conn.close()
@@ -177,7 +159,7 @@ class TestRecentActivityRelativeTime:
                           "2026-09-15T10:00:00", 30, "带偏移的历史数据", 10)
 
         conn = get_conn()
-        conn.execute("UPDATE action_logs SET created_at = ? WHERE note = ?",
+        conn.execute("""UPDATE action_logs SET created_at = %s WHERE note = %s""",
                      ("2026-09-15T01:00:00+00:00", "带偏移的历史数据"))
         conn.commit()
         conn.close()
@@ -201,7 +183,7 @@ class TestTaskTimestamp:
 
         conn = get_conn()
         row = conn.execute(
-            "SELECT created_at, date(created_at) AS d FROM tasks WHERE id = ?", (tid,)
+            """SELECT created_at, date(created_at) AS d FROM tasks WHERE id = %s""", (tid,)
         ).fetchone()
         conn.close()
 
@@ -214,11 +196,24 @@ class TestTaskTimestamp:
         assert str(row["d"]) == today, f"date(created_at)={row['d']}，本地今天={today}"
 
 
+
+def _columns(conn, table: str) -> list:
+    """某张表的列名（按定义顺序）
+
+    ⚠️ MySQL 没有 `PRAGMA table_info`（SQLite 专有）—— 换成查 information_schema。
+    SQLite 移除后这些用例不再被 skip，所以实现必须跟着换，**断言语义不变**。
+    """
+    rows = conn.execute(
+        "SELECT COLUMN_NAME FROM information_schema.columns "
+        "WHERE table_schema = DATABASE() AND table_name = %s ORDER BY ORDINAL_POSITION",
+        (table,),
+    ).fetchall()
+    return [r["COLUMN_NAME"] for r in rows]
+
 # ================================================================
 # 5. 建表默认值：新库必须是 localtime（老库改不掉，靠显式写入兜底）
 # ================================================================
 
-@_sqlite_only
 class TestTableDefaults:
     @pytest.mark.parametrize("table,column", [
         ("action_logs", "created_at"),
@@ -226,23 +221,41 @@ class TestTableDefaults:
         ("habits", "created_at"),
     ])
     def test_new_db_default_is_localtime(self, tmp_db, table, column):
-        """新建表的默认值应为 datetime('now','localtime')"""
+        """建表默认值必须走连接时区（`now()`），不能用 UTC
+
+        ⚠️ 这条口径是踩过的：容器默认跑 UTC，如果默认值写成 `utc_timestamp()`，
+        就会与项目其他地方（`date.today()`、APScheduler 的 cron 小时数、
+        `user_stats_daily.date`）用的本地时间恒定差 8 小时，
+        表现为「刚记录完却显示 8 小时前」「凌晨 0~8 点的记录落到前一天」。
+
+        实现换了（原来读 `sqlite_master` 里的建表文本，现在读 information_schema），
+        但断言语义不变：默认值里不能出现 UTC 函数。
+        """
         from db.connection import get_conn
         conn = get_conn()
-        sql = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE name = ?", (table,)
-        ).fetchone()["sql"]
+        row = conn.execute(
+            "SELECT COLUMN_DEFAULT FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() AND table_name = %s AND column_name = %s",
+            (table, column),
+        ).fetchone()
         conn.close()
-        assert f"{column}" in sql
-        assert "localtime" in sql, f"{table}.{column} 的默认值没用 localtime：{sql}"
+        assert row is not None, f"{table}.{column} 不存在"
+        d = str(row["COLUMN_DEFAULT"] or "")
+        assert d, f"{table}.{column} 没有默认值"
+        assert "utc_timestamp" not in d.lower(), (
+            f"{table}.{column} 的默认值是 UTC 口径：{d}（应为 now()）"
+        )
 
     def test_no_utc_default_left_in_new_db(self, tmp_db):
-        """新库里不应再有裸的 datetime('now') 默认值"""
+        """新库里不应有任何 UTC 口径的默认值"""
         from db.connection import get_conn
         conn = get_conn()
         rows = conn.execute(
-            "SELECT name, sql FROM sqlite_master WHERE sql LIKE '%datetime(''now'')%'"
+            "SELECT table_name, column_name, column_default FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() "
+            "AND LOWER(COALESCE(column_default, '')) LIKE %s",
+            ("%utc_timestamp%",),
         ).fetchall()
         conn.close()
-        bad = [r["name"] for r in rows if "localtime" not in r["sql"]]
-        assert not bad, f"这些表的默认值仍是 UTC：{bad}"
+        bad = [f"{r['table_name']}.{r['column_name']}" for r in rows]
+        assert not bad, f"这些列的默认值仍是 UTC：{bad}"

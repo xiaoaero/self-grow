@@ -279,6 +279,39 @@ def run_concurrent_resumes(app, headers, thread_id, targets):
 
 
 class TestConcurrentResume:
+    """并发 / 连点：会话锁必须挡住，且子图只执行一次"""
+
+    @pytest.fixture(autouse=True)
+    def _slow_resume(self, monkeypatch):
+        """给子图恢复加一点人为延迟，把「重叠窗口」变成确定性的
+
+        ⚠️ 不要删这个 fixture —— 它解决的是「测试时而通过、时而失败」。
+
+        这组测试要验证的是「A 持锁期间 B 到达 → B 被 409 挡住」。
+        但连发两个请求时，A 能不能在 B 到达前跑完，纯看时序：
+        子 Agent 是打桩的（FakeLLM，不联网），几毫秒就出结果，
+        于是 A 常常**在 B 到达前就跑完并释放了锁**，两个都拿到 200。
+
+        这在**语义上是正确的**（确实没有发生并发冲突，锁不该误报），
+        但测试就永远撞不到 409 那条分支 —— 表现为 flaky。
+
+        加 150ms 是为了**确定性地**造出重叠窗口，让这个测试真正在验证
+        「会话锁」，而不是在验证「谁跑得更快」。
+
+        背景：这个 flaky 是在把 `routers/deps.get_current_user` 从 async
+        改成同步 def 之后才稳定复现的 —— 改之前它内部的**同步查库会挡住
+        事件循环**，反而"顺便"把两个请求串行化了，掩盖了测试对时序的依赖。
+        （那次改动本身是对的：依赖里的同步 DB 不该阻塞事件循环。）
+        """
+        import routers.coordinator as coord
+
+        original = coord.resume_subgraph
+
+        async def slow(domain, sub_thread_id, answer):
+            await asyncio.sleep(0.15)
+            return await original(domain, sub_thread_id, answer)
+
+        monkeypatch.setattr(coord, "resume_subgraph", slow)
 
     def test_double_submit_same_interrupt_is_rejected(self, fake_llm):
         """连点发送：第二次必须被 409 挡住 → 子图只执行一次（不重复写库）"""

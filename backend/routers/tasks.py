@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from db.tasks import get_task, get_today_tasks, get_week_tasks, get_tasks_paginated, create_task, update_task, delete_task, claim_task_reward
 from db.task_history import get_task_history
 from schemas.api import CreateTaskRequest, UpdateTaskRequest, PatchTaskStatusRequest
-from routers.deps import get_current_user
+from routers.deps import get_current_user, ensure_owner
 
 router = APIRouter()
 
@@ -53,15 +53,23 @@ def create_new_task(req: CreateTaskRequest, user=Depends(get_current_user)):
 
 
 @router.put("/api/tasks/{task_id}")
-def update_existing_task(task_id: int, req: UpdateTaskRequest):
+def update_existing_task(task_id: int, req: UpdateTaskRequest, user=Depends(get_current_user)):
     """更新任务"""
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    ensure_owner(task, user, "他人的任务")
     update_task(task_id, **{k: v for k, v in req.dict().items() if v is not None})
     return {"updated": True}
 
 
 @router.patch("/api/tasks/{task_id}/status")
-def patch_task_status(task_id: int, req: PatchTaskStatusRequest):
+def patch_task_status(task_id: int, req: PatchTaskStatusRequest, user=Depends(get_current_user)):
     """修改任务状态"""
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    ensure_owner(task, user, "他人的任务")
     kwargs = {"status": req.status}
     if req.completed_at:
         kwargs["completed_at"] = req.completed_at
@@ -72,16 +80,20 @@ def patch_task_status(task_id: int, req: PatchTaskStatusRequest):
 @router.post("/api/tasks/{task_id}/claim")
 def claim_task(task_id: int, user=Depends(get_current_user)):
     """领取任务 EXP 奖励"""
+    # ⚠️ 归属校验必须放在 claim_task_reward 之前 ——
+    #    那个函数会先把任务标记成「已领取」。若先改状态再拒绝，
+    #    别人的任务就被这一次请求白白锁死了（不可逆的副作用）。
+    #    而且原实现是直接给**调用者**发经验，等于可以冒领他人任务的奖励。
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    ensure_owner(task, user, "他人的任务")
+
     result = claim_task_reward(task_id)
     if not result:
         raise HTTPException(status_code=400, detail="任务不存在或已领取")
 
     exp_earned = result["exp_earned"]
-
-    # 使用 get_task 替代 get_tasks_paginated + 裸 SQL 的脆弱查询
-    task = get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
 
     # 使用服务层统一处理 EXP 奖励
     from services.exp_service import award_exp_and_recalc
@@ -99,8 +111,12 @@ def claim_task(task_id: int, user=Depends(get_current_user)):
 
 
 @router.delete("/api/tasks/{task_id}")
-def delete_existing_task(task_id: int):
+def delete_existing_task(task_id: int, user=Depends(get_current_user)):
     """删除任务"""
+    task = get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    ensure_owner(task, user, "他人的任务")
     delete_task(task_id)
     return {"deleted": True}
 

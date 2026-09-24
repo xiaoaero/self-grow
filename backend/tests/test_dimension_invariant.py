@@ -27,8 +27,6 @@
 修完就把这三条恒等式固化成断言 —— 以后改等级公式或种子数据，这里会先红。
 """
 
-import pytest
-
 from models.constants import (
     CATEGORIES, DIMENSION_KEYS, CATEGORY_MAP, DEFAULT_DIMENSIONS,
 )

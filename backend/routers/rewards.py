@@ -9,10 +9,19 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 
 from db.rewards import get_reward, create_reward, update_reward, delete_reward, claim_reward, manual_confirm_condition, evaluate_all_rewards, evaluate_reward, save_reward_draft, get_reward_draft, delete_reward_draft
 from schemas.api import CreateRewardRequest, UpdateRewardRequest, ManualConfirmRequest
-from routers.deps import get_current_user
+from routers.deps import get_current_user, ensure_owner
 from config import UPLOAD_DIR
 
 router = APIRouter()
+
+# 奖励图片上传限制
+#
+# ⚠️ 原来 `ext` 直接取自 `file.filename`，等于**允许任意扩展名** ——
+#    传一个 .html / .svg 进 /uploads/rewards/ 就能在站点同源下执行脚本
+#    （存储型 XSS），传个几百 MB 的文件就能耗光磁盘。
+#    改成扩展名白名单 + 大小上限。
+_ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 @router.get("/api/rewards")
@@ -103,19 +112,30 @@ def reevaluate_all_rewards(user=Depends(get_current_user)):
 
 
 @router.post("/api/rewards/{reward_id}/image")
-async def upload_reward_image(reward_id: int, file: UploadFile = File(...)):
+async def upload_reward_image(reward_id: int, file: UploadFile = File(...), user=Depends(get_current_user)):
     """上传奖励图片"""
     reward = get_reward(reward_id)
     if not reward:
         raise HTTPException(status_code=404, detail="奖励不存在")
+    ensure_owner(reward, user, "他人的奖励")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in _ALLOWED_IMAGE_EXT:
+        raise HTTPException(
+            status_code=400,
+            detail="只支持 jpg / jpeg / png / gif / webp 格式的图片",
+        )
+
+    content = await file.read()
+    if len(content) > _MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="图片过大，上限 5MB")
+    if not content:
+        raise HTTPException(status_code=400, detail="文件内容为空")
 
     upload_dir = os.path.join(UPLOAD_DIR, "rewards")
     os.makedirs(upload_dir, exist_ok=True)
-
-    ext = os.path.splitext(file.filename)[1] or ".jpg"
     filename = f"reward_{reward_id}_{int(time.time())}{ext}"
     filepath = os.path.join(upload_dir, filename)
-    content = await file.read()
     with open(filepath, "wb") as f:
         f.write(content)
 

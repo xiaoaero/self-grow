@@ -21,9 +21,17 @@ from db.expressions import (
     get_question_history_list,
     get_recent_answers,
 )
-from services.expression_service import generate_question, evaluate_answer, generate_hints, beautify_question
+from services.expression_service import (
+    EvaluationUnavailable,
+    generate_question, evaluate_answer, generate_hints, beautify_question,
+)
 from services.asr_service import ASRConnection
-from routers.deps import get_current_user
+from routers.deps import (
+    get_current_user, authenticate_websocket, WS_POLICY_VIOLATION,
+)
+from schemas.limits import (
+    MAX_ANSWER_TEXT, MAX_ASR_AUDIO_BYTES, check_length,
+)
 from services.sse import (
     stream_events, sse_response, immediate_response, use_emitter, emit_stage,
 )
@@ -31,6 +39,18 @@ from services.sse import (
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _ensure_answer_owner(answer: dict, user: dict) -> None:
+    """校验这条作答属于当前用户，不是就 403
+
+    ⚠️ 这里**不能**复用 `routers.deps.ensure_owner` ——
+    `expression_answers.user_id` 存的是**用户名（字符串）**，不是 `users.id`
+    （同文件的 `get_user_stats(user["name"])` 也印证了这点）。
+    拿它跟 int 型的 id 比会永远不相等，等于把所有正常请求都挡掉。
+    """
+    if (answer.get("user_id") or "") != (user.get("name") or ""):
+        raise HTTPException(status_code=403, detail="无权访问他人的作答记录")
 
 
 # ================================================================
@@ -152,10 +172,13 @@ def api_update_answer_text(
     answer = get_answer(answer_id)
     if not answer:
         raise HTTPException(status_code=404, detail="回答记录不存在")
+    _ensure_answer_owner(answer, user)
 
     update_answer_text(
         answer_id,
-        answer=data.get("answer", ""),
+        # 作答正文长度上限（见 schemas/limits.py）：它会整段进评分 prompt，
+        # 之前没有任何限制，粘一整篇长文进来会直接把 token 成本与耗时拉满
+        answer=check_length(data.get("answer", ""), MAX_ANSWER_TEXT, "回答内容"),
         filler_words=data.get("filler_words"),
     )
     return {"status": "ok"}
@@ -170,6 +193,7 @@ async def api_evaluate_answer(
     answer = get_answer(answer_id)
     if not answer:
         raise HTTPException(status_code=404, detail="回答记录不存在")
+    _ensure_answer_owner(answer, user)
 
     if not answer.get("answer"):
         raise HTTPException(status_code=400, detail="回答内容为空，请先完成回答")
@@ -195,13 +219,26 @@ async def api_evaluate_answer(
     async def runner(emit):
         with use_emitter(emit):
             await emit_stage("evaluate", "正在分析你的回答…")
-            result = await evaluate_answer(
-                question_id=answer["question_id"],
-                answer_id=answer_id,
-                answer_text=answer["answer"],
-                filler_words=filler_words,
-                user_id=user["id"],
-            )
+            try:
+                result = await evaluate_answer(
+                    question_id=answer["question_id"],
+                    answer_id=answer_id,
+                    answer_text=answer["answer"],
+                    filler_words=filler_words,
+                    user_id=user["id"],
+                )
+            except EvaluationUnavailable as exc:
+                # ⚠️ 评分不可用时**不落库、不给假分**，直接让前端把原因显示出来。
+                #
+                # 用 `error` 事件是最合适的：前端 streamSSE 会把它包成 Error 抛出，
+                # 页面既有的 catch 分支会 showToast 出这句文案、并把「AI 分析」按钮
+                # 恢复成可点 —— 用户可以直接重试（作答记录的 status 仍是未评分）。
+                #
+                # 对比原来的行为：失败时写入一份编造的 70 分并置 evaluated，
+                # 用户看到假分数，而且因为状态已变，重试只会命中缓存拿回同一份假数据。
+                log.warning("评分暂不可用：%s", exc)
+                await emit({"type": "error", "message": str(exc)})
+                return
         await emit({"type": "done", **(result or {})})
 
     return sse_response(stream_events(runner))
@@ -400,12 +437,23 @@ async def websocket_asr(websocket: WebSocket):
     浏览器接收：{"type":"transcript","text":"...","is_end":true}
                {"type":"error","message":"..."}
     """
-    await websocket.accept()
-    log.info("WebSocket /ws/asr 连接已建立")
+    # ⚠️ 必须先鉴权、再 accept。
+    #
+    # 原来这里是先 `accept()`，然后读 `?user_id=`（**默认 1**）——
+    # 等于任何人都能以任意身份连上来：既能冒用他人身份，也能用掉
+    # 他在「用户中心 → 模型信息」里配的 ASR 模型与密钥。
+    #
+    # 现在要求 `?token=<access_token>`：浏览器原生 WebSocket 不能自定义 header
+    # （与 EventSource 的限制相同），所以 token 只能走 URL。
+    user = authenticate_websocket(websocket)
+    if not user:
+        await websocket.close(code=WS_POLICY_VIOLATION)
+        log.warning("WebSocket /ws/asr 鉴权失败，已拒绝连接")
+        return
 
-    # 从 query param 读取 user_id（如 /ws/asr?user_id=1），默认 1
-    user_id_str = websocket.query_params.get("user_id")
-    user_id = int(user_id_str) if user_id_str and user_id_str.isdigit() else 1
+    await websocket.accept()
+    user_id = user["id"]
+    log.info("WebSocket /ws/asr 连接已建立 (user=%s)", user_id)
 
     asr = None
     receive_task = None
@@ -417,10 +465,28 @@ async def websocket_asr(websocket: WebSocket):
         asr.start()
 
         async def receive_audio():
-            """接收浏览器音频分片，转发到 ASR"""
+            """接收浏览器音频分片，转发到 ASR
+
+            ⚠️ 必须累计字节数并封顶。这个循环是 `while True` +
+            `receive_bytes()`，而音频是客户端推的 —— 不设上限的话，
+            浏览器端可以一直推，服务端就一直往 ASR 队列里塞：
+            撑内存，并且持续消耗**该用户自己的** ASR 额度。
+            """
+            received = 0
             try:
                 while True:
                     data = await websocket.receive_bytes()
+                    received += len(data)
+                    if received > MAX_ASR_AUDIO_BYTES:
+                        log.warning(
+                            "ASR 单次会话音频超过上限（已收 %.1fMB，上限 %.0fMB），主动结束",
+                            received / 1024 / 1024, MAX_ASR_AUDIO_BYTES / 1024 / 1024,
+                        )
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "语音输入过长，请分段识别",
+                        })
+                        break
                     if asr and asr.is_running:
                         asr.send_audio(data)
             except WebSocketDisconnect:
