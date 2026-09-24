@@ -31,12 +31,19 @@ def create_new_skill_tree(
     description: str = Body(""),
     user=Depends(require_admin),
 ):
-    """创建新技能树"""
+    """创建新技能树（幂等）
+
+    `create_skill_tree` 对同一个 tree_id 重复调用不报错（返回已有 id）；
+    返回 0 表示这个 tree_id 已被**别人**占用 —— 此时必须报冲突，
+    不能假装成功（否则用户会得到一棵自己永远访问不到的树）。
+    """
     try:
         new_id = create_skill_tree(user["id"], tree_id, name, description)
-        return {"id": new_id, "tree_id": tree_id, "success": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"创建失败: {str(e)}")
+    if not new_id:
+        raise HTTPException(status_code=409, detail="该技能树 ID 已被占用，请换一个")
+    return {"id": new_id, "tree_id": tree_id, "success": True}
 
 
 @router.get("/api/skill-trees/{tree_id}")
@@ -60,11 +67,19 @@ def update_skill_tree(
     remark: str = Body(""),
     user=Depends(require_admin),
 ):
-    """保存技能树草稿"""
-    save_skill_tree_draft(
+    """保存技能树草稿
+
+    ⚠️ 必须**如实**返回结果：以前这个端点无论如何都 `{"success": True}`，
+    而 DB 层也无论如何都 return True —— 于是「保存失败」在界面上和成功一模一样。
+    现在 DB 层会告诉我们在不在写、有没有写进去（树不存在则顺手补建）。
+    """
+    ok = save_skill_tree_draft(
         tree_id, user["id"], name, description,
         data, node_count, completed_count, image, remark,
     )
+    if not ok:
+        # 只有一种情况会走到这：库里已有同 tree_id 但属于别的用户
+        raise HTTPException(status_code=403, detail="这棵技能树不属于当前用户，无法保存")
     return {"success": True}
 
 
@@ -77,7 +92,9 @@ def publish_skill_tree_endpoint(
     user=Depends(require_admin),
 ):
     """发布/更新技能树"""
-    publish_skill_tree(tree_id, user["id"], published_data, node_count, completed_count)
+    ok = publish_skill_tree(tree_id, user["id"], published_data, node_count, completed_count)
+    if not ok:
+        raise HTTPException(status_code=404, detail="技能树不存在，请先保存草稿")
     return {"success": True}
 
 

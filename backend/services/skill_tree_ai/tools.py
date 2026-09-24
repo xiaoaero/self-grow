@@ -8,6 +8,7 @@ Self Grow — 技能树 AI 编辑工具
 - diff: 可选，变更记录
 """
 
+import json
 import uuid
 import logging
 from typing import Annotated
@@ -41,6 +42,31 @@ def _get_connections(state: dict) -> list:
 
 def _find_node(state: dict, node_id: str):
     return next((n for n in _get_nodes(state) if n.get("id") == node_id), None)
+
+
+def _as_list(value, field: str = "") -> list:
+    """把可能是「JSON 字符串」的列表参数规整成 list
+
+    ⚠️ 千万别写 `list(value or [])` —— 字符串会被**按字符拆开**：
+        list('[\"Root\"]')  →  ['[', '"', 'R', 'o', 'o', 't', '"', ']']
+    症状是节点上凭空多出一堆单字符标签，而且**完全不报错**（实测于 2026-09-24）。
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+        except (ValueError, TypeError):
+            return [text]                    # 普通字符串 → 当成单个标签
+        if isinstance(parsed, list):
+            return parsed
+        return [parsed] if parsed is not None else []
+    return [value] if isinstance(value, (dict, int, float)) else []
 
 
 def _validate_name(name: str) -> tuple[bool, str]:
@@ -153,10 +179,10 @@ def create_node(
         color: 背景颜色 hex，如 #2a2a4a
         description: 节点描述
         tags: 标签列表
-        priority: 优先级 none/high/medium/low
-        parent_id: 父节点 ID（可选）
-        x: X 坐标（像素）
-        y: Y 坐标（像素）
+        priority: 优先级，只能 none / high / medium / low
+        parent_id: 父节点 ID（可选），提供时自动与父节点连线
+        x: X 坐标（像素），可省略 —— 全部省略时会自动按层级排布
+        y: Y 坐标（像素），可省略
     """
     tree = _get_tree(state)
     nodes = tree.setdefault("nodes", [])
@@ -198,7 +224,7 @@ def create_node(
         "color": color or "#2a2a4a",
         "borderColor": "#444466",
         "description": description or "",
-        "tags": list(tags or []),
+        "tags": _as_list(tags, "tags"),
         "priority": priority or "none",
         "progress": 0,
     }
@@ -237,10 +263,13 @@ def create_nodes_batch(
     """批量创建节点并建立连线。用于一次性生成整棵子树。
 
     Args:
-        nodes: 节点列表，每个元素包含 name/icon/color/description/tags/priority/x/y。
-               可用 children 字段指定子节点名称列表（与 connections 二选一）。
-        connections: 连线列表，每个元素包含 {from_name, to_name} 或 {from_id, to_id}。
-                     如果使用名称，需在 nodes 中能找到对应 name。
+        nodes: 节点列表（**真正的数组**，不是 JSON 字符串），
+               每个元素可含 name/icon/color/description/tags/priority/x/y。
+               坐标可省略，会按父子层级自动排布。
+               元素里的 children 字段可直接写子节点名称列表
+               （这些名称若没在 nodes 里声明，会自动补建出节点）。
+        connections: 连线列表（**真正的数组**），元素为 {from_name, to_name}
+                     或 {from_id, to_id}；用名称时需能在 nodes 里找到。
         parent_id: 父节点 ID（可选）。提供时，批量节点中未作为任何连线目标的
                    「根节点」会自动连接到该父节点。
     """
@@ -256,6 +285,25 @@ def create_nodes_batch(
         ok, err = _validate_name(n.get("name", ""))
         if not ok:
             return {"success": False, "message": f"第 {i+1} 个节点: {err}"}
+
+    # `children` 里出现、但 nodes 里没有的名称 → **自动补一个节点**
+    #
+    # ⚠️ 别只把它们当连线目标：连线解析时 `name_map` 找不到就 `continue`
+    #    **静默跳过**，于是「父节点 + children(子1,子2)」只建出父节点一个，
+    #    而返回消息里数字也变小了 —— 模型和用户都看不出哪儿少了
+    #    （2026-09-24 实测，与 docstring 承诺的"与 connections 二选一"不符）。
+    declared = {n.get("name", "").strip() for n in nodes}
+    extra_nodes = []
+    for n in nodes:
+        for raw_child in _as_list(n.get("children"), "children"):
+            cname = str(raw_child).strip()
+            if cname and cname not in declared:
+                declared.add(cname)
+                extra_nodes.append({"name": cname})
+    if extra_nodes:
+        nodes = list(nodes) + extra_nodes
+        log.info("children 里有 %d 个未声明的子节点名，已自动创建：%s",
+                 len(extra_nodes), [e["name"] for e in extra_nodes])
 
     parent = None
     if parent_id:
@@ -279,7 +327,7 @@ def create_nodes_batch(
             "color": n.get("color", "#2a2a4a"),
             "borderColor": n.get("borderColor", "#444466"),
             "description": n.get("description", ""),
-            "tags": list(n.get("tags") or []),
+            "tags": _as_list(n.get("tags"), "tags"),
             "priority": n.get("priority", "none"),
             "progress": n.get("progress", 0),
         }
@@ -289,9 +337,11 @@ def create_nodes_batch(
         created.append(node)
 
     # 处理 children 字段
-    conns = list(connections or [])
+    # ⚠️ 用 `_as_list` 而不是直接遍历：模型可能把 children 传成 JSON 字符串
+    #    （'["A","B"]'），直接 `for child_name in children` 会**按字符**建节点。
+    conns = _as_list(connections, "connections")
     for n in nodes:
-        children = n.get("children")
+        children = _as_list(n.get("children"), "children")
         if children:
             for child_name in children:
                 conns.append({"from_name": n.get("name", "").strip(), "to_name": child_name})
@@ -373,7 +423,10 @@ def update_node(
 
     Args:
         node_id: 节点 ID
-        changes: 要修改的字段，可包含 icon/color/description/priority/progress/tags/name
+        changes: 要修改的字段，可包含 icon/color/description/priority/progress/tags/name。
+                 priority 只能 none / high / medium / low；
+                 progress 是 0-100 的整数；tags 是字符串数组；
+                 改 name 时不要和其他节点重名（重复会自动加后缀）。
     """
     node = _find_node(state, node_id)
     if not node:
@@ -401,7 +454,7 @@ def update_node(
                 _get_nodes(state), value.strip(), original_name=node.get("name")
             )
         if key == "tags":
-            value = list(value or [])
+            value = _as_list(value, "tags")
 
         actual_changes[key] = value
 
@@ -547,7 +600,7 @@ def delete_connection(
 
 
 @tool
-def move_node(
+def   move_node(
     node_id: str,
     x: int,
     y: int,
@@ -569,124 +622,6 @@ def move_node(
             "node_id": node_id,
             "x": x,
             "y": y,
-        },
-    }
-
-
-@tool
-def replace_tree(
-    nodes: list[dict],
-    connections: list[dict] | None = None,
-    confirm: bool = False,
-    state: Annotated[dict, InjectedState()] = None,
-) -> dict:
-    """用新的节点列表替换整个知识树。会清空所有已有节点和连线。
-
-    这是危险操作，需要用户确认（confirm=True）。
-
-    Args:
-        nodes: 新节点列表
-        connections: 新连线列表（可选，可用 nodes 中 children 字段代替）
-        confirm: 是否已确认替换
-    """
-    tree = _get_tree(state)
-
-    if not confirm:
-        return {
-            "success": False,
-            "needs_confirmation": True,
-            "message": "替换整棵树将清空当前所有内容，确认吗？",
-        }
-
-    # 清空旧数据
-    old_nodes = tree.get("nodes", [])
-    tree["nodes"] = []
-    tree["connections"] = []
-
-    # 使用 create_nodes_batch 的内部逻辑批量创建
-    if not nodes:
-        return {
-            "success": True,
-            "message": "已清空知识树",
-            "diff": {"op": "replace", "data": {"nodes": [], "connections": []}},
-        }
-
-    # 创建节点
-    name_map = {}
-    created = []
-    for n in nodes:
-        final_name = n.get("name", "新节点").strip() or "新节点"
-        # replace 场景不自动加序号，但保证唯一
-        base = final_name
-        counter = 2
-        while final_name in name_map:
-            final_name = f"{base} {counter}"
-            counter += 1
-
-        node = {
-            "id": _uid(),
-            "name": final_name,
-            "x": n.get("x", 0),
-            "y": n.get("y", 0),
-            "size": n.get("size", 70),
-            "shape": n.get("shape", "round"),
-            "icon": n.get("icon", "📚"),
-            "color": n.get("color", "#2a2a4a"),
-            "borderColor": n.get("borderColor", "#444466"),
-            "description": n.get("description", ""),
-            "tags": list(n.get("tags") or []),
-            "priority": n.get("priority", "none"),
-            "progress": n.get("progress", 0),
-        }
-        tree["nodes"].append(node)
-        name_map[final_name] = node
-        name_map[n.get("name", "").strip()] = node
-        created.append(node)
-
-    # 处理 connections / children
-    conns = list(connections or [])
-    for n in nodes:
-        children = n.get("children")
-        if children:
-            for child_name in children:
-                conns.append({"from_name": n.get("name", "").strip(), "to_name": child_name})
-
-    conn_created = []
-    for c in conns:
-        from_name = c.get("from_name")
-        to_name = c.get("to_name")
-        from_node = name_map.get(from_name) if from_name else None
-        to_node = name_map.get(to_name) if to_name else None
-        if not from_node or not to_node:
-            continue
-        conn = {
-            "id": _uid(),
-            "from": from_node["id"],
-            "to": to_node["id"],
-            "color": c.get("color", "#666680"),
-            "dashed": c.get("dashed", False),
-            "showArrow": True,
-        }
-        tree["connections"].append(conn)
-        conn_created.append(conn)
-
-    # LLM 省略坐标时自动布局（否则整棵树会叠在 (0,0) 一个点上）
-    if created and not any(_has_valid_coords(n) for n in created):
-        _auto_layout(created, conn_created)
-
-    # 更新树名
-    if created:
-        tree["name"] = created[0].get("name", "未命名知识树")
-
-    return {
-        "success": True,
-        "message": f"已替换整棵树，共 {len(created)} 个节点和 {len(conn_created)} 条连线",
-        "diff": {
-            "op": "replace",
-            "data": {
-                "nodes": created,
-                "connections": conn_created,
-            },
         },
     }
 
@@ -717,6 +652,5 @@ SKILL_TREE_AI_TOOLS = [
     add_connection,
     delete_connection,
     move_node,
-    replace_tree,
     send_reply,
 ]

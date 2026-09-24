@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 
 from db.skill_tree import get_skill_tree_by_tree_id
 from routers.deps import require_admin
+from schemas.limits import MAX_USER_MESSAGE
 from services.skill_tree_ai import run_skill_tree_chat, resume_skill_tree_chat
 from services.sse import stream_events, sse_response, use_emitter
 
@@ -43,14 +44,16 @@ router = APIRouter(prefix="/api/skill-trees", tags=["skill-tree-ai"])
 
 class ChatRequest(BaseModel):
     tree: dict = Field(..., description="当前树状态 {name, description, nodes, connections}")
-    message: str = Field(..., description="用户输入")
+    # 长度上限见 schemas/limits.py —— 之前用户输入没有长度限制，
+    # 可以粘一整篇长文进来，token 成本与耗时都没有天花板
+    message: str = Field(..., max_length=MAX_USER_MESSAGE, description="用户输入")
     selected_node_ids: list[str] = Field(default_factory=list, description="当前选中的节点 ID")
     thread_id: str | None = Field(None, description="会话 ID，首次为空")
 
 
 class ResumeRequest(BaseModel):
     thread_id: str = Field(..., description="会话 ID")
-    message: str = Field(default="", description="用户输入")
+    message: str = Field(default="", max_length=MAX_USER_MESSAGE, description="用户输入")
     confirm: bool = Field(default=False, description="是否确认待处理的操作")
     tree: dict | None = Field(
         None,
@@ -100,7 +103,13 @@ async def resume(
     req: ResumeRequest,
     user=Depends(require_admin),
 ):
-    """恢复对话：用户回答反问或确认操作（流式 SSE）。仅管理员可用。"""
+    """恢复对话：用户回答反问或确认操作（流式 SSE）。仅管理员可用。
+
+    ⚠️ 必须把 `tree_id` 传下去 —— 后端要用它校验这个会话确实属于
+    **当前打开的那棵树**（详见 `services/skill_tree_ai/graph.py`
+    的 `_ensure_thread_belongs_to_tree`）。前端切换树时会 `resetSession()`，
+    但那只是 UX，不能当安全边界。
+    """
     # 校验归属
     tree_record = get_skill_tree_by_tree_id(tree_id, user["id"])
     if not tree_record:
@@ -113,6 +122,7 @@ async def resume(
                 user_message=req.message,
                 confirm=req.confirm,
                 tree=req.tree,
+                tree_id=tree_id,
             )
         await emit({"type": "done", **result})
 
