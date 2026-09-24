@@ -7,6 +7,8 @@ Self Grow — 主图路由节点（LLM意图识别）
 import json
 import logging
 import re
+import time
+
 from services.llm import get_llm
 from services.coordinator.state import CoordinatorState, SubgraphTask
 from prompts.coordinator import COORDINATOR_ROUTER_SYSTEM_PROMPT
@@ -80,6 +82,7 @@ async def router_node(state: CoordinatorState) -> dict:
 
     # 调用LLM
     llm = get_llm(temperature=0.1, user_id=state.get("user_id"))
+    started = time.perf_counter()
     try:
         response = await llm.ainvoke([
             {"role": "system", "content": COORDINATOR_ROUTER_SYSTEM_PROMPT},
@@ -90,7 +93,7 @@ async def router_node(state: CoordinatorState) -> dict:
         routing_decision = _parse_routing_json(content)
 
         if not routing_decision:
-            log.warning(f"无法从 LLM 输出解析路由 JSON：{content[:200]}")
+            log.warning("无法从 LLM 输出解析路由 JSON：%s", content[:200])
             return {"pending_tasks": []}
 
         # 转换为SubgraphTask列表
@@ -105,9 +108,14 @@ async def router_node(state: CoordinatorState) -> dict:
                 instruction=item.get("instruction", ""),
             ))
 
-        log.info(f"路由决策：{[t['domain'] for t in pending_tasks]}")
+        log.info(
+            "路由决策：%s | %.1fs",
+            [t["domain"] for t in pending_tasks], time.perf_counter() - started,
+        )
         return {"pending_tasks": pending_tasks}
 
     except Exception as e:
-        log.error(f"路由节点执行失败：{e}")
+        # log.exception 才能留下完整堆栈 —— 原来只有一行 log.error，
+        # 路由失败时看不到是哪一步炸的（本项目最容易出问题的一环）
+        log.exception("路由节点执行失败（已耗时 %.1fs）", time.perf_counter() - started)
         return {"pending_tasks": []}

@@ -5,6 +5,8 @@ Self Grow — 主图结果整合节点
 """
 
 import logging
+import time
+
 from services.coordinator.state import CoordinatorState
 from services.llm import get_llm
 
@@ -115,6 +117,8 @@ async def synthesize_node(state: CoordinatorState, on_token=None) -> dict:
     """
     prompt = build_synthesize_prompt(state)
 
+    started = time.perf_counter()
+    degraded = False
     try:
         llm = get_llm(temperature=0.3, user_id=state.get("user_id"))
         msgs = [
@@ -134,11 +138,22 @@ async def synthesize_node(state: CoordinatorState, on_token=None) -> dict:
             final_reply = "".join(chunks).strip()
             if not final_reply:
                 # 流式为空的兜底（推理模型偶发）：走规则拼接
+                degraded = True
                 final_reply = _fallback_reply(state)
                 await on_token(final_reply)
     except Exception as e:
-        log.error(f"LLM 整合回复失败，降级为规则拼接：{e}")
+        # 用 exception 而不是 error：整合失败往往要看堆栈才知道是
+        # LLM 报错、还是 stream 中途断了 —— 这里原来只有一行 error
+        log.exception("LLM 整合回复失败，降级为规则拼接（已耗时 %.1fs）", time.perf_counter() - started)
+        degraded = True
         final_reply = _fallback_reply(state)
 
-    log.info(f"生成回复：{final_reply[:100]}...")
+    # 只记长度与耗时，不记回复正文：内容本身已经在 SSE 流里给过前端，
+    # 而本项目里它可能包含用户的私人信息，没必要再落一份到文件
+    log.info(
+        "生成回复：%d 字符 | %.1fs%s",
+        len(final_reply),
+        time.perf_counter() - started,
+        "  [已降级为规则拼接]" if degraded else "",
+    )
     return {"final_reply": final_reply}

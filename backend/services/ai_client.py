@@ -14,13 +14,15 @@ Self Grow — 统一 AI 调用客户端
 `services/sse.py` 的 `emit_token` 往 SSE 流里推，不需要中间再包一层生成器。
 """
 
+import hashlib
 import logging
+import time
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from config import AI_API_KEY, AI_MODEL
+from config import AI_API_KEY
 from db.model_configs import get_active_config
-from services.llm import get_llm
+from services.llm import get_effective_model, get_llm
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +31,16 @@ REQUEST_TIMEOUT = 300
 # 输出上限：推理模型（qwen3.x-max 等）的 max_tokens 含思考部分，
 # 若设置过小正文会被截断/为空，故给足空间（1024 正文 ≈ 约 700 token）
 DEFAULT_MAX_TOKENS = 4096
+
+
+def _digest(text: str) -> str:
+    """给 prompt 生成一个短摘要（长度 + 前 8 位 hash）
+
+    为什么不直接记 prompt 内容：本项目的 system_prompt / 用户输入里有
+    用户的私人目标与情绪倾诉，INFO 级别不该落盘。要排查「是不是 prompt
+    拼错了」时，比对 hash 是否变化就够了。
+    """
+    return f"{len(text)}字符/{hashlib.sha256(text.encode('utf-8')).hexdigest()[:8]}"
 
 
 async def call_ai_text(
@@ -45,7 +57,7 @@ async def call_ai_text(
         system_prompt: 系统提示词
         user_message: 用户消息内容
         temperature: 温度参数（默认 0.7）
-        max_tokens: 最大输出 token 数（默认 1024）
+        max_tokens: 最大输出 token 数（默认 4096，见 DEFAULT_MAX_TOKENS）
         user_id: 用户ID（用于读取其启用的模型配置，默认 1）
 
     Returns:
@@ -59,6 +71,11 @@ async def call_ai_text(
     if not effective_key:
         raise RuntimeError("AI_API_KEY 未配置")
 
+    # ⚠️ 必须取「实际生效」的模型名。config.AI_MODEL 只是 .env 兜底值，
+    # 用户在「用户中心 → 模型信息」切换模型后它不会变 —— 用常量记日志
+    # 会让人以为还在用旧模型，排查时被直接带偏。
+    model = get_effective_model(user_id)
+
     llm = get_llm(temperature=temperature, max_tokens=max_tokens, timeout=REQUEST_TIMEOUT, user_id=user_id)
 
     messages = [
@@ -66,13 +83,31 @@ async def call_ai_text(
         HumanMessage(content=user_message),
     ]
 
-    log.info(f"→ AI 请求: {AI_MODEL}, system_prompt={system_prompt[:40]}...")
+    log.info(
+        "→ AI 请求: model=%s prompt=%s+%s",
+        model, _digest(system_prompt), _digest(user_message),
+    )
+    # prompt 正文只在 DEBUG 出现，且仍然只给摘要不落原文
+    log.debug("AI system_prompt=%r user_message=%r", system_prompt[:200], user_message[:200])
+
+    started = time.perf_counter()
     try:
         response = await llm.ainvoke(messages)
         content = response.content.strip()
-        log.info(f"← AI 回复: {len(content)} 字符")
+        elapsed = time.perf_counter() - started
+
+        # token 用量：LangChain 的 AIMessage 统一暴露在 usage_metadata 上。
+        # 取不到就记 "-"，**不要伪造数字** —— 假数据比没数据更害人。
+        usage = getattr(response, "usage_metadata", None) or {}
+        log.info(
+            "← AI 回复: %d 字符 | %.1fs | in=%s out=%s",
+            len(content), elapsed,
+            usage.get("input_tokens", "-"), usage.get("output_tokens", "-"),
+        )
         return content
     except Exception as e:
-        log.exception("AI 调用失败")
+        log.exception(
+            "AI 调用失败（model=%s，已耗时 %.1fs）", model, time.perf_counter() - started
+        )
         raise RuntimeError(f"AI 调用失败: {str(e)}") from e
 

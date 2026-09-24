@@ -99,5 +99,9 @@ async def call_ai_for_icon(name: str, intro: str, category: str, user_id: int = 
     except HTTPException:
         raise
     except Exception as e:
+        # 完整堆栈已由 log.exception 落盘（自动带 request_id），
+        # detail 不再拼 str(e)：那是内部实现细节，回给前端既没用也不安全。
         log.exception("AI 图标设计调用失败")
-        raise HTTPException(status_code=500, detail=f"AI 图标设计失败: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail="AI 图标生成失败，请稍后重试"
+        ) from e

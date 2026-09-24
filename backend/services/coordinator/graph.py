@@ -102,7 +102,9 @@ async def _run_one_subgraph(domain: str, instruction: str, user_id: int, main_th
         }, config=config)
         return _parse_agent_outcome(agent_result, domain, sub_thread_id)
     except Exception as e:
-        log.error(f"子图 {domain} 执行失败：{e}")
+        # 用 exception 保留堆栈：子 Agent 内部是 ReAct 循环（多轮 LLM + 工具），
+        # 只打一行 str(e) 根本看不出是哪一轮、哪个工具出的问题
+        log.exception("子图 %s 执行失败", domain)
         return [{
             "domain": domain,
             "message": f"执行失败：{str(e)}",
@@ -132,7 +134,7 @@ async def resume_subgraph(domain: str, sub_thread_id: str, answer: str):
         )
         return _parse_agent_outcome(agent_result, domain, sub_thread_id)
     except Exception as e:
-        log.error(f"子图 {domain} 恢复失败：{e}")
+        log.exception("子图 %s 恢复失败", domain)
         return [{
             "domain": domain,
             "message": f"恢复失败：{str(e)}",
@@ -183,7 +185,10 @@ async def dispatch_subgraphs(state: dict) -> dict:
     results, interrupts, completed = [], [], []
     for outcome in outcomes:
         if isinstance(outcome, Exception):
-            log.error(f"子图执行异常：{outcome}")
+            # exc_info=outcome 才能打出这个异常的堆栈 ——
+            # asyncio.gather(return_exceptions=True) 把异常当值返回，
+            # 此时 sys.exc_info() 是空的，必须显式传
+            log.error("子图执行异常：%r", outcome, exc_info=outcome)
             continue
         r, i = outcome
         results.extend(r)

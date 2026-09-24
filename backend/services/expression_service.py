@@ -22,13 +22,27 @@ from db.expressions import (
     get_existing_questions,
     create_question,
     get_question,
-    create_answer,
     update_answer_text,
     update_answer_evaluation,
-    get_max_attempt,
 )
 
 log = logging.getLogger(__name__)
+
+
+class EvaluationUnavailable(RuntimeError):
+    """评分服务暂时不可用
+
+    以下两种情况都归到这里，调用方应对用户显示「暂不可用，请稍后重试」：
+
+      1. LLM 调用失败（网络 / 超时 / 配额用尽）
+      2. LLM 返回了内容，但**解析不出合法的评分 JSON**（或缺少分数维度）
+
+    ⚠️ 这两种情况都**绝对不能**降级成一份编造的分数。
+    原来的做法是失败时写入一份默认 70 分并置 status='evaluated'：
+    用户看到的是假分数，而且因为已经"评估过"，之后再怎么点「AI 分析」
+    也只会命中缓存、拿回那份假数据 —— 错得没有痕迹，比直接报错糟糕得多。
+    """
+
 
 # 题型映射
 QUESTION_TYPES = {
@@ -115,6 +129,9 @@ async def evaluate_answer(question_id: int, answer_id: int, answer_text: str, fi
 
 请对用户的表达进行评分，给出优点和改进建议。"""
 
+    # 答案文本先落库 —— 它跟评分成功与否无关，不该因为评分失败就丢
+    update_answer_text(answer_id, answer_text, filler_words)
+
     try:
         result = await _call_llm_direct(
             system_prompt=EXPRESSION_EVALUATE_SYSTEM_PROMPT,
@@ -123,12 +140,17 @@ async def evaluate_answer(question_id: int, answer_id: int, answer_text: str, fi
             user_id=user_id,
         )
         evaluation = _parse_evaluation_result(result)
+    except EvaluationUnavailable:
+        # 解析不出来（格式不对 / 缺分数）→ 原样上抛，交给路由层告诉用户「暂不可用」
+        raise
     except Exception as e:
-        log.exception(f"评分失败: {e}")
-        evaluation = _fallback_evaluation()
+        log.exception("评分调用失败（不落库，返回暂不可用）")
+        raise EvaluationUnavailable("评分服务暂时不可用，请稍后重试") from e
 
-    # 保存到数据库
-    update_answer_text(answer_id, answer_text, filler_words)
+    # ⚠️ 只有**真的拿到评分**才写库。
+    #    原来这里无论成败都写：失败时写进一份编造的默认 70 分并置 status='evaluated'，
+    #    用户在界面上看到的是假分数，而且因为状态已变，之后再点「AI 分析」
+    #    只会命中缓存、拿回同一份假数据 —— 错得没有痕迹。
     update_answer_evaluation(
         answer_id,
         scores=evaluation["scores"],
@@ -359,7 +381,11 @@ def _parse_question_result(result: dict) -> dict:
 
 
 def _parse_evaluation_result(content: str) -> dict:
-    """从 LLM 返回内容中解析评分结果"""
+    """从 LLM 返回内容中解析评分结果
+
+    ⚠️ 解析不出来就**抛 EvaluationUnavailable**，不要返回兜底分数 ——
+    见 `EvaluationUnavailable` 类文档。
+    """
     # 提取 JSON 块
     json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
     if json_match:
@@ -376,23 +402,38 @@ def _parse_evaluation_result(content: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    return _fallback_evaluation()
+    log.warning("评分结果无法解析：%s", (content or "")[:200])
+    raise EvaluationUnavailable("AI 返回的评分格式无法解析，请稍后重试")
+
+
+# 必须齐全的分数维度。**不给默认值** ——
+# 缺任何一维都说明模型没按要求输出，补个 70 分等于替它编造结论。
+_SCORE_KEYS = ("total", "fluency", "logic", "content", "language")
 
 
 def _validate_evaluation(data: dict) -> dict:
-    """校验并补全评分数据"""
-    scores = data.get("scores", {})
+    """校验评分数据
+
+    ⚠️ **分数不设默认值**：缺任何一个维度就抛 EvaluationUnavailable。
+    （原来每个维度都写成 `scores.get(k, 70)`，等于把「模型没给分」
+      悄悄变成了「70 分」—— 用户看到的是一个没人给出过的数字。）
+
+    文字部分（优点 / 改进 / 建议）保留兜底：它们不构成误导性的量化结论。
+    """
+    scores = data.get("scores") or {}
+    missing = [k for k in _SCORE_KEYS if not isinstance(scores.get(k), (int, float))]
+    if missing:
+        raise EvaluationUnavailable(
+            "AI 返回的评分不完整（缺少 " + "、".join(missing) + "），请稍后重试"
+        )
+
     return {
-        "scores": {
-            "total": max(0, min(100, scores.get("total", 70))),
-            "fluency": max(0, min(100, scores.get("fluency", 70))),
-            "logic": max(0, min(100, scores.get("logic", 70))),
-            "content": max(0, min(100, scores.get("content", 70))),
-            "language": max(0, min(100, scores.get("language", 70))),
-        },
-        "strengths": data.get("strengths", ["表达清晰，能够完整回答问题"]),
-        "improvements": data.get("improvements", ["可以尝试增加更多具体例子来支撑观点"]),
-        "suggestion": data.get("suggestion", "建议多练习结构化表达，使用「首先、其次、最后」等连接词让逻辑更清晰。"),
+        "scores": {k: max(0, min(100, round(scores[k]))) for k in _SCORE_KEYS},
+        "strengths": data.get("strengths") or ["表达清晰，能够完整回答问题"],
+        "improvements": data.get("improvements") or ["可以尝试增加更多具体例子来支撑观点"],
+        "suggestion": data.get("suggestion") or (
+            "建议多练习结构化表达，使用「首先、其次、最后」等连接词让逻辑更清晰。"
+        ),
     }
 
 
@@ -430,14 +471,13 @@ def _fallback_question(types: list = None) -> dict:
     }
 
 
-def _fallback_evaluation() -> dict:
-    """降级评分：当 AI 不可用时返回默认评分"""
-    return {
-        "scores": {"total": 70, "fluency": 70, "logic": 70, "content": 70, "language": 70},
-        "strengths": ["表达清晰，能够完整回答问题"],
-        "improvements": ["可以尝试增加更多具体例子来支撑观点"],
-        "suggestion": '建议多练习结构化表达，使用「首先、其次、最后」等连接词让逻辑更清晰。',
-    }
+# 原来这里有个 `_fallback_evaluation()`（AI 不可用时返回一份 70 分的默认评分），
+# 已于 2026-09-23 的代码审查**删除**。
+#
+# 为什么删而不是留着：它代表的正是「AI 失败就编一个分数」这个行为 ——
+# 留下这个函数等于留下诱因，下次有人写 except 分支时很容易又用上它。
+# 现在失败了统一抛 `EvaluationUnavailable`，由路由层告诉用户「暂不可用」。
+# 要恢复旧行为请去 git 历史里找（但请先想清楚：给用户一个假分数是否真的比报错好）。
 
 
 def _fallback_hints() -> list:

@@ -9,6 +9,7 @@ DashScope SDK → callback.on_event() → Queue → async 轮询 → WebSocket �
 import os
 import queue
 import logging
+import threading
 
 import dashscope
 from dashscope.audio.asr import Recognition, RecognitionCallback, RecognitionResult
@@ -22,6 +23,20 @@ DASHSCOPE_WS_URL = os.getenv(
     "DASHSCOPE_WS_URL",
     "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
 )
+
+# ⚠️ 建立连接时的互斥锁 —— 这把锁是**必要的**，不要删。
+#
+# 背景：`dashscope.api_key` 与 `dashscope.base_websocket_api_url` 是**模块级全局**，
+# 而 `Recognition` 实例建立连接时会去读这两个全局值（SDK 没有提供实例级参数，
+# 已经查过 `Recognition.__init__` 的签名确认了）。
+#
+# 于是多用户并发使用时，后启动的会话会把前一个的 key 覆盖掉 ——
+# A 的语音识别可能实际用的是 B 的密钥（本项目支持每个用户在
+# 「用户中心 → 模型信息」里配自己的 ASR key，所以这不是假想问题）。
+#
+# 这把锁保证「设置全局 → 建立连接」这一段是**原子**的。临界区里没有 await，
+# 锁的持有时间就是建连耗时（百毫秒级），可以接受。
+_dashscope_start_lock = threading.Lock()
 
 
 class ASRCallback(RecognitionCallback):
@@ -84,13 +99,12 @@ class ASRConnection:
         self.state_queue = queue.Queue()
 
     def start(self):
-        """启动 ASR 识别会话（建立 WebSocket 连接）"""
+        """启动 ASR 识别会话（建立 WebSocket 连接，**同步阻塞**）
+
+        ⚠️ 会阻塞到建连完成，async 上下文里请用 `await asyncio.to_thread(asr.start)`。
+        """
         if not self.api_key:
             raise RuntimeError("ASR API Key 未设置，无法使用语音识别")
-
-        # 配置 DashScope
-        dashscope.api_key = self.api_key
-        dashscope.base_websocket_api_url = self.base_url
 
         # 创建回调
         callback = ASRCallback(self.result_queue, self.state_queue)
@@ -104,8 +118,15 @@ class ASRConnection:
             callback=callback,
         )
 
-        # start() 会建立 WebSocket 连接并在后台线程运行
-        self.recognition.start()
+        # ⚠️「设置全局 key/url → 建立连接」必须在同一把锁里完成。
+        #    中间被别的会话插进来就会「串号」：本会话实际用上别人的密钥。
+        #    详见文件顶部 `_dashscope_start_lock` 的说明。
+        with _dashscope_start_lock:
+            dashscope.api_key = self.api_key
+            dashscope.base_websocket_api_url = self.base_url
+            # start() 会建立 WebSocket 连接并在后台线程运行
+            self.recognition.start()
+
         log.info(f"ASR 识别会话已启动: model={self.model}")
 
     def send_audio(self, data: bytes):

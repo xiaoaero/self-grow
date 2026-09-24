@@ -28,6 +28,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from services.coordinator.agents.ask_user_tool import ask_user
+from services.tool_args import coerce_json_args
 from services.sse import emit_stage
 
 log = logging.getLogger(__name__)
@@ -142,7 +143,12 @@ def make_agent_node(tools, domain: str, domain_label: str, system_prompt: str):
                         )
                         try:
                             # 工具是同步的（内部是同步 sqlite3），丢线程池避免阻塞事件循环
-                            tool_result = await asyncio.to_thread(tool_fn.invoke, args)
+                            tool_result = await asyncio.to_thread(
+                                tool_fn.invoke,
+                                # 参数容错：模型常把 list/dict 传成 JSON 字符串，
+                                # 不解析就是 ValidationError（详见 services/tool_args.py）
+                                coerce_json_args(tool_fn, args),
+                            )
                         except Exception as e:
                             log.error(f"工具 {name} 执行异常：{e}")
                             tool_result = {"success": False, "message": f"工具执行异常：{e}"}

@@ -44,7 +44,7 @@ def award_exp_and_recalc(user_id: int, category: str, exp_amount: float,
         conn = get_conn()
 
     try:
-        user = conn.execute("SELECT level FROM users WHERE id = ?", (user_id,)).fetchone()
+        user = conn.execute("""SELECT level FROM users WHERE id = %s""", (user_id,)).fetchone()
         old_level = user["level"] if user else 1
 
         # 计算全局经验值
@@ -62,7 +62,9 @@ def award_exp_and_recalc(user_id: int, category: str, exp_amount: float,
             upsert_dimension(user_id, category, dimension_exp, conn=conn)
 
         # 2. 从维度表实时 SUM 总经验，重算等级
-        new_total = get_total_exp_from_dimensions(user_id)
+        # ⚠️ 必须带 conn：上一句刚在这个事务里 upsert 了维度经验，
+        #    另开连接读不到未提交的数据 → 算出来的总经验永远滞后一条记录
+        new_total = get_total_exp_from_dimensions(user_id, conn=conn)
         new_level = level_from_total_exp(new_total)
         new_current = max(0, new_total - total_exp_for_level(new_level))
 
@@ -71,7 +73,9 @@ def award_exp_and_recalc(user_id: int, category: str, exp_amount: float,
 
         # 4. 更新今日统计
         today = datetime.now().strftime('%Y-%m-%d')
-        today_row = get_user_stats(user_id, today)
+        # 同样必须带 conn：下面 upsert_user_stats 要基于这一份读数做累加，
+        # 读到旧值的话会把本次增量覆盖掉（今日统计少算）
+        today_row = get_user_stats(user_id, today, conn=conn)
         upsert_user_stats(
             user_id, today,
             focus_minutes=today_row["focus_minutes"] + extra_focus_minutes,
@@ -223,7 +227,7 @@ def create_action_and_award_exp(
 
         # 2. 幂等检查：该记录是否已经奖励过经验
         existing = conn.execute(
-            "SELECT exp_earned FROM action_logs WHERE id = ?",
+            """SELECT exp_earned FROM action_logs WHERE id = %s""",
             (action_id,),
         ).fetchone()
         if existing and existing["exp_earned"] and existing["exp_earned"] > 0:
@@ -251,7 +255,7 @@ def create_action_and_award_exp(
 
         # 4. 回写行动记录的最终经验值（第 1 步先占位 0，这里再更新为真实值）
         conn.execute(
-            "UPDATE action_logs SET exp_earned = ? WHERE id = ?",
+            """UPDATE action_logs SET exp_earned = %s WHERE id = %s""",
             (dimension_exp, action_id),
         )
 

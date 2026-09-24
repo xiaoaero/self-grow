@@ -7,6 +7,8 @@ Self Grow — AI 行动解析服务
 """
 
 import logging
+import time
+
 from fastapi import HTTPException
 
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -51,8 +53,10 @@ async def call_action_ai(messages: list, user_id: int = 1) -> dict:
     msgs = [SystemMessage(content=ACTION_PARSE_SYSTEM_PROMPT)] + _to_langchain_messages(messages)
 
     try:
-        log.info(f"→ AI 行动解析请求: 消息数={len(messages)}")
+        log.info("→ AI 行动解析请求: 消息数=%d", len(messages))
+        started = time.perf_counter()
         resp = await llm_with_tools.ainvoke(msgs)
+        elapsed = time.perf_counter() - started
 
         # 检查是否有工具调用
         if resp.tool_calls:
@@ -60,16 +64,26 @@ async def call_action_ai(messages: list, user_id: int = 1) -> dict:
                 {"id": tc["id"], "name": tc["name"], "arguments": tc["args"]}
                 for tc in resp.tool_calls
             ]
-            log.info(f"← AI 调用工具: {[t['name'] for t in tool_calls]}")
+            log.info("← AI 调用工具: %s | %.1fs", [t["name"] for t in tool_calls], elapsed)
             return {"tool_calls": tool_calls}
 
         # 纯文本回复
         content = resp.content or ""
-        log.info(f"← AI 回复: {content[:60]}...")
+        usage = getattr(resp, "usage_metadata", None) or {}
+        log.info(
+            "← AI 回复: %d 字符 | %.1fs | in=%s out=%s",
+            len(content), elapsed,
+            usage.get("input_tokens", "-"), usage.get("output_tokens", "-"),
+        )
         return {"content": content}
 
     except HTTPException:
         raise
     except Exception as e:
+        # 注意：完整堆栈已经由 log.exception 写进日志（并自动带上 request_id），
+        # detail 里**不能再拼 str(e)** —— 那等于把内部实现细节回给前端，
+        # 而前端拿着它也做不了什么。给稳定文案 + 让用户报 request_id 即可。
         log.exception("AI 请求异常")
-        raise HTTPException(status_code=500, detail=f"AI 请求异常: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail="AI 服务暂时不可用，请稍后重试"
+        ) from e
