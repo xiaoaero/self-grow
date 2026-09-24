@@ -1322,8 +1322,23 @@ async function startVoiceRecording() {
     }
 }
 
+/**
+ * WebSocket 连接用的鉴权 query
+ *
+ * ⚠️ 浏览器原生 WebSocket **不支持自定义 header**，所以 token 只能挂在 URL 上
+ * （与 EventSource 的 SSE 是同一个限制）。
+ *
+ * 之所以不能再像以前那样传 `?user_id=`：那等于让客户端「自己声明自己是谁」，
+ * 谁都能填别人的 id —— 后端现已改为校验 `?token=<access_token>` 并拒绝无 token
+ * 的连接（除非 TRUSTED_MODE）。
+ */
+function getWsAuthQuery() {
+    const token = (window.Auth && Auth.getToken && Auth.getToken()) || '';
+    return token ? `token=${encodeURIComponent(token)}` : '';
+}
+
 function connectASRWebSocket() {
-    const ws = new WebSocket(`${getWsBase()}/ws/asr?user_id=${getCurrentUserId()}`);
+    const ws = new WebSocket(`${getWsBase()}/ws/asr?${getWsAuthQuery()}`);
     ws.binaryType = 'arraybuffer';
 
     // 累积的完整文本
@@ -1772,7 +1787,7 @@ async function startASRTest() {
 
         // 建立 WebSocket 连接（立即设置所有事件处理，避免丢失早期消息）
         setASRTestStatus('⏳ 连接语音识别服务...', 'connecting');
-        const ws = new WebSocket(getWsBase() + '/ws/asr?user_id=' + getCurrentUserId());
+        const ws = new WebSocket(getWsBase() + '/ws/asr?' + getWsAuthQuery());
         ws.binaryType = 'arraybuffer';
         STATE.asrTestWs = ws;
 

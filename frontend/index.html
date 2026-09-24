@@ -25,6 +25,14 @@
         document.head.appendChild(s);
     }
     </script>
+    <!-- 侧边栏收起状态：必须在首屏渲染前应用，否则会出现"先展开、后收起"的闪动 -->
+    <script>
+    try {
+        if (localStorage.getItem('selfgrow.sidebarCollapsed') === '1') {
+            document.documentElement.classList.add('is-collapsed');
+        }
+    } catch (e) { /* 隐私模式等场景下 localStorage 不可用，忽略 */ }
+    </script>
 </head>
 <body>
     <!-- SVG Gradients for attribute icons -->
@@ -99,6 +107,13 @@
                 <span class="sidebar__title-main">Self Grow</span>
                 <span class="sidebar__title-sub">个人成长系统</span>
             </div>
+            <button class="sidebar__toggle" id="sidebar-toggle" type="button"
+                    aria-label="收起侧边栏" aria-expanded="true" title="收起侧边栏">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 6l-6 6 6 6"/>
+                </svg>
+            </button>
         </div>
 
         <nav class="sidebar__nav">
@@ -178,7 +193,8 @@
                 <svg class="sidebar__nav-arrow" id="ext-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
             </a>
             <div class="sidebar__subnav" id="subnav-ext">
-                <a class="sidebar__subnav-item active" data-subpage="ext.agent" onclick="navigateTo('extensions', 'agent')"><span>表达训练</span></a>
+                <a class="sidebar__subnav-item active" data-subpage="ext.aiconsult" onclick="navigateTo('extensions', 'aiconsult')"><span>AI资讯</span></a>
+                <a class="sidebar__subnav-item" data-subpage="ext.agent" onclick="navigateTo('extensions', 'agent')"><span>表达训练</span></a>
             </div>
         </div>
 

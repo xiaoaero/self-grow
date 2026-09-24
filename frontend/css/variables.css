@@ -58,6 +58,7 @@
 
     /* --- 尺寸 --- */
     --sidebar-width:        260px;
+    --sidebar-width-collapsed: 76px;
     --content-max-width:    1280px;
 
     /* --- 过渡 --- */

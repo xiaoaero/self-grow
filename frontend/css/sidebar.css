@@ -15,7 +15,8 @@
     display: flex;
     flex-direction: column;
     z-index: 100;
-    transition: transform var(--transition-normal);
+    /* width 也要过渡：收起/展开时侧栏变窄、主内容区跟着滑动 */
+    transition: transform var(--transition-normal), width var(--transition-normal);
 }
 
 /* --- Brand --- */
@@ -25,6 +26,7 @@
     align-items: center;
     gap: 12px;
     border-bottom: 1px solid var(--border-light);
+    position: relative;
 }
 .sidebar__logo {
     width: 38px;
@@ -49,6 +51,39 @@
     font-size: 11px;
     color: var(--color-text-muted);
     letter-spacing: 1px;
+}
+
+/* --- 收起 / 展开按钮（固定在品牌区右上角，两态位置一致） --- */
+.sidebar__toggle {
+    position: absolute;
+    top: 20px;
+    right: 14px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    z-index: 2;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+.sidebar__toggle:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--color-text-primary);
+}
+.sidebar__toggle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+}
+.sidebar__toggle svg {
+    width: 16px;
+    height: 16px;
+    transition: transform var(--transition-normal);
 }
 
 /* --- Nav --- */
@@ -277,3 +312,142 @@
 .sidebar__ext-item.active::before {
     background: #B794F6;
 }
+
+/* ================================================================
+   Sidebar — 收起态（只留图标）
+   ----------------------------------------------------------------
+   开关是 <html> 上的 is-collapsed：app.js 负责切换，head 里的内联脚本
+   在首屏渲染前预置（localStorage 记住上次状态，避免刷新时闪一下）。
+
+   宽度走 --sidebar-width 变量 —— 主内容区的 margin-left 用的是同一个变量，
+   所以右侧会自动变宽并在剩余空间里重新居中，不需要额外的定位逻辑。
+
+   ⚠️ 700px 以下移动端必须在 layout.css 的媒体查询里显式重置这个变量：
+   `:root.is-collapsed` 的特异性高于 `:root`，不覆盖会把抽屉宽度顶成 76px。
+   ================================================================ */
+
+:root.is-collapsed {
+    --sidebar-width: var(--sidebar-width-collapsed);
+}
+
+/* --- 品牌区：只留居中的 logo --- */
+:root.is-collapsed .sidebar__brand {
+    padding: 24px 0 20px;
+    justify-content: center;
+    gap: 0;
+}
+:root.is-collapsed .sidebar__title { display: none; }
+:root.is-collapsed .sidebar__logo {
+    width: 34px;
+    height: 34px;
+}
+:root.is-collapsed .sidebar__toggle svg { transform: rotate(180deg); }
+
+/* --- 收起态的开关：平时不显示，鼠标进侧栏时才从右边缘外侧滑出来 ---
+   ⚠️ 它能溢出到侧栏之外、鼠标移过去也不会闪，靠的是：
+   按钮是 .sidebar 的 DOM 子元素，而 :hover 沿 DOM 树传播、与"视觉上是否溢出"无关，
+   所以鼠标从侧栏挪到按钮上时 .sidebar:hover 依然成立。
+   ⚠️ 也正因如此 left 必须是 100%（紧贴边缘）：改成 calc(100% + Npx) 留出缝隙的话，
+   鼠标穿过缝隙时会离开 .sidebar，按钮就闪没了。 */
+:root.is-collapsed .sidebar__toggle {
+    left: 100%;
+    right: auto;
+    top: 14px;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-md);
+    color: var(--color-text-secondary);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-6px);
+    transition: opacity var(--transition-fast),
+                transform var(--transition-fast),
+                background var(--transition-fast),
+                color var(--transition-fast);
+}
+:root.is-collapsed .sidebar:hover .sidebar__toggle,
+:root.is-collapsed .sidebar__toggle:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
+}
+:root.is-collapsed .sidebar__toggle:hover {
+    background: var(--color-bg-high);
+    color: var(--color-text-primary);
+}
+/* 触摸设备没有 hover 可用（平板这类宽屏触控），收起态的开关得常显，否则就展不开了 */
+@media (hover: none) {
+    :root.is-collapsed .sidebar__toggle {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateX(0);
+    }
+}
+
+/* --- 导航：只留图标并居中 --- */
+:root.is-collapsed .sidebar__nav { padding: 12px 8px; }
+:root.is-collapsed .sidebar__nav-item {
+    justify-content: center;
+    gap: 0;
+    padding: 12px 0;
+}
+:root.is-collapsed .sidebar__nav-item > span,
+:root.is-collapsed .sidebar__nav-arrow {
+    display: none;
+}
+:root.is-collapsed .sidebar__nav-item svg {
+    width: 22px;
+    height: 22px;
+    opacity: 0.75;
+}
+:root.is-collapsed .sidebar__nav-item.active svg { opacity: 1; }
+/* 左侧那 3px 指示条在窄栏里太贴边，改用整块高亮表示当前页 */
+:root.is-collapsed .sidebar__nav-item.active::before { display: none; }
+
+/* 子导航是纯文字、没有图标可留 → 整体隐藏 */
+:root.is-collapsed .sidebar__subnav { display: none; }
+
+/* --- 分隔线：只留线，去掉「更多」字样 --- */
+:root.is-collapsed .sidebar__divider {
+    padding: 8px 16px 12px;
+    gap: 8px;
+}
+:root.is-collapsed .sidebar__divider-label { display: none; }
+
+/* --- 扩展区 --- */
+:root.is-collapsed .sidebar__extensions { padding: 0 8px 12px; }
+
+/* --- 底部：只留等级徽章（46px 宽，76px 栏宽减去内边距刚好放得下） --- */
+:root.is-collapsed .sidebar__footer { padding: 16px 8px; }
+:root.is-collapsed .sidebar__user-level {
+    justify-content: center;
+    gap: 0;
+    padding: 4px 0;
+    margin: 0;
+}
+:root.is-collapsed .sidebar__level-info { display: none; }
+:root.is-collapsed .sidebar__user-arrow { display: none; }
+
+/* --- 收起态的悬停提示 ---
+   只剩图标，必须给个名字提示（各板块图标区分度有限）。
+   ⚠️ 不能用 .sidebar__nav-item::after 做浮层：.sidebar__nav 上有 overflow-y: auto，
+   而一个轴设为 auto 时另一个轴的计算值也会变成 auto，浮层会被裁掉。
+   所以由 app.js 往 body 挂这个 .sidebar__tip 浮层并定位。 */
+.sidebar__tip {
+    position: fixed;
+    transform: translateY(-50%);
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-high);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-md);
+    color: var(--color-text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 300;
+    transition: opacity var(--transition-fast);
+}
+.sidebar__tip--show { opacity: 1; }

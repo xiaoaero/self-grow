@@ -6,7 +6,7 @@ let currentPage = 'dashboard';
 let currentSubPage = 'quick';
 let currentTasksSubPage = 'today';
 let currentSkillSubPage = 'mine';
-let currentExtSubPage = 'agent';
+let currentExtSubPage = 'aiconsult';
 
 /** 已加载的页面 JS 模块名集合 */
 const loadedPages = new Set();
@@ -46,6 +46,19 @@ function loadPageJS(pageName) {
             console.warn(`页面 JS 加载失败: ${src}`);
             reject(new Error(`Failed to load ${src}`));
         };
+        document.body.appendChild(script);
+    });
+}
+
+/** 子页面额外脚本（如 extensions 下的 aiconsult.js），不污染 PAGE_JS_MAP */
+const _extraLoaded = new Set();
+function loadScript(src) {
+    if (_extraLoaded.has(src)) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => { _extraLoaded.add(src); resolve(); };
+        script.onerror = () => { console.warn(`脚本加载失败: ${src}`); reject(new Error(`Failed to load ${src}`)); };
         document.body.appendChild(script);
     });
 }
@@ -185,7 +198,11 @@ function navigateTo(pageName, subPage) {
         const renderVersion = ++navigateTo._version;
 
         // 动态加载并渲染
-        loadPageJS(pageName).then(async () => {
+        const _loadPromises = [loadPageJS(pageName)];
+        if (pageName === 'extensions') {
+            _loadPromises.push(loadScript('js/pages/aiconsult.js'));
+        }
+        Promise.all(_loadPromises).then(async () => {
             // 如果用户已切换到其他页面，跳过渲染
             if (renderVersion !== navigateTo._version) return;
 
@@ -199,7 +216,12 @@ function navigateTo(pageName, subPage) {
                 habits: typeof renderHabits !== 'undefined' ? renderHabits : null,
                 skill: typeof renderSkills !== 'undefined' ? () => renderSkills(currentSkillSubPage) : null,
                 rewards: typeof renderRewards !== 'undefined' ? renderRewards : null,
-                extensions: typeof renderAgent !== 'undefined' ? () => renderAgent(currentExtSubPage) : null,
+                extensions: () => {
+                    if (currentExtSubPage === 'aiconsult') {
+                        return (typeof renderAIConsult !== 'undefined') ? renderAIConsult() : null;
+                    }
+                    return (typeof renderAgent !== 'undefined') ? renderAgent(currentExtSubPage) : null;
+                },
                 usercenter: typeof renderUserCenter !== 'undefined' ? renderUserCenter : null,
             };
 

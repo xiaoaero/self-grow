@@ -60,6 +60,8 @@ body {
     z-index: 1;
     padding: 32px;
     scroll-behavior: smooth;
+    /* 侧栏收起/展开时跟着滑动，别硬跳 */
+    transition: margin-left var(--transition-normal);
 }
 
 /* ===== 页面容器 ===== */
@@ -160,8 +162,17 @@ body {
     .main-content { padding: 20px; }
 }
 @media (max-width: 700px) {
-    :root { --sidebar-width: 0px; }
+    /* ⚠️ 这里必须用 !important：
+       sidebar.css 里有一条 `:root.is-collapsed { --sidebar-width: ... }`，
+       它的特异性（0,2,0）和下面这条 `:root.is-collapsed` 完全相同，
+       而 sidebar.css 在 layout.css **之后**加载 → 不加 !important 的话它会赢，
+       收起态会把移动端的 0px 顶成 76px。
+       实测过：不加 !important 时窄屏下 side bar 宽度是 76px 而不是 0。 */
+    :root,
+    :root.is-collapsed { --sidebar-width: 0px !important; }
     .sidebar { transform: translateX(-100%); }
     .sidebar--open { transform: translateX(0); }
     .main-content { margin-left: 0; }
+    /* 抽屉模式下开合由滑动决定，收起按钮没有意义 */
+    .sidebar__toggle { display: none; }
 }
