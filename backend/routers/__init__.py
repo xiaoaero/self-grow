@@ -17,6 +17,7 @@ from .auth import router as auth_router
 from .skill_tree import router as skill_tree_router
 from .skill_tree_ai import router as skill_tree_ai_router
 from .expression import router as expression_router
+from .aiconsult import router as aiconsult_router
 from .coordinator import router as coordinator_router
 from .model_configs import router as model_configs_router
 

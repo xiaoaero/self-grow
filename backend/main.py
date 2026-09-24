@@ -6,19 +6,30 @@ FastAPI 应用创建、生命周期管理、路由注册、启动入口。
 
 import os
 import json
+import logging
 import datetime
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from config import (
-    PORT, log, UPLOAD_DIR, FRONTEND_DIR,
+    PORT, UPLOAD_DIR, FRONTEND_DIR,
     CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, CORS_ALLOW_ORIGIN_REGEX,
     SELF_GROW_TRUSTED_MODE,
 )
+from services.middleware import RequestContextMiddleware
+from services.logging_setup import request_id_var
 from db.init import init_db
+
+# 用自己的 logger，不再借 `config` 的 ——
+# 借来的 logger 名字里带着 `config`，于是 main.py 打的启动日志在文件里
+# 全显示成 `config | ...`，排查时会误以为来自配置模块。
+# （config.py 自己那个 log 有它的用途：读配置阶段就要能记录告警。）
+log = logging.getLogger("main")
 from db.users import get_all_users
 from db.batch import archive_daily_tasks, archive_weekly_tasks, refresh_daily_tasks, refresh_weekly_tasks, settle_habit_exp_for_user, snapshot_daily_stats, catch_up_missed_archives
 
@@ -37,13 +48,15 @@ def update_monthly_stats(user_id: int, count: int, xp: int):
     from db.connection import get_conn
     year_month = datetime.date.today().strftime("%Y-%m")
     conn = get_conn()
-    conn.execute("""
-        INSERT INTO user_monthly_stats (user_id, year_month, habit_count, habit_xp)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(user_id, year_month) DO UPDATE SET
-            habit_count = habit_count + excluded.habit_count,
-            habit_xp = habit_xp + excluded.habit_xp
-    """, (user_id, year_month, count, xp))
+    conn.execute(
+        """INSERT INTO user_monthly_stats (user_id, `year_month`, habit_count, habit_xp)
+        VALUES (%s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            habit_count = habit_count + VALUES(habit_count),
+            habit_xp = habit_xp + VALUES(habit_xp)
+        """,
+        (user_id, year_month, count, xp),
+    )
     conn.commit()
     conn.close()
 
@@ -122,10 +135,40 @@ async def lifespan(app_instance):
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
         from apscheduler.executors.pool import ThreadPoolExecutor
+        from services.aiconsult_service import (
+            stage_github_segment, merge_github_round,
+            fetch_domestic_news, fetch_international_news,
+            record_weekly_baseline, cleanup_expired,
+        )
 
-        scheduler = AsyncIOScheduler(executors={'default': ThreadPoolExecutor(1)})
+        scheduler = AsyncIOScheduler(executors={'default': ThreadPoolExecutor(4)})
         scheduler.add_job(run_daily_refresh, CronTrigger(hour=3, minute=0))
         scheduler.add_job(run_weekly_refresh, CronTrigger(day_of_week='mon', hour=3, minute=5))
+
+        # ── AI 咨询板块（GitHub 趋势 + 国内/国际 AI 资讯）──
+        # 每轮分 3 段错峰搜索（H-20 / H-10 / H:00）暂存，H+5 合并去重取前 15。
+        for h in (3, 15):
+            rk = f"weekly_{h:02d}"
+            scheduler.add_job(stage_github_segment, CronTrigger(hour=h-1, minute=40), args=["github_weekly", "ai", rk])
+            scheduler.add_job(stage_github_segment, CronTrigger(hour=h-1, minute=50), args=["github_weekly", "agent", rk])
+            scheduler.add_job(stage_github_segment, CronTrigger(hour=h, minute=0), args=["github_weekly", "llm", rk])
+            scheduler.add_job(merge_github_round, CronTrigger(hour=h, minute=5), args=["github_weekly", rk])
+        for h in (2, 8, 14, 20):
+            rk = f"daily_{h:02d}"
+            scheduler.add_job(stage_github_segment, CronTrigger(hour=h-1, minute=40), args=["github_daily", "ai", rk])
+            scheduler.add_job(stage_github_segment, CronTrigger(hour=h-1, minute=50), args=["github_daily", "agent", rk])
+            scheduler.add_job(stage_github_segment, CronTrigger(hour=h, minute=0), args=["github_daily", "llm", rk])
+            scheduler.add_job(merge_github_round, CronTrigger(hour=h, minute=5), args=["github_daily", rk])
+        for h in (3, 15):
+            scheduler.add_job(fetch_domestic_news, CronTrigger(hour=h, minute=0))
+            scheduler.add_job(fetch_international_news, CronTrigger(hour=h, minute=0))
+
+        # ── AI 分析的数据侧（LLM 不在这里跑：改成「用户点进 AI 分析才懒触发」）──
+        # 每周日 15:05：把当轮「GitHub 每周」记为周基线，供下周比涨幅
+        scheduler.add_job(record_weekly_baseline, CronTrigger(day_of_week='sun', hour=15, minute=5))
+        # 每天 0:10：清理过期的日快照 / 日榜 / 资讯热度榜（只留今天 + 昨天）
+        scheduler.add_job(cleanup_expired, CronTrigger(hour=0, minute=10))
+
         scheduler.start()
         log.info("⏰ 定时任务调度器已启动")
 
@@ -151,6 +194,15 @@ async def lifespan(app_instance):
 
 app = FastAPI(title="Self Grow Backend", version="1.0.0", lifespan=lifespan)
 
+# ⚠️ 两条中间件的注册顺序不能调换。
+# Starlette 的 add_middleware 是 insert(0, ...) —— **后加的在外层**。
+# 这里先加 RequestContext（内层）、后加 CORS（外层），于是：
+#  · 请求进入：CORS → RequestContext → 路由
+#  · 异常返回：RequestContext 兜底生成 500 → CORS 补跨域头 → 浏览器
+#    能看到我们返回的 request_id。反过来的话前端只会看到 CORS 错误，
+#    拿不到 request_id，等于兜底白做。
+app.add_middleware(RequestContextMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     # 前端要带 Authorization 头，且同源部署时依赖 refresh Cookie，
@@ -161,6 +213,8 @@ app.add_middleware(
     allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
+    # 让浏览器端也能读到 request_id（默认 JS 读不到非简单响应头）
+    expose_headers=["X-Request-ID"],
 )
 
 # 静态文件挂载（奖励图片上传）
@@ -173,6 +227,7 @@ from routers import (
     goals_router, tasks_router, scheduled_tasks_router,
     stats_router, rewards_router, auth_router, skill_tree_router,
     skill_tree_ai_router, expression_router, coordinator_router, model_configs_router,
+    aiconsult_router,
 )
 
 app.include_router(health_router)
@@ -190,6 +245,35 @@ app.include_router(skill_tree_ai_router)
 app.include_router(expression_router)
 app.include_router(coordinator_router)
 app.include_router(model_configs_router)
+app.include_router(aiconsult_router)
+
+
+# ================================================================
+# 422 参数校验失败：记下字段级原因
+# ================================================================
+# 这类错误原本**完全静默** —— 前端收到 422、后端日志里什么都没有，
+# 排查时只能靠猜是哪个字段不对。属于最常见的排错盲区。
+#
+# 注意：这里用 exception_handler 而不是在中间件里兜，
+# 因为 RequestValidationError 由 ExceptionMiddleware 处理，
+# 它位于用户中间件**之内** —— 返回的响应会正常经过 CORS。
+
+@app.exception_handler(RequestValidationError)
+async def _on_validation_error(request: Request, exc: RequestValidationError):
+    details = "; ".join(
+        f"{'.'.join(str(p) for p in err.get('loc', ()))}: {err.get('msg', '')}"
+        for err in (exc.errors() or [])[:5]
+    )
+    log.warning("参数校验失败 %s %s :: %s", request.method, request.url.path, details)
+    return JSONResponse(
+        status_code=422,
+        # ⚠️ request_id 从 **ContextVar** 取，不要读 `request.state`。
+        #    中间件只把 id 写进 ContextVar（那是唯一来源，日志 filter 也读它），
+        #    从来没写过 scope["state"] —— 读 state 会永远拿到 "-"
+        #    （实测：日志里 req 是正常的 `65a3162d3de5`，响应体里却是 "-"，
+        #      用户报错时贴出来的 id 对不上日志，等于白给）。
+        content={"detail": exc.errors(), "request_id": request_id_var.get("-")},
+    )
 
 
 # ================================================================
@@ -324,4 +408,26 @@ if FRONTEND_DIR and os.path.isdir(FRONTEND_DIR):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=PORT,
+        # log_config=None：不要让 uvicorn 再配一遍 logging。
+        # 不传的话 uvicorn 会给 uvicorn.error / uvicorn.access 装自己的
+        # handler 和格式，与 services/logging_setup.py 里统一好的那套并存
+        # —— 就是原来「三套格式混在一起」的成因。
+        # 设为 None 后 uvicorn 的 logger 冒泡到 root，全局只有一套格式。
+        log_config=None,
+        # 访问日志改由 RequestContextMiddleware 输出：它能带上
+        # request_id / 用户 / 耗时 / 慢请求分档，uvicorn 自带的只有 IP 和状态码。
+        # 两个都开会变成每条请求两行重复日志。
+        access_log=False,
+        # 反代后取真实客户端 IP。不设的话 Nginx 后面所有请求的 client IP
+        # 都是 nginx 容器地址（172.x.x.x）→ auth.py 的登录限流会按同一个
+        # IP 计数，把所有人一起误伤。
+        # ⚠️ "*" 表示信任任意来源的 X-Forwarded-For。app 端口**直连公网**时
+        # 这可以被伪造来绕过限流 —— 那种部署请用环境变量收紧到反代网段。
+        proxy_headers=True,
+        forwarded_allow_ips=os.getenv("SELF_GROW_FORWARDED_ALLOW_IPS", "*"),
+    )

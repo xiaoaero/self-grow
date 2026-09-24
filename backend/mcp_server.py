@@ -38,6 +38,12 @@ from typing import Literal, Optional
 # 确保能 import backend 下的 db / services 模块（不依赖启动时的 cwd）
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# ⚠️ 必须在**任何 backend 模块被 import 之前**设置。
+# config.py 在模块尾部就会初始化日志，日志文件名由这个变量决定。
+# app 与 mcp 是**两个容器**却共享同一个 /data 卷 —— 若都写 app.log，
+# 两个进程会互相破坏对方的文件轮转（表现为日志被截断或丢内容）。
+os.environ.setdefault("SELF_GROW_LOG_COMPONENT", "mcp")
+
 from fastmcp import FastMCP  # noqa: E402
 
 # ── 数据层导入（用 db_ 前缀避免与 MCP 工具函数重名）─────────
@@ -53,6 +59,7 @@ from starlette.responses import JSONResponse  # noqa: E402
 
 from config import SELF_GROW_TRUSTED_MODE  # noqa: E402
 from services import auth_service  # noqa: E402
+from services.logging_setup import force_stderr_only  # noqa: E402
 from db.init import init_db  # noqa: E402
 
 # 幂等建表：MCP Server 可能**单独启动**（例如 docker compose up -d mcp，
@@ -738,6 +745,12 @@ if __name__ == "__main__":
     if transport == "stdio":
         # stdio：WorkBuddy / Claude Desktop / Cursor 等本地客户端直接 spawn 本进程通信
         # 本地进程可信，不做鉴权（身份由 SELF_GROW_USER_ID 决定）
+        #
+        # ⚠️ stdio 模式下 **stdout 是 JSON-RPC 通道**，任何非协议输出混进去都会
+        #    让客户端报「解析失败」，症状看起来像工具坏了，极难定位。
+        #    下面这行把 root 上所有控制台 handler 强制重绑到 stderr，
+        #    把「别往 stdout 打日志」从约定变成保证。
+        force_stderr_only()
         mcp.run()
     else:
         import uvicorn
@@ -750,4 +763,15 @@ if __name__ == "__main__":
             f"本地开发可设 SELF_GROW_TRUSTED_MODE=1 关闭本校验。",
             file=sys.stderr,
         )
-        uvicorn.run(build_http_app(transport), host=host, port=port)
+        uvicorn.run(
+            build_http_app(transport),
+            host=host,
+            port=port,
+            # 与 main.py 同理：不要让 uvicorn 再配一遍日志，
+            # 否则它的 logger 会脱离 services/logging_setup.py 那套统一格式
+            log_config=None,
+            access_log=False,
+            # 反代后取真实客户端 IP（否则日志里全是反代容器地址）
+            proxy_headers=True,
+            forwarded_allow_ips=os.getenv("SELF_GROW_FORWARDED_ALLOW_IPS", "*"),
+        )

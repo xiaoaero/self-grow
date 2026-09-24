@@ -58,6 +58,11 @@ if not os.path.exists(env_path):
             "AI_API_KEY=\n"
             "AI_MODEL=glm-5.2\n"
             "\n"
+            "# AI 咨询外部 API（GitHub / Bocha / Tavily）\n"
+            "GITHUB_TOKEN=\n"
+            "BOCHA_API_KEY=\n"
+            "TAVILY_API_KEY=\n"
+            "\n"
             "# 服务端口\n"
             "PORT=3001\n"
             "\n"
@@ -71,13 +76,36 @@ if not os.path.exists(env_path):
             f.write(template)
 load_dotenv(env_path)
 
-logging.basicConfig(level=logging.INFO)
+# ================================================================
+# 日志初始化（全项目唯一入口）
+# ================================================================
+# ⚠️ 刻意放在 config 里：config 是所有模块的必经入口，能保证日志**早于**
+#    任何业务日志就绪（下面第 96/98/125 行就有 log.warning）。
+#
+# 原来这里是 `logging.basicConfig(level=logging.INFO)`，已拆掉：
+#   · basicConfig 只在 root 尚无 handler 时生效，与 uvicorn 的 dictConfig
+#     叠加后行为不可预测 —— 表现为三套格式并存、root 那套连时间戳都没有
+#   · 级别、落盘、脱敏、第三方降噪全都没地方配
+# 现在统一交给 services/logging_setup.py，详见该文件头部说明。
+from services.logging_setup import setup_logging as _setup_logging
+
+_setup_logging(
+    # app 与 mcp 共享 /data 卷，日志文件名必须区分，否则两个进程互相破坏轮转
+    component=os.getenv("SELF_GROW_LOG_COMPONENT", "app"),
+    data_dir=DATA_DIR,
+)
+
 log = logging.getLogger(__name__)
 
 # AI 配置
 AI_BASE_URL = os.getenv("AI_API_BASE_URL", "")
 AI_API_KEY = os.getenv("AI_API_KEY", "")
 AI_MODEL = os.getenv("AI_MODEL", "")
+
+# AI 咨询外部 API（GitHub 趋势 / 国内 Bocha / 国际 Tavily）
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+BOCHA_API_KEY = os.getenv("BOCHA_API_KEY", "")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
 # ASR 配置（paraformer 实时语音识别）
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "") or AI_API_KEY
@@ -115,18 +143,21 @@ except (ValueError, TypeError):
     log.warning("⚠️ PORT 环境变量格式错误，使用默认端口 3001")
     PORT = 3001
 
-# 数据库路径（sqlite 后端用；mysql 后端不看这个）
-DB_PATH = os.path.join(DATA_DIR, "data.db")
-
 # ================================================================
-# 数据库后端选择（2026-09-19 加入）
+# 数据库（MySQL，唯一）
 # ================================================================
-#   SELF_GROW_DB_BACKEND=sqlite  → 走原来的 data.db（默认，行为完全不变）
-#   SELF_GROW_DB_BACKEND=mysql   → 走 MySQL
+# 项目 2026-09-19 从 SQLite 迁到 MySQL，2026-09-23 **彻底移除** SQLite ——
+# 不再有 `SELF_GROW_DB_BACKEND` 开关，也没有 `DB_PATH`。
 #
-# 保留两条通路是**有意为之**：迁移期任何一步出问题，把这个变量改回 sqlite
-# 就能整体回退。详见 docs/SQLite迁移MySQL方案.md 第九节。
-DB_BACKEND = os.getenv("SELF_GROW_DB_BACKEND", "sqlite").strip().lower()
+# 那个环境变量现在**只读不认**：读到就告警。这样老部署改了
+# `SELF_GROW_DB_BACKEND=sqlite` 会立刻看到"已废弃"，而不是困惑于"为什么没生效"。
+_LEGACY_DB_BACKEND = os.getenv("SELF_GROW_DB_BACKEND")
+if _LEGACY_DB_BACKEND:
+    log.warning(
+        "⚠️ 环境变量 SELF_GROW_DB_BACKEND=%s 已废弃（项目只支持 MySQL），"
+        "本次启动忽略它。请从 .env / docker-compose.yml 里删掉这一行。",
+        _LEGACY_DB_BACKEND,
+    )
 
 MYSQL_HOST = os.getenv("SELF_GROW_MYSQL_HOST", "127.0.0.1")
 MYSQL_PORT = int(os.getenv("SELF_GROW_MYSQL_PORT", "3306") or 3306)
