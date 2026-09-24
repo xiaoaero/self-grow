@@ -9,7 +9,7 @@ import datetime
 def get_task(task_id: int):
     """获取单个任务（按 ID 直接查询）"""
     conn = get_conn()
-    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    row = conn.execute("""SELECT * FROM tasks WHERE id = %s""", (task_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -19,14 +19,14 @@ def get_tasks_paginated(user_id: int, page: int = 1, page_size: int = 20,
                         sort: str = "newest") -> dict:
     """分页查询任务历史"""
     conn = get_conn()
-    where_clauses = ["user_id = ?"]
+    where_clauses = ["user_id = %s"]
     where_params = [user_id]
 
     if status and status != "all":
-        where_clauses.append("status = ?")
+        where_clauses.append("status = %s")
         where_params.append(status)
     if category and category != "all":
-        where_clauses.append("category = ?")
+        where_clauses.append("category = %s")
         where_params.append(category)
 
     where_sql = " AND ".join(where_clauses)
@@ -47,7 +47,7 @@ def get_tasks_paginated(user_id: int, page: int = 1, page_size: int = 20,
 
     offset = (page - 1) * page_size
     rows = conn.execute(
-        f"SELECT * FROM tasks WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
+        f"SELECT * FROM tasks WHERE {where_sql} ORDER BY {order_sql} LIMIT %s OFFSET %s",
         where_params + [page_size, offset],
     ).fetchall()
     conn.close()
@@ -66,8 +66,8 @@ def get_today_tasks(user_id: int) -> dict:
     today_start = datetime.date.today().isoformat()
     rows = conn.execute(
         """SELECT * FROM tasks
-           WHERE user_id = ? AND source_type IN ('today', 'daily')
-           AND date(created_at) = ?
+           WHERE user_id = %s AND source_type IN ('today', 'daily')
+           AND date(created_at) = %s
            AND status IN ('todo', 'doing', 'done')
            ORDER BY CASE status
                WHEN 'todo' THEN 1
@@ -96,8 +96,8 @@ def get_week_tasks(user_id: int) -> dict:
     conn = get_conn()
     rows = conn.execute(
         """SELECT * FROM tasks
-           WHERE user_id = ? AND source_type = 'weekly'
-           AND date(created_at) >= ? AND date(created_at) <= ?
+           WHERE user_id = %s AND source_type = 'weekly'
+           AND date(created_at) >= %s AND date(created_at) <= %s
            AND status IN ('todo', 'doing', 'done')
            ORDER BY CASE status
                WHEN 'todo' THEN 1
@@ -126,7 +126,7 @@ def create_task(user_id: int, title: str, category: str, priority: str = "mid",
     cursor = conn.execute(
         """INSERT INTO tasks (user_id, title, category, priority, exp, intro, status,
                               source_type, source_template_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         (user_id, title, category, priority, exp, intro, status, source_type,
          source_template_id, now_str()),
     )
@@ -144,13 +144,13 @@ def update_task(task_id: int, **kwargs) -> bool:
     values = []
     for k, v in kwargs.items():
         if k in allowed and v is not None:
-            fields.append(f"{k} = ?")
+            fields.append(f"{k} = %s")
             values.append(v)
     if not fields:
         return False
     values.append(task_id)
     conn = get_conn()
-    conn.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", values)
+    conn.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = %s", values)
     conn.commit()
     conn.close()
     return True
@@ -159,7 +159,7 @@ def update_task(task_id: int, **kwargs) -> bool:
 def delete_task(task_id: int) -> bool:
     """删除任务"""
     conn = get_conn()
-    conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    conn.execute("""DELETE FROM tasks WHERE id = %s""", (task_id,))
     conn.commit()
     conn.close()
     return True
@@ -169,14 +169,14 @@ def claim_task_reward(task_id: int) -> dict:
     """领取任务 EXP，返回 exp_earned"""
     conn = get_conn()
     row = conn.execute(
-        "SELECT exp, claimed FROM tasks WHERE id = ?",
+        """SELECT exp, claimed FROM tasks WHERE id = %s""",
         (task_id,),
     ).fetchone()
     if not row or row["claimed"]:
         conn.close()
         return None
     exp_earned = row["exp"]
-    conn.execute("UPDATE tasks SET claimed = 1 WHERE id = ?", (task_id,))
+    conn.execute("""UPDATE tasks SET claimed = 1 WHERE id = %s""", (task_id,))
     conn.commit()
     conn.close()
     return {"exp_earned": exp_earned}

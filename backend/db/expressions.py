@@ -6,7 +6,9 @@ Self Grow — 表达训练数据库 CRUD
 
 import json
 
-from db.connection import get_conn
+# ⚠️ 用别名 phs：这几个文件里有同名局部变量 `placeholders`，
+#    直接 import 同名会被局部赋值覆盖（见 db/connection.py::placeholders 的说明）
+from db.connection import get_conn, placeholders as phs
 
 
 # ================================================================
@@ -19,7 +21,7 @@ def create_question(question: str, question_type: str, hints: str = None, source
     try:
         cursor = conn.execute(
             """INSERT INTO expression_questions (question, question_type, hints, source)
-               VALUES (?, ?, ?, ?)""",
+               VALUES (%s, %s, %s, %s)""",
             (question, question_type, hints or None, source),
         )
         conn.commit()
@@ -33,7 +35,7 @@ def get_question(question_id: int) -> dict:
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT * FROM expression_questions WHERE id = ?", (question_id,)
+            """SELECT * FROM expression_questions WHERE id = %s""", (question_id,)
         ).fetchone()
         return _row_to_dict(row) if row else None
     finally:
@@ -45,14 +47,14 @@ def get_existing_questions(types: list = None, limit: int = 50) -> list:
     conn = get_conn()
     try:
         if types:
-            placeholders = ",".join("?" for _ in types)
+            placeholders = phs(len(types))
             rows = conn.execute(
-                f"SELECT question, question_type FROM expression_questions WHERE question_type IN ({placeholders}) ORDER BY created_at DESC LIMIT ?",
+                f"SELECT question, question_type FROM expression_questions WHERE question_type IN ({placeholders}) ORDER BY created_at DESC LIMIT %s",
                 (*types, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT question, question_type FROM expression_questions ORDER BY created_at DESC LIMIT ?", (limit,)
+                """SELECT question, question_type FROM expression_questions ORDER BY created_at DESC LIMIT %s""", (limit,)
             ).fetchall()
         return [{"question": r["question"], "question_type": r["question_type"]} for r in rows]
     finally:
@@ -64,7 +66,7 @@ def update_question_hints(question_id: int, hints: str):
     conn = get_conn()
     try:
         conn.execute(
-            "UPDATE expression_questions SET hints = ? WHERE id = ?",
+            """UPDATE expression_questions SET hints = %s WHERE id = %s""",
             (hints, question_id),
         )
         conn.commit()
@@ -82,7 +84,7 @@ def create_answer(user_id: str, question_id: int, attempt: int = 1) -> int:
     try:
         cursor = conn.execute(
             """INSERT INTO expression_answers (user_id, question_id, attempt, status)
-               VALUES (?, ?, ?, 'answered')""",
+               VALUES (%s, %s, %s, 'answered')""",
             (user_id, question_id, attempt),
         )
         conn.commit()
@@ -96,7 +98,7 @@ def update_answer_text(answer_id: int, answer: str, filler_words: dict = None):
     conn = get_conn()
     try:
         conn.execute(
-            "UPDATE expression_answers SET answer = ?, filler_words = ? WHERE id = ?",
+            """UPDATE expression_answers SET answer = %s, filler_words = %s WHERE id = %s""",
             (answer, json.dumps(filler_words, ensure_ascii=False) if filler_words else None, answer_id),
         )
         conn.commit()
@@ -110,11 +112,11 @@ def update_answer_evaluation(answer_id: int, scores: dict, strengths: list, impr
     try:
         conn.execute(
             """UPDATE expression_answers SET
-               score_total = ?, score_fluency = ?, score_logic = ?,
-               score_content = ?, score_language = ?,
-               strengths = ?, improvements = ?, suggestion = ?,
+               score_total = %s, score_fluency = %s, score_logic = %s,
+               score_content = %s, score_language = %s,
+               strengths = %s, improvements = %s, suggestion = %s,
                status = 'evaluated'
-               WHERE id = ?""",
+               WHERE id = %s""",
             (
                 scores.get("total"), scores.get("fluency"), scores.get("logic"),
                 scores.get("content"), scores.get("language"),
@@ -137,7 +139,7 @@ def get_answer(answer_id: int) -> dict:
             """SELECT a.*, q.question, q.question_type, q.hints, q.source
                FROM expression_answers a
                JOIN expression_questions q ON a.question_id = q.id
-               WHERE a.id = ?""",
+               WHERE a.id = %s""",
             (answer_id,),
         ).fetchone()
         return _row_to_dict(row) if row else None
@@ -152,13 +154,13 @@ def get_answers_by_question(question_id: int, user_id: str = None) -> list:
         if user_id:
             rows = conn.execute(
                 """SELECT * FROM expression_answers
-                   WHERE question_id = ? AND user_id = ?
+                   WHERE question_id = %s AND user_id = %s
                    ORDER BY attempt ASC""",
                 (question_id, user_id),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM expression_answers WHERE question_id = ? ORDER BY attempt ASC",
+                """SELECT * FROM expression_answers WHERE question_id = %s ORDER BY attempt ASC""",
                 (question_id,),
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
@@ -175,9 +177,9 @@ def get_user_history(user_id: str, limit: int = 20) -> list:
                       q.id as question_id, q.question, q.question_type
                FROM expression_answers a
                JOIN expression_questions q ON a.question_id = q.id
-               WHERE a.user_id = ?
+               WHERE a.user_id = %s
                ORDER BY a.created_at DESC
-               LIMIT ?""",
+               LIMIT %s""",
             (user_id, limit),
         ).fetchall()
         return [_row_to_dict(r) for r in rows]
@@ -191,13 +193,13 @@ def get_user_stats(user_id: str) -> dict:
     try:
         # 累计回答总数
         total = conn.execute(
-            "SELECT COUNT(*) as cnt FROM expression_answers WHERE user_id = ?",
+            """SELECT COUNT(*) as cnt FROM expression_answers WHERE user_id = %s""",
             (user_id,),
         ).fetchone()["cnt"]
 
         # 累计训练天数
         days = conn.execute(
-            "SELECT COUNT(DISTINCT DATE(created_at)) as cnt FROM expression_answers WHERE user_id = ?",
+            """SELECT COUNT(DISTINCT DATE(created_at)) as cnt FROM expression_answers WHERE user_id = %s""",
             (user_id,),
         ).fetchone()["cnt"]
 
@@ -206,7 +208,7 @@ def get_user_stats(user_id: str) -> dict:
             """SELECT q.question_type, COUNT(*) as cnt
                FROM expression_answers a
                JOIN expression_questions q ON a.question_id = q.id
-               WHERE a.user_id = ?
+               WHERE a.user_id = %s
                GROUP BY q.question_type""",
             (user_id,),
         ).fetchall()
@@ -220,7 +222,7 @@ def get_user_stats(user_id: str) -> dict:
         avg_row = conn.execute(
             """SELECT AVG(score_total) as avg_score FROM (
                 SELECT score_total FROM expression_answers
-                WHERE user_id = ? AND score_total IS NOT NULL
+                WHERE user_id = %s AND score_total IS NOT NULL
                 ORDER BY created_at DESC LIMIT 5
             ) AS recent""",
             (user_id,),
@@ -242,7 +244,7 @@ def get_max_attempt(question_id: int, user_id: str) -> int:
     conn = get_conn()
     try:
         row = conn.execute(
-            "SELECT MAX(attempt) as max_attempt FROM expression_answers WHERE question_id = ? AND user_id = ?",
+            """SELECT MAX(attempt) as max_attempt FROM expression_answers WHERE question_id = %s AND user_id = %s""",
             (question_id, user_id),
         ).fetchone()
         return row["max_attempt"] if row and row["max_attempt"] else 0
@@ -267,19 +269,19 @@ def get_question_history_list(
     conn = get_conn()
     try:
         params = [user_id]
-        where_clauses = ["a.user_id = ?"]
+        where_clauses = ["a.user_id = %s"]
 
         # 题型筛选
         if question_type:
-            where_clauses.append("q.question_type = ?")
+            where_clauses.append("q.question_type = %s")
             params.append(question_type)
 
         # 时间范围筛选（基于 last_answer_time）
         if time_start:
-            where_clauses.append("MAX(a.created_at) >= ?")
+            where_clauses.append("MAX(a.created_at) >= %s")
             params.append(time_start)
         if time_end:
-            where_clauses.append("MAX(a.created_at) <= ?")
+            where_clauses.append("MAX(a.created_at) <= %s")
             params.append(time_end + " 23:59:59")
 
         where_sql = " AND ".join(where_clauses)
@@ -315,7 +317,7 @@ def get_question_history_list(
         data_sql = f"""
             {base_sql} {having_sql}
             ORDER BY last_answer_time DESC
-            LIMIT ? OFFSET ?
+            LIMIT %s OFFSET %s
         """
         rows = conn.execute(data_sql, params + [page_size, offset]).fetchall()
 
@@ -352,9 +354,9 @@ def get_recent_answers(question_id: int, user_id: str = None, limit: int = 5) ->
                           a.score_fluency, a.score_logic, a.score_content, a.score_language,
                           a.strengths, a.improvements, a.suggestion
                    FROM expression_answers a
-                   WHERE a.question_id = ? AND a.user_id = ?
+                   WHERE a.question_id = %s AND a.user_id = %s
                    ORDER BY a.created_at DESC
-                   LIMIT ?""",
+                   LIMIT %s""",
                 (question_id, user_id, limit),
             ).fetchall()
         else:
@@ -363,9 +365,9 @@ def get_recent_answers(question_id: int, user_id: str = None, limit: int = 5) ->
                           a.score_fluency, a.score_logic, a.score_content, a.score_language,
                           a.strengths, a.improvements, a.suggestion
                    FROM expression_answers a
-                   WHERE a.question_id = ?
+                   WHERE a.question_id = %s
                    ORDER BY a.created_at DESC
-                   LIMIT ?""",
+                   LIMIT %s""",
                 (question_id, limit),
             ).fetchall()
         return [_row_to_dict(r) for r in rows]

@@ -12,6 +12,11 @@ from db.scheduled_tasks import get_scheduled_tasks_by_type
 from db.task_history import archive_tasks_to_history
 from models.level import level_from_total_exp, total_exp_for_level
 import datetime
+import logging
+
+# 用本模块自己的 logger。原来是在函数体内 `from config import log` ——
+# 借来的 logger 名字里带着 `config`，归档日志在文件里全显示成配置模块打的。
+log = logging.getLogger(__name__)
 
 
 def archive_daily_tasks(user_id: int):
@@ -25,8 +30,8 @@ def archive_daily_tasks(user_id: int):
     # 将昨天未完成的 today/daily 任务标记为 expired
     conn.execute(
         """UPDATE tasks SET status = 'expired'
-           WHERE user_id = ? AND source_type IN ('today', 'daily')
-           AND date(created_at) = ?
+           WHERE user_id = %s AND source_type IN ('today', 'daily')
+           AND date(created_at) = %s
            AND status IN ('todo', 'doing')""",
         (user_id, yesterday),
     )
@@ -50,7 +55,7 @@ def refresh_daily_tasks(user_id: int):
             continue
         conn.execute(
             """INSERT INTO tasks (user_id, title, category, priority, exp, intro, status, source_type, source_template_id)
-               VALUES (?, ?, ?, ?, ?, ?, 'todo', 'daily', ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s, 'todo', 'daily', %s)""",
             (user_id, t["title"], t["category"], t["priority"],
              t["exp"], t["intro"], t["id"]),
         )
@@ -71,8 +76,8 @@ def archive_weekly_tasks(user_id: int):
     # 将上周未完成的 weekly 任务标记为 expired
     conn.execute(
         """UPDATE tasks SET status = 'expired'
-           WHERE user_id = ? AND source_type = 'weekly'
-           AND date(created_at) >= ? AND date(created_at) <= ?
+           WHERE user_id = %s AND source_type = 'weekly'
+           AND date(created_at) >= %s AND date(created_at) <= %s
            AND status IN ('todo', 'doing')""",
         (user_id, last_monday.isoformat(), last_sunday.isoformat()),
     )
@@ -95,7 +100,7 @@ def refresh_weekly_tasks(user_id: int):
             continue
         conn.execute(
             """INSERT INTO tasks (user_id, title, category, priority, exp, intro, status, source_type, source_template_id)
-               VALUES (?, ?, ?, ?, ?, ?, 'todo', 'weekly', ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s, 'todo', 'weekly', %s)""",
             (user_id, t["title"], t["category"], t["priority"],
              t["exp"], t["intro"], t["id"]),
         )
@@ -156,8 +161,6 @@ def catch_up_missed_archives(user_id: int):
     - 昨天的 today/daily 任务 → 归档
     - 上周的 weekly 任务 → 归档
     """
-    from config import log
-
     today = datetime.date.today()
     yesterday = (today - datetime.timedelta(days=1)).isoformat()
     conn = get_conn()
@@ -165,8 +168,8 @@ def catch_up_missed_archives(user_id: int):
     # 1. 检查昨天是否有未归档的 today/daily 任务
     yesterday_tasks = conn.execute(
         """SELECT COUNT(*) as cnt FROM tasks
-           WHERE user_id = ? AND source_type IN ('today', 'daily')
-           AND date(created_at) = ?""",
+           WHERE user_id = %s AND source_type IN ('today', 'daily')
+           AND date(created_at) = %s""",
         (user_id, yesterday),
     ).fetchone()
 
@@ -174,8 +177,8 @@ def catch_up_missed_archives(user_id: int):
         # 将未完成的标记为 expired
         conn.execute(
             """UPDATE tasks SET status = 'expired'
-               WHERE user_id = ? AND source_type IN ('today', 'daily')
-               AND date(created_at) = ?
+               WHERE user_id = %s AND source_type IN ('today', 'daily')
+               AND date(created_at) = %s
                AND status IN ('todo', 'doing')""",
             (user_id, yesterday),
         )
@@ -192,8 +195,8 @@ def catch_up_missed_archives(user_id: int):
 
     weekly_tasks = conn.execute(
         """SELECT COUNT(*) as cnt FROM tasks
-           WHERE user_id = ? AND source_type = 'weekly'
-           AND date(created_at) >= ? AND date(created_at) <= ?""",
+           WHERE user_id = %s AND source_type = 'weekly'
+           AND date(created_at) >= %s AND date(created_at) <= %s""",
         (user_id, last_monday.isoformat(), last_sunday.isoformat()),
     ).fetchone()
 
@@ -201,8 +204,8 @@ def catch_up_missed_archives(user_id: int):
         # 将未完成的标记为 expired
         conn.execute(
             """UPDATE tasks SET status = 'expired'
-               WHERE user_id = ? AND source_type = 'weekly'
-               AND date(created_at) >= ? AND date(created_at) <= ?
+               WHERE user_id = %s AND source_type = 'weekly'
+               AND date(created_at) >= %s AND date(created_at) <= %s
                AND status IN ('todo', 'doing')""",
             (user_id, last_monday.isoformat(), last_sunday.isoformat()),
         )

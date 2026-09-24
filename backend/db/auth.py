@@ -17,7 +17,7 @@ def get_user_auth(user_id: int):
     """取鉴权需要的用户字段"""
     conn = get_conn()
     row = conn.execute(
-        "SELECT id, name, role, password_hash, token_version FROM users WHERE id = ?",
+        """SELECT id, name, role, password_hash, token_version FROM users WHERE id = %s""",
         (user_id,),
     ).fetchone()
     conn.close()
@@ -28,7 +28,7 @@ def get_user_auth_by_name(name: str):
     """按用户名取鉴权字段（登录用）"""
     conn = get_conn()
     row = conn.execute(
-        "SELECT id, name, role, password_hash, token_version FROM users WHERE name = ?",
+        """SELECT id, name, role, password_hash, token_version FROM users WHERE name = %s""",
         (name,),
     ).fetchone()
     conn.close()
@@ -38,7 +38,7 @@ def get_user_auth_by_name(name: str):
 def set_password_hash(user_id: int, password_hash: str):
     conn = get_conn()
     conn.execute(
-        "UPDATE users SET password_hash = ? WHERE id = ?",
+        """UPDATE users SET password_hash = %s WHERE id = %s""",
         (password_hash, user_id),
     )
     conn.commit()
@@ -48,7 +48,7 @@ def set_password_hash(user_id: int, password_hash: str):
 def update_last_login(user_id: int):
     conn = get_conn()
     conn.execute(
-        "UPDATE users SET last_login = ? WHERE id = ?",
+        """UPDATE users SET last_login = %s WHERE id = %s""",
         (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id),
     )
     conn.commit()
@@ -59,11 +59,11 @@ def bump_token_version(user_id: int) -> int:
     """token_version +1（改密码 / 强制下线时使用），返回新值"""
     conn = get_conn()
     conn.execute(
-        "UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE id = ?",
+        """UPDATE users SET token_version = COALESCE(token_version, 1) + 1 WHERE id = %s""",
         (user_id,),
     )
     row = conn.execute(
-        "SELECT token_version FROM users WHERE id = ?", (user_id,)
+        """SELECT token_version FROM users WHERE id = %s""", (user_id,)
     ).fetchone()
     conn.commit()
     conn.close()
@@ -78,7 +78,7 @@ def create_refresh_token(user_id: int, token_hash: str, user_agent: str, expires
     conn = get_conn()
     cur = conn.execute(
         """INSERT INTO refresh_tokens (user_id, token_hash, user_agent, expires_at)
-           VALUES (?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s)""",
         (user_id, token_hash, user_agent or "", expires_at),
     )
     token_id = cur.lastrowid
@@ -92,7 +92,7 @@ def find_valid_refresh(token_hash: str):
     conn = get_conn()
     row = conn.execute(
         """SELECT id, user_id, expires_at FROM refresh_tokens
-           WHERE token_hash = ? AND revoked = 0""",
+           WHERE token_hash = %s AND revoked = 0""",
         (token_hash,),
     ).fetchone()
     conn.close()
@@ -101,7 +101,7 @@ def find_valid_refresh(token_hash: str):
 
 def revoke_refresh(token_id: int):
     conn = get_conn()
-    conn.execute("UPDATE refresh_tokens SET revoked = 1 WHERE id = ?", (token_id,))
+    conn.execute("""UPDATE refresh_tokens SET revoked = 1 WHERE id = %s""", (token_id,))
     conn.commit()
     conn.close()
 
@@ -109,7 +109,7 @@ def revoke_refresh(token_id: int):
 def revoke_all_refresh(user_id: int):
     conn = get_conn()
     conn.execute(
-        "UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?", (user_id,)
+        """UPDATE refresh_tokens SET revoked = 1 WHERE user_id = %s""", (user_id,)
     )
     conn.commit()
     conn.close()
@@ -122,7 +122,7 @@ def revoke_all_refresh(user_id: int):
 def create_api_key(user_id: int, name: str, key_hash: str) -> int:
     conn = get_conn()
     cur = conn.execute(
-        "INSERT INTO api_keys (user_id, name, key_hash) VALUES (?, ?, ?)",
+        """INSERT INTO api_keys (user_id, name, key_hash) VALUES (%s, %s, %s)""",
         (user_id, name, key_hash),
     )
     key_id = cur.lastrowid
@@ -134,7 +134,7 @@ def create_api_key(user_id: int, name: str, key_hash: str) -> int:
 def find_api_key(key_hash: str):
     conn = get_conn()
     row = conn.execute(
-        "SELECT id, user_id FROM api_keys WHERE key_hash = ? AND revoked = 0",
+        """SELECT id, user_id FROM api_keys WHERE key_hash = %s AND revoked = 0""",
         (key_hash,),
     ).fetchone()
     conn.close()
@@ -144,7 +144,7 @@ def find_api_key(key_hash: str):
 def touch_api_key(key_id: int):
     conn = get_conn()
     conn.execute(
-        "UPDATE api_keys SET last_used_at = ? WHERE id = ?",
+        """UPDATE api_keys SET last_used_at = %s WHERE id = %s""",
         (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), key_id),
     )
     conn.commit()
@@ -155,7 +155,7 @@ def list_api_keys(user_id: int):
     conn = get_conn()
     rows = conn.execute(
         """SELECT id, name, last_used_at, created_at, revoked
-           FROM api_keys WHERE user_id = ? ORDER BY id DESC""",
+           FROM api_keys WHERE user_id = %s ORDER BY id DESC""",
         (user_id,),
     ).fetchall()
     conn.close()
@@ -165,7 +165,7 @@ def list_api_keys(user_id: int):
 def revoke_api_key(key_id: int, user_id: int):
     conn = get_conn()
     conn.execute(
-        "UPDATE api_keys SET revoked = 1 WHERE id = ? AND user_id = ?",
+        """UPDATE api_keys SET revoked = 1 WHERE id = %s AND user_id = %s""",
         (key_id, user_id),
     )
     conn.commit()

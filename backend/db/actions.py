@@ -27,8 +27,8 @@ def has_finance_review_this_half(user_id: int) -> bool:
     conn = get_conn()
     row = conn.execute(
         """SELECT COUNT(*) as cnt FROM action_logs
-           WHERE user_id = ? AND sub_type = 'finance-review'
-           AND start_time >= ? AND start_time <= ?""",
+           WHERE user_id = %s AND sub_type = 'finance-review'
+           AND start_time >= %s AND start_time <= %s""",
         (user_id, f"{half_start.isoformat()}T00:00:00", f"{half_end.isoformat()}T23:59:59"),
     ).fetchone()
     conn.close()
@@ -43,8 +43,8 @@ def has_sleep_record_today(user_id: int) -> bool:
     conn = get_conn()
     row = conn.execute(
         """SELECT COUNT(*) as cnt FROM action_logs
-           WHERE user_id = ? AND sub_type = 'health-sleep'
-           AND start_time >= ? AND start_time <= ?""",
+           WHERE user_id = %s AND sub_type = 'health-sleep'
+           AND start_time >= %s AND start_time <= %s""",
         (user_id, today_start, today_end),
     ).fetchone()
     conn.close()
@@ -70,7 +70,7 @@ def create_action_log(user_id: int, category_id: str, start_time: str,
     if request_id:
         existing = conn.execute(
             """SELECT id FROM action_logs
-               WHERE user_id = ? AND start_time = ? AND note = ?
+               WHERE user_id = %s AND start_time = %s AND note = %s
                LIMIT 1""",
             (user_id, start_time, f"[req:{request_id}] {note}" if note else f"[req:{request_id}]"),
         ).fetchone()
@@ -84,7 +84,7 @@ def create_action_log(user_id: int, category_id: str, start_time: str,
         """INSERT INTO action_logs
            (user_id, category_id, start_time, end_time, duration, note, exp_earned,
             sub_type, sleep_start, sleep_end, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         (user_id, category_id, start_time, end_time, duration, note_value, exp_earned,
          sub_type, sleep_start, sleep_end, now_str()),
     )
@@ -103,25 +103,25 @@ def get_action_logs(user_id: int, page: int = 1, page_size: int = 20,
     """分页查询行动记录，返回 { total, page, page_size, total_duration, total_exp, records }"""
     conn = get_conn()
 
-    where_clauses = ["al.user_id = ?"]
+    where_clauses = ["al.user_id = %s"]
     where_params = [user_id]
 
     if category and category != "all":
-        where_clauses.append("al.category_id = ?")
+        where_clauses.append("al.category_id = %s")
         where_params.append(category)
 
     if search:
-        where_clauses.append("(al.note LIKE ? OR al.category_id LIKE ? OR al.sub_type LIKE ?)")
+        where_clauses.append("(al.note LIKE %s OR al.category_id LIKE %s OR al.sub_type LIKE %s)")
         where_params.append(f"%{search}%")
         where_params.append(f"%{search}%")
         where_params.append(f"%{search}%")
 
     if date_from:
-        where_clauses.append("al.start_time >= ?")
+        where_clauses.append("al.start_time >= %s")
         where_params.append(f"{date_from}T00:00:00")
 
     if date_to:
-        where_clauses.append("al.start_time <= ?")
+        where_clauses.append("al.start_time <= %s")
         where_params.append(f"{date_to}T23:59:59")
 
     where_sql = " AND ".join(where_clauses)
@@ -150,7 +150,7 @@ def get_action_logs(user_id: int, page: int = 1, page_size: int = 20,
         f"""SELECT al.* FROM action_logs al
             WHERE {where_sql}
             ORDER BY {order_sql}
-            LIMIT ? OFFSET ?""",
+            LIMIT %s OFFSET %s""",
         where_params + [page_size, offset],
     ).fetchall()
     conn.close()
@@ -181,19 +181,19 @@ def get_action_logs_for_export(user_id: int, category: str = None,
     """
     conn = get_conn()
 
-    where_clauses = ["al.user_id = ?"]
+    where_clauses = ["al.user_id = %s"]
     where_params = [user_id]
 
     if category and category != "all":
-        where_clauses.append("al.category_id = ?")
+        where_clauses.append("al.category_id = %s")
         where_params.append(category)
 
     if date_from:
-        where_clauses.append("al.start_time >= ?")
+        where_clauses.append("al.start_time >= %s")
         where_params.append(f"{date_from}T00:00:00")
 
     if date_to:
-        where_clauses.append("al.start_time <= ?")
+        where_clauses.append("al.start_time <= %s")
         where_params.append(f"{date_to}T23:59:59")
 
     where_sql = " AND ".join(where_clauses)
@@ -228,7 +228,7 @@ def get_today_action_stats(user_id: int) -> dict:
     cat_rows = conn.execute(
         """SELECT category_id, COUNT(*) as count, COALESCE(SUM(duration),0) as duration, COALESCE(SUM(exp_earned),0) as exp
            FROM action_logs
-           WHERE user_id = ? AND start_time >= ? AND start_time <= ?
+           WHERE user_id = %s AND start_time >= %s AND start_time <= %s
            GROUP BY category_id
            ORDER BY duration DESC""",
         (user_id, today_start, today_end),
@@ -256,7 +256,7 @@ def get_today_action_stats(user_id: int) -> dict:
 
     recent = conn.execute(
         """SELECT al.* FROM action_logs al
-           WHERE al.user_id = ?
+           WHERE al.user_id = %s
            ORDER BY al.start_time DESC, al.id DESC
            LIMIT 8""",
         (user_id,),
@@ -284,9 +284,9 @@ def get_activity_feed(user_id: int, limit: int = 20) -> list:
     conn = get_conn()
     rows = conn.execute(
         """SELECT al.* FROM action_logs al
-           WHERE al.user_id = ?
+           WHERE al.user_id = %s
            ORDER BY al.start_time DESC, al.id DESC
-           LIMIT ?""",
+           LIMIT %s""",
         (user_id, limit),
     ).fetchall()
     conn.close()

@@ -12,7 +12,7 @@ def get_user_dimensions(user_id: int) -> list:
     """获取用户 8 维数据"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM user_dimensions WHERE user_id = ?",
+        """SELECT * FROM user_dimensions WHERE user_id = %s""",
         (user_id,),
     ).fetchall()
     conn.close()
@@ -27,17 +27,17 @@ def upsert_dimension(user_id: int, dimension_key: str, xp_add: float = 0, conn=N
         conn = _get_conn()
 
     row = conn.execute(
-        "SELECT level, xp, xp_to_next FROM user_dimensions WHERE user_id = ? AND dimension_key = ?",
+        """SELECT level, xp, xp_to_next FROM user_dimensions WHERE user_id = %s AND dimension_key = %s""",
         (user_id, dimension_key),
     ).fetchone()
 
     if not row:
         conn.execute(
-            "INSERT INTO user_dimensions (user_id, dimension_key, level, xp, xp_to_next) VALUES (?, ?, 1, 0, 150)",
+            """INSERT INTO user_dimensions (user_id, dimension_key, level, xp, xp_to_next) VALUES (%s, %s, 1, 0, 150)""",
             (user_id, dimension_key),
         )
         row = conn.execute(
-            "SELECT level, xp, xp_to_next FROM user_dimensions WHERE user_id = ? AND dimension_key = ?",
+            """SELECT level, xp, xp_to_next FROM user_dimensions WHERE user_id = %s AND dimension_key = %s""",
             (user_id, dimension_key),
         ).fetchone()
 
@@ -51,7 +51,7 @@ def upsert_dimension(user_id: int, dimension_key: str, xp_add: float = 0, conn=N
         xp_to_next = exp_for_level(level)
 
     conn.execute(
-        "UPDATE user_dimensions SET level = ?, xp = ?, xp_to_next = ? WHERE user_id = ? AND dimension_key = ?",
+        """UPDATE user_dimensions SET level = %s, xp = %s, xp_to_next = %s WHERE user_id = %s AND dimension_key = %s""",
         (level, xp, xp_to_next, user_id, dimension_key),
     )
 
@@ -61,14 +61,27 @@ def upsert_dimension(user_id: int, dimension_key: str, xp_add: float = 0, conn=N
     return {"level": level, "xp": xp, "xp_to_next": xp_to_next}
 
 
-def get_total_exp_from_dimensions(user_id: int) -> int:
-    """从 8 维表 SUM 出全局总经验（level 累计经验 + 剩余经验，返回整数）"""
-    conn = get_conn()
+def get_total_exp_from_dimensions(user_id: int, conn=None) -> int:
+    """从 8 维表 SUM 出全局总经验（level 累计经验 + 剩余经验，返回整数）
+
+    ⚠️ 支持传入 conn（传了由调用方负责关闭）。
+    调用方若正处在一个**尚未提交**的事务里，必须把 conn 传进来 —— 否则本函数
+    会另开一条连接，**读不到同事务里刚 upsert 的维度经验**，算出的总经验与
+    等级会永远滞后一条记录。`services/exp_service.py` 正是踩了这个：
+    它上一句刚 `upsert_dimension(..., conn=conn)`，下一句就来这里查。
+    """
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+
     rows = conn.execute(
-        "SELECT level, xp FROM user_dimensions WHERE user_id = ?",
+        """SELECT level, xp FROM user_dimensions WHERE user_id = %s""",
         (user_id,),
     ).fetchall()
-    conn.close()
+
+    if own_conn:
+        conn.close()
+
     total = 0.0
     for r in rows:
         total += total_exp_for_level(r["level"]) + r["xp"]

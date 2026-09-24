@@ -4,7 +4,9 @@ Self Grow — 任务历史 CRUD
 由定时归档任务将 tasks 表中的完成/过期任务移入此表永久保存。
 """
 
-from db.connection import get_conn
+# ⚠️ 用别名 phs：这几个文件里有同名局部变量 `placeholders`，
+#    直接 import 同名会被局部赋值覆盖（见 db/connection.py::placeholders 的说明）
+from db.connection import get_conn, placeholders as phs
 
 
 def get_task_history(user_id: int, page: int = 1, page_size: int = 20,
@@ -12,20 +14,20 @@ def get_task_history(user_id: int, page: int = 1, page_size: int = 20,
                      category: str = None, sort: str = "newest") -> dict:
     """分页查询任务历史，支持筛选和排序"""
     conn = get_conn()
-    where_clauses = ["user_id = ?"]
+    where_clauses = ["user_id = %s"]
     where_params = [user_id]
 
     if status and status != "all":
         if status == "completed":
             where_clauses.append("status IN ('completed', 'done')")
         else:
-            where_clauses.append("status = ?")
+            where_clauses.append("status = %s")
             where_params.append(status)
     if source_type and source_type != "all":
-        where_clauses.append("source_type = ?")
+        where_clauses.append("source_type = %s")
         where_params.append(source_type)
     if category and category != "all":
-        where_clauses.append("category = ?")
+        where_clauses.append("category = %s")
         where_params.append(category)
 
     where_sql = " AND ".join(where_clauses)
@@ -51,7 +53,7 @@ def get_task_history(user_id: int, page: int = 1, page_size: int = 20,
 
     offset = (page - 1) * page_size
     rows = conn.execute(
-        f"SELECT * FROM task_history WHERE {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?",
+        f"SELECT * FROM task_history WHERE {where_sql} ORDER BY {order_sql} LIMIT %s OFFSET %s",
         where_params + [page_size, offset],
     ).fetchall()
     conn.close()
@@ -70,15 +72,15 @@ def archive_tasks_to_history(conn, user_id: int, source_types: list, date_start:
     需在调用方的事务/连接中执行，不自动 commit/close。
     返回归档数量。
     """
-    placeholders = ",".join("?" for _ in source_types)
+    placeholders = phs(len(source_types))
     params = [user_id] + source_types + [date_start, date_end]
 
     # 先查出要归档的任务
     rows = conn.execute(
         f"""SELECT id, title, category, priority, exp, intro, status, source_type, completed_at, created_at
             FROM tasks
-            WHERE user_id = ? AND source_type IN ({placeholders})
-            AND date(created_at) >= ? AND date(created_at) <= ?
+            WHERE user_id = %s AND source_type IN ({placeholders})
+            AND date(created_at) >= %s AND date(created_at) <= %s
             AND status IN ('todo', 'doing', 'done', 'completed', 'expired')""",
         params,
     ).fetchall()
@@ -91,7 +93,7 @@ def archive_tasks_to_history(conn, user_id: int, source_types: list, date_start:
         conn.execute(
             """INSERT INTO task_history
                (user_id, task_id, title, category, priority, exp, intro, status, source_type, completed_at, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (user_id, r["id"], r["title"], r["category"], r["priority"],
              r["exp"], r["intro"], r["status"], r["source_type"],
              r["completed_at"], r["created_at"]),
@@ -100,8 +102,8 @@ def archive_tasks_to_history(conn, user_id: int, source_types: list, date_start:
     # 从 tasks 表删除已归档的任务
     conn.execute(
         f"""DELETE FROM tasks
-            WHERE user_id = ? AND source_type IN ({placeholders})
-            AND date(created_at) >= ? AND date(created_at) <= ?""",
+            WHERE user_id = %s AND source_type IN ({placeholders})
+            AND date(created_at) >= %s AND date(created_at) <= %s""",
         params,
     )
 

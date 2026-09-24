@@ -10,7 +10,7 @@ def get_scheduled_tasks(user_id: int) -> list:
     """获取用户所有模板"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM scheduled_tasks WHERE user_id = ? ORDER BY type ASC, created_at DESC",
+        """SELECT * FROM scheduled_tasks WHERE user_id = %s ORDER BY type ASC, created_at DESC""",
         (user_id,),
     ).fetchall()
     conn.close()
@@ -28,11 +28,23 @@ def get_scheduled_tasks(user_id: int) -> list:
     return result
 
 
+def get_scheduled_task(task_id: int) -> dict:
+    """获取单个定时任务模板（返回完整行，含 user_id —— 路由层要做归属校验用）
+
+    原来没有这个函数，PUT/DELETE 直接按 id 改删，于是任何人（甚至未登录）
+    都能改掉别人的模板。这里补上单条查询，让路由能先校验归属。
+    """
+    conn = get_conn()
+    row = conn.execute("""SELECT * FROM scheduled_tasks WHERE id = %s""", (task_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def get_scheduled_tasks_by_type(user_id: int, task_type: str) -> list:
     """按类型获取定时任务模板"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM scheduled_tasks WHERE user_id = ? AND type = ? ORDER BY id ASC",
+        """SELECT * FROM scheduled_tasks WHERE user_id = %s AND type = %s ORDER BY id ASC""",
         (user_id, task_type),
     ).fetchall()
     conn.close()
@@ -58,7 +70,7 @@ def create_scheduled_task(user_id: int, type_: str, title: str, category: str,
     conn = get_conn()
     cursor = conn.execute(
         """INSERT INTO scheduled_tasks (user_id, type, title, intro, category, priority, exp, weekdays)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
         (user_id, type_, title, intro, category, priority, exp, weekdays_json),
     )
     new_id = cursor.lastrowid
@@ -76,13 +88,13 @@ def update_scheduled_task(task_id: int, **kwargs) -> bool:
         if k in allowed and v is not None:
             if k == "weekdays":
                 v = json.dumps(v, ensure_ascii=False)
-            fields.append(f"{k} = ?")
+            fields.append(f"{k} = %s")
             values.append(v)
     if not fields:
         return False
     values.append(task_id)
     conn = get_conn()
-    conn.execute(f"UPDATE scheduled_tasks SET {', '.join(fields)} WHERE id = ?", values)
+    conn.execute(f"UPDATE scheduled_tasks SET {', '.join(fields)} WHERE id = %s", values)
     conn.commit()
     conn.close()
     return True
@@ -91,7 +103,7 @@ def update_scheduled_task(task_id: int, **kwargs) -> bool:
 def delete_scheduled_task(task_id: int) -> bool:
     """删除模板"""
     conn = get_conn()
-    conn.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
+    conn.execute("""DELETE FROM scheduled_tasks WHERE id = %s""", (task_id,))
     conn.commit()
     conn.close()
     return True

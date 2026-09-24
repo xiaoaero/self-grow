@@ -16,9 +16,9 @@ def get_recent_activities(user_id: int, limit: int = 10) -> list:
     conn = get_conn()
     rows = conn.execute(
         """SELECT al.* FROM action_logs al
-           WHERE al.user_id = ?
+           WHERE al.user_id = %s
            ORDER BY al.created_at DESC, al.id DESC
-           LIMIT ?""",
+           LIMIT %s""",
         (user_id, limit),
     ).fetchall()
     conn.close()
@@ -79,7 +79,7 @@ def get_yearly_activity(user_id: int, year: int = None) -> list:
     conn = get_conn()
     rows = conn.execute(
         """SELECT date, exp_earned FROM user_stats_daily
-           WHERE user_id = ? AND date >= ? AND date <= ?
+           WHERE user_id = %s AND date >= %s AND date <= %s
            ORDER BY date ASC""",
         (user_id, f"{year}-01-01", f"{year}-12-31"),
     ).fetchall()
@@ -107,7 +107,7 @@ def get_daily_exp_trend(user_id: int, days: int = 30) -> list:
     conn = get_conn()
     rows = conn.execute(
         """SELECT date, exp_earned FROM user_stats_daily
-           WHERE user_id = ? AND date >= ? AND date <= ?
+           WHERE user_id = %s AND date >= %s AND date <= %s
            ORDER BY date ASC""",
         (user_id, start.isoformat(), end.isoformat()),
     ).fetchall()
@@ -129,7 +129,7 @@ def get_profile_stats(user_id: int) -> dict:
     """聚合计算 6 项统计数字 + 8 维进度"""
     conn = get_conn()
 
-    user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = conn.execute("""SELECT * FROM users WHERE id = %s""", (user_id,)).fetchone()
     if not user:
         conn.close()
         return None
@@ -142,22 +142,22 @@ def get_profile_stats(user_id: int) -> dict:
     checkin_row = conn.execute(
         """SELECT COUNT(*) as cnt FROM habit_checkins hc
            JOIN habits h ON hc.habit_id = h.id
-           WHERE h.user_id = ? AND hc.status = 'done'""",
+           WHERE h.user_id = %s AND hc.status = 'done'""",
         (user_id,),
     ).fetchone()
 
     tasks_row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM tasks WHERE user_id = ? AND claimed = 1",
+        """SELECT COUNT(*) as cnt FROM tasks WHERE user_id = %s AND claimed = 1""",
         (user_id,),
     ).fetchone()
 
     goals_row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM goals WHERE user_id = ? AND progress = 100 AND claimed = 1",
+        """SELECT COUNT(*) as cnt FROM goals WHERE user_id = %s AND progress = 100 AND claimed = 1""",
         (user_id,),
     ).fetchone()
 
     rewards_row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM rewards WHERE user_id = ? AND unlocked = 1",
+        """SELECT COUNT(*) as cnt FROM rewards WHERE user_id = %s AND unlocked = 1""",
         (user_id,),
     ).fetchone()
     rewards_unlocked = rewards_row["cnt"] if rewards_row else 0

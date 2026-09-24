@@ -5,6 +5,7 @@ Self Grow — 奖励商城 CRUD + 条件评估引擎
 """
 
 from db.connection import get_conn
+from db.jsoncols import jloads
 from db.habits import get_habits, calculate_streak
 from db.goals import get_goal
 from db.dimensions import get_total_exp_from_dimensions
@@ -20,17 +21,17 @@ def get_rewards(user_id: int) -> list:
     """获取用户所有奖励"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM rewards WHERE user_id = ? ORDER BY created_at ASC",
+        """SELECT * FROM rewards WHERE user_id = %s ORDER BY created_at ASC""",
         (user_id,),
     ).fetchall()
     conn.close()
     result = []
     for r in rows:
         d = dict(r)
-        d["unlock_conditions"] = json.loads(d.get("unlock_conditions", "[]"))
-        d["claim_conditions"] = json.loads(d.get("claim_conditions", "[]"))
-        d["manual_confirmed"] = json.loads(d.get("manual_confirmed", "[]"))
-        d["unlocked_at_snapshot"] = json.loads(d.get("unlocked_at_snapshot", "{}"))
+        d["unlock_conditions"] = jloads(d.get("unlock_conditions"), [])
+        d["claim_conditions"] = jloads(d.get("claim_conditions"), [])
+        d["manual_confirmed"] = jloads(d.get("manual_confirmed"), [])
+        d["unlocked_at_snapshot"] = jloads(d.get("unlocked_at_snapshot"), {})
         result.append(d)
     return result
 
@@ -38,15 +39,15 @@ def get_rewards(user_id: int) -> list:
 def get_reward(reward_id: int):
     """获取单个奖励"""
     conn = get_conn()
-    row = conn.execute("SELECT * FROM rewards WHERE id = ?", (reward_id,)).fetchone()
+    row = conn.execute("""SELECT * FROM rewards WHERE id = %s""", (reward_id,)).fetchone()
     conn.close()
     if not row:
         return None
     d = dict(row)
-    d["unlock_conditions"] = json.loads(d.get("unlock_conditions", "[]"))
-    d["claim_conditions"] = json.loads(d.get("claim_conditions", "[]"))
-    d["manual_confirmed"] = json.loads(d.get("manual_confirmed", "[]"))
-    d["unlocked_at_snapshot"] = json.loads(d.get("unlocked_at_snapshot", "{}"))
+    d["unlock_conditions"] = jloads(d.get("unlock_conditions"), [])
+    d["claim_conditions"] = jloads(d.get("claim_conditions"), [])
+    d["manual_confirmed"] = jloads(d.get("manual_confirmed"), [])
+    d["unlocked_at_snapshot"] = jloads(d.get("unlocked_at_snapshot"), {})
     return d
 
 
@@ -58,13 +59,13 @@ def create_reward(user_id: int, title: str, desc: str = "", icon: str = "🎁",
     claim_json = json.dumps(claim_conditions or [], ensure_ascii=False)
 
     conn = get_conn()
-    user = conn.execute("SELECT total_exp FROM users WHERE id = ?", (user_id,)).fetchone()
+    user = conn.execute("""SELECT total_exp FROM users WHERE id = %s""", (user_id,)).fetchone()
     created_at_exp = user["total_exp"] if user else 0
 
     cursor = conn.execute(
-        """INSERT INTO rewards (user_id, title, desc, icon, category, image,
+        """INSERT INTO rewards (user_id, title, `desc`, icon, category, image,
            unlock_conditions, claim_conditions, manual_confirmed, created_at_exp)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?)""",
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, '[]', %s)""",
         (user_id, title, desc, icon, category, image,
          unlock_json, claim_json, created_at_exp),
     )
@@ -86,13 +87,13 @@ def update_reward(reward_id: int, **kwargs) -> bool:
         if k in allowed and v is not None:
             if k in ("unlock_conditions", "claim_conditions", "manual_confirmed", "unlocked_at_snapshot"):
                 v = json.dumps(v, ensure_ascii=False)
-            fields.append(f"{k} = ?")
+            fields.append(f"{k} = %s")
             values.append(v)
     if not fields:
         return False
     values.append(reward_id)
     conn = get_conn()
-    conn.execute(f"UPDATE rewards SET {', '.join(fields)} WHERE id = ?", values)
+    conn.execute(f"UPDATE rewards SET {', '.join(fields)} WHERE id = %s", values)
     conn.commit()
     conn.close()
     return True
@@ -101,7 +102,7 @@ def update_reward(reward_id: int, **kwargs) -> bool:
 def delete_reward(reward_id: int) -> bool:
     """删除奖励"""
     conn = get_conn()
-    conn.execute("DELETE FROM rewards WHERE id = ?", (reward_id,))
+    conn.execute("""DELETE FROM rewards WHERE id = %s""", (reward_id,))
     conn.commit()
     conn.close()
     return True
@@ -117,15 +118,16 @@ def save_reward_draft(user_id: int, data: dict) -> bool:
     claim_json = json.dumps(data.get("claim_conditions", []), ensure_ascii=False)
     conn = get_conn()
     conn.execute(
-        """INSERT INTO reward_drafts (user_id, title, desc, icon, category, image,
+        """INSERT INTO reward_drafts (user_id, title, `desc`, icon, category, image,
            unlock_conditions, claim_conditions, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
-           ON CONFLICT(user_id) DO UPDATE SET
-           title=excluded.title, desc=excluded.desc, icon=excluded.icon,
-           category=excluded.category, image=excluded.image,
-           unlock_conditions=excluded.unlock_conditions,
-           claim_conditions=excluded.claim_conditions,
-           updated_at=datetime('now','localtime')""",
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, now())
+           ON DUPLICATE KEY UPDATE
+           title=VALUES(title), `desc`=VALUES(`desc`), icon=VALUES(icon),
+           category=VALUES(category), image=VALUES(image),
+           unlock_conditions=VALUES(unlock_conditions),
+           claim_conditions=VALUES(claim_conditions),
+           updated_at=now()
+        """,
         (user_id, data.get("title", ""), data.get("desc", ""), data.get("icon", "🎁"),
          data.get("category", ""), data.get("image", ""), unlock_json, claim_json),
     )
@@ -137,20 +139,20 @@ def save_reward_draft(user_id: int, data: dict) -> bool:
 def get_reward_draft(user_id: int) -> dict | None:
     """获取用户草稿"""
     conn = get_conn()
-    row = conn.execute("SELECT * FROM reward_drafts WHERE user_id = ?", (user_id,)).fetchone()
+    row = conn.execute("""SELECT * FROM reward_drafts WHERE user_id = %s""", (user_id,)).fetchone()
     conn.close()
     if not row:
         return None
     d = dict(row)
-    d["unlock_conditions"] = json.loads(d.get("unlock_conditions", "[]"))
-    d["claim_conditions"] = json.loads(d.get("claim_conditions", "[]"))
+    d["unlock_conditions"] = jloads(d.get("unlock_conditions"), [])
+    d["claim_conditions"] = jloads(d.get("claim_conditions"), [])
     return d
 
 
 def delete_reward_draft(user_id: int) -> bool:
     """删除草稿"""
     conn = get_conn()
-    conn.execute("DELETE FROM reward_drafts WHERE user_id = ?", (user_id,))
+    conn.execute("""DELETE FROM reward_drafts WHERE user_id = %s""", (user_id,))
     conn.commit()
     conn.close()
     return True
@@ -159,19 +161,19 @@ def delete_reward_draft(user_id: int) -> bool:
 def claim_reward(reward_id: int, user_id: int) -> dict:
     """领取奖励（后端校验条件），返回结果"""
     conn = get_conn()
-    row = conn.execute("SELECT * FROM rewards WHERE id = ? AND user_id = ?",
+    row = conn.execute("""SELECT * FROM rewards WHERE id = %s AND user_id = %s""",
                        (reward_id, user_id)).fetchone()
     if not row or row["claimed"]:
         conn.close()
         return None
 
     reward = dict(row)
-    reward["unlock_conditions"] = json.loads(reward.get("unlock_conditions", "[]"))
-    reward["claim_conditions"] = json.loads(reward.get("claim_conditions", "[]"))
-    reward["manual_confirmed"] = json.loads(reward.get("manual_confirmed", "[]"))
+    reward["unlock_conditions"] = jloads(reward.get("unlock_conditions"), [])
+    reward["claim_conditions"] = jloads(reward.get("claim_conditions"), [])
+    reward["manual_confirmed"] = jloads(reward.get("manual_confirmed"), [])
 
-    snapshot_str = reward.get("unlocked_at_snapshot")
-    snapshot = json.loads(snapshot_str) if isinstance(snapshot_str, str) else (snapshot_str or {})
+    # 快照可能是 str / dict / None（列可空），统一交给 jloads 兜住
+    snapshot = jloads(reward.get("unlocked_at_snapshot"), {})
 
     # 从0重新计算解锁条件（防御）
     for cond in reward["unlock_conditions"]:
@@ -189,7 +191,7 @@ def claim_reward(reward_id: int, user_id: int) -> dict:
 
     today = datetime.date.today().isoformat()
     conn.execute(
-        "UPDATE rewards SET claimed = 1, claimed_at = ? WHERE id = ?",
+        """UPDATE rewards SET claimed = 1, claimed_at = %s WHERE id = %s""",
         (today, reward_id),
     )
     conn.commit()
@@ -201,15 +203,15 @@ def claim_reward(reward_id: int, user_id: int) -> dict:
 def manual_confirm_condition(reward_id: int, condition_text: str) -> bool:
     """手动确认某个条件"""
     conn = get_conn()
-    row = conn.execute("SELECT manual_confirmed FROM rewards WHERE id = ?",
+    row = conn.execute("""SELECT manual_confirmed FROM rewards WHERE id = %s""",
                        (reward_id,)).fetchone()
     if not row:
         conn.close()
         return False
-    confirmed = json.loads(row["manual_confirmed"])
+    confirmed = jloads(row["manual_confirmed"], [])
     if condition_text not in confirmed:
         confirmed.append(condition_text)
-    conn.execute("UPDATE rewards SET manual_confirmed = ? WHERE id = ?",
+    conn.execute("""UPDATE rewards SET manual_confirmed = %s WHERE id = %s""",
                  (json.dumps(confirmed, ensure_ascii=False), reward_id))
     conn.commit()
     conn.close()
@@ -261,20 +263,20 @@ def take_snapshot(user_id: int) -> dict:
     total_exp = get_total_exp_from_dimensions(user_id)
 
     tasks_row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM tasks WHERE user_id = ? AND claimed = 1",
+        """SELECT COUNT(*) as cnt FROM tasks WHERE user_id = %s AND claimed = 1""",
         (user_id,),
     ).fetchone()
     tasks_done = tasks_row["cnt"] if tasks_row else 0
 
     goals_row = conn.execute(
-        "SELECT COUNT(*) as cnt FROM goals WHERE user_id = ? AND progress = 100 AND claimed = 1",
+        """SELECT COUNT(*) as cnt FROM goals WHERE user_id = %s AND progress = 100 AND claimed = 1""",
         (user_id,),
     ).fetchone()
     goals_done = goals_row["cnt"] if goals_row else 0
 
     # 各目标里程碑完成数
     goal_rows = conn.execute(
-        "SELECT id FROM goals WHERE user_id = ?", (user_id,)
+        """SELECT id FROM goals WHERE user_id = %s""", (user_id,)
     ).fetchall()
     milestones = {}
     for g in goal_rows:
@@ -308,14 +310,14 @@ def evaluate_condition(user_id: int, condition: dict, reward: dict = None,
 
     if ctype == "level":
         conn = get_conn()
-        row = conn.execute("SELECT level FROM users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute("""SELECT level FROM users WHERE id = %s""", (user_id,)).fetchone()
         conn.close()
         return row and row["level"] >= threshold
 
     elif ctype == "dim_level":
         conn = get_conn()
         row = conn.execute(
-            "SELECT level FROM user_dimensions WHERE user_id = ? AND dimension_key = ?",
+            """SELECT level FROM user_dimensions WHERE user_id = %s AND dimension_key = %s""",
             (user_id, target_id),
         ).fetchone()
         conn.close()
@@ -371,7 +373,7 @@ def evaluate_condition(user_id: int, condition: dict, reward: dict = None,
     elif ctype == "tasks_done":
         conn = get_conn()
         row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM tasks WHERE user_id = ? AND claimed = 1",
+            """SELECT COUNT(*) as cnt FROM tasks WHERE user_id = %s AND claimed = 1""",
             (user_id,),
         ).fetchone()
         conn.close()
@@ -384,7 +386,7 @@ def evaluate_condition(user_id: int, condition: dict, reward: dict = None,
     elif ctype == "goals_done":
         conn = get_conn()
         row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM goals WHERE user_id = ? AND progress = 100 AND claimed = 1",
+            """SELECT COUNT(*) as cnt FROM goals WHERE user_id = %s AND progress = 100 AND claimed = 1""",
             (user_id,),
         ).fetchone()
         conn.close()
