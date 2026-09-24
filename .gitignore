@@ -5,9 +5,12 @@
 # backend runtime
 backend/.pixi/
 backend/.env
+# SQLite 已于 2026-09-23 移除；保留这一行只是防止旧副本被误提交
 backend/data.db
 backend/*.bak
 backend/*.log
+# 应用日志目录（services/logging_setup.py 落盘位置，本机开发时会生成）
+backend/logs/
 
 # Python cache
 __pycache__/
@@ -34,10 +37,9 @@ backend/uploads/*
 nginx/*.conf
 nginx/certs/
 
-# ⚠️ 本地探索脚本：源码里硬编码了真实 API Key（BoCha / GitHub Token）
-#    提交 = 密钥泄露到公开仓库，且从 git 历史里删不干净。此类脚本一律不入库。
-backend/bocha.py
-backend/gitsearch.py
+# ⚠️ 已整合进项目（services/aiconsult_service.py，Key 走环境变量，不再硬编码）。
+#    以下两条历史忽略项已移除：backend/bocha.py / backend/gitsearch.py
+#    对应原型脚本已删除，请确认它们从未被提交进 git 历史（否则需 git filter-repo 清理）。
 
 # 个人求职材料（简历），与项目无关
 resume-self-grow.html

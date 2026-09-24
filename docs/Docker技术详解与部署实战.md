@@ -1,8 +1,8 @@
 # Docker 技术详解与 Self Grow 部署实战
 
 > 目标读者：会用 Docker 跑起来，但想搞清**它到底做了什么**、**为什么这么写**、**背后牵扯哪些技术**。
-> 配套：[安全设计说明.md](./安全设计说明.md)（上线检查清单）、项目根目录 `Dockerfile` / `.dockerignore` / `docker-compose.yml` / `.env.example` / `nginx/self-grow.conf.example`
-> 核实时间：2026-09-14，对照 `backend/config.py`、`backend/main.py`、`backend/requirements.txt`（132 包）
+> 配套：[Docker部署方案.md](./Docker部署方案.md)（纯配置清单）、[安全设计说明.md](./安全设计说明.md)（上线检查清单）
+> 核实时间：2026-09-14，对照 `backend/config.py`、`backend/main.py`、`backend/requirements.txt`（177 包）
 
 ---
 
@@ -283,7 +283,7 @@ sudo iptables -t nat -L DOCKER -n    # 能看到 DNAT 规则
 | `--no-cache-dir` | pip 不缓存 wheel（本项目 Dockerfile 已用） |
 
 > 本项目是纯 Python，不需要编译器，所以 `python:3.12-slim` + `pip install --no-cache-dir` 就够了，
-> 最终镜像约 400~600 MB（132 个依赖里有 langchain/langgraph/fastmcp 等大包）。
+> 最终镜像约 400~600 MB（177 个依赖里有 langchain/langgraph/fastmcp/numpy 等大包）。
 
 ## 3.6 反向代理 Nginx —— 为什么容器前要有它
 
@@ -309,45 +309,6 @@ sudo certbot --nginx -d your.domain.com
 > **本项目必须上 HTTPS 的理由**（不是"最佳实践"这种空话）：
 > JWT 的 Access Token 和 API Key 都在 HTTP 头里明文传输，
 > 公网 HTTP 下抓包即可盗用身份。见 [安全设计说明](./安全设计说明.md) §7.4。
-
-### 3.7.1 Nginx 反代落地：两条路线（2026-09-15 完整实测）
-
-| | 路线 A：Nginx 装在宿主机 | 路线 B：Nginx 跑在容器（本项目自带） |
-|---|---|---|
-| 安装 | `sudo apt install nginx` | 无需安装，用 `--profile with-nginx` |
-| upstream 写什么 | `127.0.0.1:3001`（app）/ `127.0.0.1:8000`（mcp） | **`app:3001` / `mcp:8000`**（compose 服务名） |
-| 配置文件位置 | `/etc/nginx/sites-available/self-grow.conf` | `nginx/self-grow.conf`（挂进容器） |
-| 证书 | certbot 直接装系统，`/etc/letsencrypt` | certbot 写 `./nginx/certs`，容器挂到 `/etc/letsencrypt` |
-| 前提 | 把 app/mcp 的 ports 改成只绑 `127.0.0.1` | 同上；`nginx/self-grow.conf` 必须存在，否则容器起不来 |
-
-**⚠️ 头号坑**：容器里的 Nginx **不能**用 `proxy_pass http://127.0.0.1:3001`
-——那是它自己。必须用 compose 服务名。表现为 nginx 启动即报
-`host not found in upstream`，或起来后 502。
-
-**路线 B 的四步**：
-
-```bash
-cp nginx/self-grow.conf.example nginx/self-grow.conf     # 改里面的域名
-# 申请证书（写入 ./nginx/certs，与 compose 的挂载点一致）
-docker run --rm -it -p 80:80 \
-  -v "$PWD/nginx/certs:/etc/letsencrypt" \
-  certbot/certbot certonly --standalone -d 你的域名
-# 把 app / mcp 的 ports 都改成只绑回环（如 "127.0.0.1:3001:3001"）
-docker compose --profile with-nginx up -d
-```
-
-> `nginx` 服务带了 `profiles: ["with-nginx"]`，**默认不会启动** ——
-> 日常 `docker compose up -d` 只起 app（和 mcp），不受影响。
-
-**实测结果**（本地按上面步骤完整起栈，用自签证书 + `-H "Host: example.com"`）：
-
-| 检查 | 结果 |
-|---|---|
-| `http://…:80/api/health` | ✅ `301 Moved Permanently`（跳 HTTPS） |
-| `https://…/api/health` | ✅ `{"status":"ok","version":"1.2"}`（反代到 `app:3001` 通） |
-| `https://…/api/config.js` | ✅ 输出 `https://example.com`（`X-Forwarded-Proto` 透传正确） |
-| `https://…/mcp`（不带 Key） | ✅ `401`（反代到 `mcp:8000` 通、鉴权生效） |
-| `https://…/frontend/js/utils.js` | ✅ 200 + `Cache-Control: max-age=604800`（静态缓存生效） |
 
 ## 3.8 PID 1 与优雅退出、日志
 
@@ -385,7 +346,7 @@ docker compose logs --tail 100 app
 
 ```bash
 # 用 Python 的 backup API（镜像里一定有 python）
-docker compose exec app python -c "
+docker compose exec self-grow python -c "
 import sqlite3
 src = sqlite3.connect('/data/data.db')
 dst = sqlite3.connect('/data/backup.db')
@@ -464,21 +425,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# 时区（很关键）：容器默认 UTC，而本项目大量使用本地时间
-#   · SQLite 的 datetime('now','localtime')   · Python 的 date.today()
-#   · APScheduler 的 CronTrigger(hour=3)
-# 不设的后果：UTC 03:00 触发 = 北京 11:00 才跑；凌晨 0~8 点「今天」算成前一天
-# 不需要 apt-get install tzdata —— Debian 的 tzdata 是 required 优先级包，slim 基底自带，
-# 而 apt-get update 要从 deb.debian.org 拉 9.6MB 索引（国内实测 4 分钟以上）
-ENV TZ=Asia/Shanghai
-
 # 先只拷依赖清单 —— 利用层缓存：改代码不会重装依赖
 COPY backend/requirements.txt ./backend/requirements.txt
-
-# 国内服务器直连 pypi.org 拉 129 个包要 6 分钟以上且容易中断，换清华源
-ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-RUN pip install --no-cache-dir --retries 5 --timeout 60 \
-        -i "${PIP_INDEX_URL}" -r backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
 # 再拷全部代码（.dockerignore 已排除 .git / .pixi / data.db 等）
 COPY . .
@@ -523,13 +472,9 @@ docs/screenshots/*.png
 
 ```yaml
 services:
-  app:                             # ⚠️ 服务名必须是 app：docker compose exec app ...
-    build:
-      context: .
-      # pip 源透传给 Dockerfile 的 ARG（默认清华源，海外机器在 .env 里覆盖）
-      args:
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
-    image: self-grow:1.2
+  self-grow:
+    build: .
+    image: self-grow:latest
     container_name: self-grow
     restart: unless-stopped        # 崩溃/重启后自动拉起
     ports:
@@ -563,36 +508,12 @@ services:
       retries: 3
       start_period: 20s
 
-  # 可选：MCP Server（把 24 个业务工具暴露给 AI 客户端），
-  # 与 app 共用镜像 + **共用同一个 data 卷**。详见 docs/MCP插件说明.md §6
-  mcp:
-    image: self-grow:1.2
-    container_name: self-grow-mcp
-    restart: unless-stopped
-    command: ["python", "mcp_server.py"]      # 覆盖镜像默认的 python main.py
-    ports:
-      - "127.0.0.1:8000:8000"                 # 只绑回环，公网走反代/隧道
-    environment:
-      SELF_GROW_DATA_DIR: /data
-      MCP_TRANSPORT: streamable-http
-      SELF_GROW_TRUSTED_MODE: "0"             # 必须 0，否则 MCP 的 Key 校验被跳过
-    volumes:
-      - data:/data                            # ⚠️ 必须与 app 共享
-    healthcheck:                              # ⚠️ MCP 没有 /health（会 404），只做 TCP 探测
-      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 3).close()"]
-      interval: 60s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-
 volumes:
-  data:                            # 命名卷：docker volume ls 可看到 <项目名>_data
+  data:                            # 命名卷：docker volume ls 可看到 self-grow_data
 ```
 
 > compose 里的 `${VAR:?错误信息}` 语法：变量未设置时**直接报错拒绝启动**，
 > 比"启动了但一登录 500"好排查得多（和后端 `ensure_jwt_secret()` 是同一个思路）。
->
-> 不需要 MCP 就只起主站：`docker compose up -d app`（只点名 app，mcp 不会启动）。
 
 ### `.env`（与 docker-compose.yml 同级，**务必 gitignore**）
 
@@ -622,25 +543,16 @@ docker compose version
 ```bash
 git clone <你的仓库> self_grow_system && cd self_grow_system
 
-# 从模板生成 .env（模板里已有各键名与说明）
-cp .env.example .env
-
-# ⚠️ 用 sed「替换」而不是 echo「追加」——
-#    模板里已经有 SELF_GROW_JWT_SECRET= 这一行，追加会产生重复键
-#    （重复键虽然多数实现是后者生效，但 compose 与 python-dotenv 行为不完全一致，容易踩坑）
-sed -i "s|^SELF_GROW_JWT_SECRET=.*|SELF_GROW_JWT_SECRET=$(openssl rand -hex 32)|" .env
-
-# 公网访问必须填 CORS 来源（默认只放行 localhost）
-sed -i "s|^SELF_GROW_CORS_ORIGINS=.*|SELF_GROW_CORS_ORIGINS=https://你的域名|" .env
-
-# 不用启动就能检查解析结果（缺密钥会直接报错）
-docker compose config | grep -E "SELF_GROW_JWT_SECRET|CORS"
+# 生成密钥并写入 .env
+echo "SELF_GROW_JWT_SECRET=$(openssl rand -hex 32)" >> .env
+# 公网访问时补 CORS 来源
+echo "SELF_GROW_CORS_ORIGINS=https://你的域名" >> .env
 ```
 
 ## 5.3 构建并启动
 
 ```bash
-docker compose build          # 首次约 1~3 分钟（129 个依赖，走清华源）
+docker compose build          # 首次约 3~8 分钟（177 个依赖）
 docker compose up -d
 docker compose logs -f        # 看到 "🌐 登录页" 与 "Application startup complete" 即成功
 ```
@@ -649,48 +561,33 @@ docker compose logs -f        # 看到 "🌐 登录页" 与 "Application startup
 
 ```bash
 # 注意：镜像里没装 pixi（它只是开发环境的包管理器），直接跑脚本
-docker compose exec app python tools/init_password.py
+docker compose exec self-grow python tools/init_password.py
 ```
 
 默认写入 `test / test123456`（普通用户）与 `admin / admin123456`（管理员）。
 **上线后第一件事就是改掉这两个密码**。
 
-> 这两个账号不是空号：`db/init.py` 的 `DEFAULT_DEMO_USERS` / `DEFAULT_DEMO_DIMENSIONS`
-> 带了**与本地开发库一致的初始进度**（等级、8 维等级与经验、连续天数），
-> 所以新部署一份空库，打开就是有数据的样子。
->
-> 想换成自己的数据：改这两处常量即可，**但三个字段必须配套** ——
-> `0 ≤ xp < xp_to_next` 且 `xp_to_next == exp_for_level(level)`，
-> 否则页面会显示"Lv1 却有 5625 经验、进度 100%"这种自相矛盾的数据。
-
 ## 5.5 验证清单
 
 - [ ] `curl http://localhost:3001/api/health` 返回版本号
 - [ ] 浏览器打开 `http://服务器IP:3001` → 登录页
-      （若页面打开了却提示"无法连接后端服务"：先 **Ctrl+Shift+R 硬刷新** ——
-      `/api/config.js` 会被浏览器缓存，旧值里的 `127.0.0.1` 指向的是你自己的电脑。
-      仍然不行就看服务端日志**有没有请求进来**：一个请求都没有 = 请求根本没发出去，
-      属于地址问题而非跨域问题，见云服务器手册 6.1）
 - [ ] `admin` 登录成功 → 用户中心「账户安全」显示"已登录 · admin（管理员）"
 - [ ] `test` 登录 → 技能页**没有**"编辑技能"按钮
-- [ ] 奖励商城上传一张图片 → `docker compose exec app ls /data/uploads` 能看到
+- [ ] 奖励商城上传一张图片 → `docker compose exec self-grow ls /data/uploads` 能看到
 - [ ] **持久化测试**（最重要）：`docker compose down && docker compose up -d` → 数据还在
 - [ ] 公网部署：`SELF_GROW_CORS_ORIGINS` 是否正确、是否上了 HTTPS
-- [ ] （用了 MCP 的话）`docker compose ps` 里 `self-grow-mcp` 是 `Up (healthy)`；
-      不带 Key 调 `http://127.0.0.1:8000/mcp` 返回 **401**（返回别的说明鉴权没生效）；
-      在 MCP 里记一条行动 → 网站行动历史能看到（证明两个服务共享同一个卷）
 
 ## 5.6 备份与恢复
 
 ```bash
 # 备份（在线安全备份，见 3.10）
-docker compose exec app python -c "
+docker compose exec self-grow python -c "
 import sqlite3
 s=sqlite3.connect('/data/data.db'); d=sqlite3.connect('/data/backup.db')
 with d: s.backup(d)
 "
 docker cp self-grow:/data/backup.db ./backup-$(date +%F).db
-docker compose exec app rm /data/backup.db
+docker compose exec self-grow rm /data/backup.db
 
 # 整卷打包（简单粗暴版，需先停服务）
 docker compose stop
@@ -717,131 +614,6 @@ docker image prune -f         # 清理悬空镜像
 > 升级前先备份（5.6）。数据库迁移是**启动时自动幂等执行**的（`db/init.py` 的 `ALTER TABLE ... try/except`），
 > 所以拉新代码直接重启即可，不用手工跑迁移。
 
-## 5.8 依赖导出踩坑（本项目真实发生，构建连续失败两次）
-
-`requirements.txt` 不是手写的，而是 `pixi run export-reqs` 从开发环境导出的。
-这一步连着踩了两颗雷，且都在 `RUN pip install` 阶段才暴露。
-
-### 坑一：conda 包混进 pip 清单
-
-- **现象**：`ERROR: Invalid requirement: '_openmp_mutex==4.5'`
-- **根因**：早期用 `pixi list --json` 导出 —— 那是 **conda 视角**，混进了 `_openmp_mutex`、
-  `bzip2`、`ca-certificates`（PyPI 上根本没有）以及 `brotli-python`（PyPI 上叫 `brotli`）
-- **解决**：改读 `importlib.metadata.distributions()`（**Python 发行版视角**），
-  自动拿到正确的 PyPI 名称。包数 177 → 132
-
-### 坑二：Windows 专属包混进 Linux 镜像
-
-- **现象**：
-  ```
-  ERROR: Could not find a version that satisfies the requirement pywin32==312
-  ERROR: No matching distribution found for pywin32==312
-  failed to solve: process "/bin/sh -c pip install ..." did not complete successfully
-  ```
-  最难受的地方：pip 会**先把前面 100 多个包全部下载完**，最后才在 `pywin32` 上撞墙 ——
-  实测整个构建跑了 **388 秒**才失败，前面的下载全白费。
-- **根因**：`pywin32` 在 PyPI 上**只有 `win32` / `win_amd64` 轮子**，Linux 下没有任何可用文件。
-  它本身只是 `keyring` 的 `sys_platform == "win32"` 条件依赖，但
-  **conda 解析依赖时会忽略 PyPI 的 sys_platform 标记**，按宿主机（Windows）直接装进开发环境，
-  再被导出脚本原样写进清单。同批漏出来的还有 `pywin32-ctypes`、`win_inet_pton`。
-- **绕过的弯路**：第一反应是「读 WHEEL 文件的 `Tag:`，把带 win 的剔掉」。**行不通** ——
-  实测 Windows 环境的 `site-packages` 里，`cryptography`、`pydantic_core`、`pillow` 这些
-  **跨平台**包的 WHEEL 同样写着 `Tag: cp312-cp312-win_amd64`，和 `pywin32` 长得一模一样。
-  靠 tag 无法区分「跨平台包在 Windows 上装的轮子」和「本身就只发 Windows 版的包」，
-  唯一可靠的离线信号是**包名**。
-- **解决**：`tools/export_reqs.py` 加 `PLATFORM_ONLY` 黑名单，并做 **PEP 503 名字归一化**
-  （`win_inet_pton` 的元数据名是下划线形式，不归一化就会漏网）。导出时剔除并打印 `[SKIP]` 日志。
-  最终 129 个包。
-
-### 上线前的本地预检（不用真起 Docker）
-
-想提前知道清单能不能在 Linux 上装，用 pip 的跨平台 dry-run：
-
-```bash
-python -m pip install --dry-run --ignore-installed --no-deps \
-  --only-binary=:all: \
-  --platform manylinux_2_28_x86_64 --platform manylinux_2_27_x86_64 \
-  --platform manylinux_2_17_x86_64 --platform manylinux2014_x86_64 \
-  --python-version 3.12 --target /tmp/pipverify \
-  -r backend/requirements.txt
-```
-
-末尾出现 `Would install ...` 即全部可解析；出现 `No matching distribution` 就是有包在该平台上不存在。
-
-> ⚠️ `--platform` 要给**多个**标签：`pillow 12.3.0` 只发布了 `manylinux_2_28` 轮子，
-> 只给 `manylinux2014_x86_64` 会误报 `No matching distribution found for pillow==12.3.0`，
-> 让你误以为清单有问题。
-
-### 顺带一提：构建慢也是坑
-
-388 秒里绝大部分是跨境下载耗时。国内服务器务必配镜像源，并加 `--retries` / `--timeout` 抗抖动：
-
-```dockerfile
-ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-RUN pip install --no-cache-dir --retries 5 --timeout 60 \
-        -i "${PIP_INDEX_URL}" -r backend/requirements.txt
-```
-
-写成 `ARG` 而非硬编码：海外机器 `docker compose build --build-arg PIP_INDEX_URL=https://pypi.org/simple` 即可切回官方源。
-
-**经验总结**：
-
-1. 依赖清单**永远不要手工编辑**，一律从锁定环境重新导出
-2. 导出脚本必须**打日志说明剔除了什么**，否则换个环境你不知道自己少了什么
-3. 构建期的失败要**在本地提前拦截**（dry-run 一条命令的事），别等服务器上跑 6 分钟才失败
-
-## 5.9 复盘：一个"保险起见"的步骤拖慢了整个构建
-
-### 现象
-
-本地构建卡在第 5 步（`RUN apt-get update && apt-get install tzdata`）**四分钟没动静**，日志停在这行：
-
-```
-Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9678 kB]
-```
-
-9.6MB 的包索引，从 `deb.debian.org` 拉 —— 这是整个 Dockerfile 里**唯一一个连海外源的步骤**，
-成了最慢的一层。
-
-### 验证（10 秒就能做）
-
-怀疑"这条 apt 是不是根本没必要"，不要查资料，直接起一个纯净基础镜像实测：
-
-```bash
-docker run --rm python:3.12-slim sh -c \
-  'ls -l /usr/share/zoneinfo/Asia/Shanghai; TZ=Asia/Shanghai date'
-```
-
-```
--rw-r--r-- 1 root root 561 Apr 28 18:45 /usr/share/zoneinfo/Asia/Shanghai   ← 本来就有
-Tue Sep 15 00:11:37 CST 2026                                               ← 直接就是 CST
-```
-
-### 结论与修正
-
-Debian 里 `tzdata` 是 **required 优先级**包，`slim` 只裁掉文档、编译器这类东西，裁不掉它。
-所以 `ENV TZ=Asia/Shanghai` **一条就够**，apt 那两行是白加的：
-
-```dockerfile
-ENV TZ=Asia/Shanghai          # 就这一行
-```
-
-删掉后：整个镜像构建 **约 100 秒**（原来光 apt 一步就 4 分钟以上）。
-实测确认时区仍然正确：
-
-```bash
-docker exec <容器> date       # Tue Sep 15 00:16:17 CST 2026 ✅
-```
-
-### 通用教训
-
-1. **"保险起见"加的东西是有维护成本的**：多一个外部源依赖、多一条失败路径、
-   多 4 分钟构建时间。加之前先问一句"真的需要吗"
-2. **可疑假设花 10 秒实测掉** —— `docker run --rm <基础镜像> <命令>` 比翻资料快得多，
-   而且结论是这台机器上的事实，不是别人的博客
-3. **但别顺手把真正的"保险"也删掉**：`ENV TZ` 必须留（删了时区就回 UTC），
-   删的只是多余的 apt。判断依据是**实测结果**，不是"看着像多余"
-
 ---
 
 # 第六部分：排障速查
@@ -857,10 +629,7 @@ docker exec <容器> date       # Tue Sep 15 00:16:17 CST 2026 ✅
 | 容器反复重启 | 依赖装不全或端口被占 | `docker compose logs`；`ss -lntp \| grep 3001` |
 | 定时任务执行两次 | **跑了 2 个副本** | 本项目只能单副本，不要 `scale` |
 | 改了代码没生效 | 镜像未重建 | `docker compose build` 后再 `up -d` |
-| `pip install` 报 `No matching distribution found for pywin32==312` | 依赖清单里混进了 Windows 专属包 | 重新 `pixi run export-reqs`；**别手工注释掉了事**（见 5.8） |
-| `pip install` 报 `Invalid requirement: '_openmp_mutex==4.5'` | 清单来自 conda 视角 | 重新导出，读 Python 元数据（见 5.8） |
-| 构建极慢（几分钟且容易断） | 直连 pypi.org / deb.debian.org；或上下文太大 | 配国内镜像源（见 5.8）；**去掉不必要的 `apt-get`**（见 5.9）；检查 `.dockerignore` 是否排除了 `.pixi/`、`.git/` |
-| 定时任务晚 8 小时、日期算成前一天 | 容器时区是 UTC | `ENV TZ=Asia/Shanghai`（slim 基底自带 zoneinfo，见 5.9） |
+| 构建极慢 | 构建上下文太大 | 检查 `.dockerignore` 是否排除了 `.pixi/`、`.git/` |
 
 ---
 
@@ -888,10 +657,6 @@ docker exec <容器> date       # Tue Sep 15 00:16:17 CST 2026 ✅
 | 密钥怎么管？ | 环境变量/compose 注入，绝不进镜像（分层删不掉） |
 | 为什么不扩展多副本？ | SQLite 单文件 + APScheduler，多副本会重复执行定时任务（**能主动说这个很加分**） |
 | 怎么瘦身镜像？ | slim 基础镜像、多阶段构建、`.dockerignore`、`--no-cache-dir` |
-| 依赖怎么保证线上线下一致？ | pixi 锁版本 → 导出 pip 清单。注意 **conda 解析会忽略 PyPI 的 `sys_platform` 标记**，Windows 专属包（pywin32）会漏进来，必须按包名显式剔除（见 5.8） |
-| 构建失败怎么快速定位？ | 看失败发生在**哪一层**：`pip install` 层失败是清单问题，`COPY` 层失败是上下文问题；跨平台问题本地 dry-run 就能提前拦（见 5.8） |
-| 怎么判断一条 Dockerfile 指令该不该留？ | **先实测再决定**：`docker run --rm <基础镜像> <命令>`。我曾为"保险"加了 `apt-get install tzdata`，实测基底自带 zoneinfo，白等 4 分钟（见 5.9） |
-| 构建时间怎么优化？ | 分三层看：基础镜像层（slim）、依赖层（国内镜像源 + 层缓存前置）、代码层（`.dockerignore`）。**先量再优化**，本项目的瓶颈是海外 apt/pypi 源 |
 
 ---
 
@@ -901,7 +666,7 @@ docker exec <容器> date       # Tue Sep 15 00:16:17 CST 2026 ✅
 # 构建与运行
 docker compose build / up -d / down / restart
 docker compose logs -f [service]
-docker compose exec app bash
+docker compose exec self-grow bash
 docker compose ps
 
 # 镜像与容器
@@ -915,6 +680,5 @@ docker volume ls / inspect self-grow_data / prune
 # 排障
 docker compose logs --tail 200 self-grow
 docker exec -it self-grow sh       # 进容器看文件
-docker history self-grow:1.2       # 看镜像每一层（含有没有误写密钥）
-docker compose config              # 渲染后的最终配置（含变量替换结果）
+docker history self-grow:latest    # 看镜像每一层（含有没有误写密钥）
 ```

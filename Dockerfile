@@ -24,7 +24,8 @@ WORKDIR /app
 
 # ── 时区（很关键，别删）─────────────────────────────────────
 # 容器默认是 UTC，而本项目**大量使用本地时间**：
-#   · SQLite 的 `datetime('now','localtime')`（建表默认值）
+#   · MySQL 建表默认值的 `CURRENT_TIMESTAMP`（靠连接层 `SET time_zone='+08:00'` 兜，
+#     但那要求 MySQL 服务端与连接时区都设对 —— 见 docker-compose.yml 的 mysql 服务）
 #   · Python 的 `datetime.date.today()`（每日归档/统计按它算「今天」）
 #   · APScheduler 的 `CronTrigger(hour=3)`（每日 03:00 刷新）
 #

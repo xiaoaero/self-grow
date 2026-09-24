@@ -7,10 +7,11 @@
 #   3. docker compose exec app python tools/init_password.py
 #
 # ⚠️ 如果服务器上**已经跑过 SQLite 版本**（data 卷里有 data.db），
-#    切到 MySQL 前必须先迁数据，否则 app 会在空库里重建 22 张表、
+#    （项目 2026-09-23 起只支持 MySQL；SQLite 通路与 data.db 已移除）
+#    历史：切到 MySQL 前必须先迁数据，否则 app 会在空库里重建 22 张表、
 #    看起来像「数据全丢了」：
 #      docker compose up -d mysql
-#      docker compose run --rm app python tools/migrate_sqlite_to_mysql.py
+#      docker compose run --rm app python tools/archive/migrate_sqlite_to_mysql.py
 #    （脚本默认读 /data/data.db，与下面的挂载点一致）
 #
 # 说明见 docs/Docker技术详解与部署实战.md、docs/SQLite迁移MySQL方案.md
@@ -18,7 +19,7 @@
 
 services:
   # ── MySQL（主数据库）───────────────────────────────────────
-  # 2026-09-19 起项目支持 MySQL，且**默认就是它**（app 的 SELF_GROW_DB_BACKEND 默认 mysql）。
+  # 项目的**唯一**数据库（2026-09-19 迁到 MySQL，2026-09-23 移除 SQLite 通路）。
   #
   # 为什么从 SQLite 换过来：
   #   · app 与 mcp 是**两个进程**写同一份数据，SQLite 只能靠文件锁串行化；
@@ -119,16 +120,15 @@ services:
       # 不设的后果：定时任务在 UTC 03:00 = 北京时间 11:00 才跑；凌晨 0~8 点「今天」算成前一天
       TZ: ${TZ:-Asia/Shanghai}
       # 数据目录：必须与下面的卷挂载点一致，否则写进容器层（删容器即丢）。
-      # 现在是给 uploads/ 用的；SQLite 模式下 data.db 也放这里
+      # 现在只放 uploads/ 与 logs/（业务数据在 MySQL 里）
       SELF_GROW_DATA_DIR: /data
       # 前端目录：留空则后端只提供 API
       SELF_GROW_FRONTEND_DIR: /app/frontend
 
       # ── 数据库 ────────────────────────────────────────────
-      # sqlite = 老的 data.db（在 SELF_GROW_DATA_DIR 下）
-      # mysql  = 用上面的 mysql 服务（默认）
-      # 迁移期想整体回退，把这行改成 sqlite 即可（MySQL 容器留着不用也无害）
-      SELF_GROW_DB_BACKEND: ${SELF_GROW_DB_BACKEND:-mysql}
+      # 只有 MySQL 一条通路（2026-09-23 起）：
+      # 原来的 SELF_GROW_DB_BACKEND 开关与 data.db 都已移除，**没有回退选项**。
+      # 老部署若还留着那个变量名，启动日志会打一条 WARNING 提示它已废弃。
       # ⚠️ 主机名必须是 **compose 服务名 `mysql`**。
       #    写 127.0.0.1 会指向 app 容器自己 —— 连不上，且报错很难懂
       SELF_GROW_MYSQL_HOST: ${SELF_GROW_MYSQL_HOST:-mysql}
@@ -156,9 +156,22 @@ services:
       AI_MODEL: ${AI_MODEL:-}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
 
+      # ── AI 咨询外部 API（GitHub 趋势 / 国内 Bocha / 国际 Tavily，均为可选；留空则跳过对应抓取）──
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      BOCHA_API_KEY: ${BOCHA_API_KEY:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+
       # ── 安全开关 ──────────────────────────────────────────
       # 1 = 跳过登录（仅供本地开发/演示），生产必须为 0
       SELF_GROW_TRUSTED_MODE: ${SELF_GROW_TRUSTED_MODE:-0}
+
+      # ── 日志 ──────────────────────────────────────────────
+      # 级别：DEBUG / INFO（默认）/ WARNING / ERROR。
+      # 改这里重启即生效 —— 以前只能改 config.py 里的 basicConfig（改代码）
+      SELF_GROW_LOG_LEVEL: ${SELF_GROW_LOG_LEVEL:-INFO}
+      # 日志文件落在 /data/logs/app.log（10MB × 5 轮转）。
+      # ⚠️ 不落 /data 卷的话容器一重建日志就没了 —— 别改这个目录
+      # 应用日志文件由 services/logging_setup.py 按组件名自动区分，无需在此指定
 
     volumes:
       # 命名卷：data.db 与 uploads/ 都在这里
@@ -188,8 +201,7 @@ services:
   # 三个必须知道的点：
   #  1. **数据库配置必须与 app 完全一致**：MCP 和主站读写的是同一份数据，
   #     配错的话你在 AI 里记的行动，网站上看不到（反过来也一样）。
-  #     SQLite 模式下靠「共享同一个 data 卷」；MySQL 模式下靠「连同一个 mysql 服务」——
-  #     **MySQL 模式下 data 卷对数据已无意义**（只剩 uploads）
+  #     靠「连同一个 mysql 服务」实现 —— data 卷对业务数据已无意义（只剩 uploads / logs）
   #  2. **必须带 X-API-Key**：只要监听了端口，任何能访问它的人都能调用 24 个写库工具。
   #     Key 在「用户中心 → 账户安全 → API Key（MCP）」生成，可随时撤销
   #  3. **SELF_GROW_TRUSTED_MODE 必须为 0**：为 1 时鉴权中间件会直接放行所有请求
@@ -215,10 +227,10 @@ services:
 
     environment:
       # 与主站同一个数据目录 + 同一个卷（见下方 volumes）
+      # 现在只放 logs/（业务数据在 MySQL 里，通过下面的连接参数访问）
       SELF_GROW_DATA_DIR: /data
       TZ: ${TZ:-Asia/Shanghai}
       # ⚠️ 这几项必须与 app 的**逐字一致**，否则两边看的是不同的库
-      SELF_GROW_DB_BACKEND: ${SELF_GROW_DB_BACKEND:-mysql}
       SELF_GROW_MYSQL_HOST: ${SELF_GROW_MYSQL_HOST:-mysql}
       SELF_GROW_MYSQL_PORT: "3306"
       SELF_GROW_MYSQL_USER: ${MYSQL_USER:-self_grow}
@@ -238,9 +250,15 @@ services:
       # MCP 只用 API Key 鉴权、用不到 JWT，带上是为了与主站环境保持一致
       SELF_GROW_JWT_SECRET: ${SELF_GROW_JWT_SECRET:-}
 
+      # ── 日志 ──────────────────────────────────────────────
+      # mcp 与 app 共享同一个 /data 卷，但**写不同的文件**：
+      #   app → /data/logs/app.log   mcp → /data/logs/mcp.log
+      # （组件名由 mcp_server.py 自己设的 SELF_GROW_LOG_COMPONENT=mcp 决定，
+      #   两个进程写同一个文件会互相破坏轮转）
+      SELF_GROW_LOG_LEVEL: ${SELF_GROW_LOG_LEVEL:-INFO}
+
     volumes:
-      # SQLite 模式：与 app 共享 data.db；MySQL 模式：只剩 uploads 共用。
-      # 两种模式都保留这个卷 —— 迁移期随时可能切回去
+      # 与 app 共享 uploads/ 与 logs/ —— 业务数据在 MySQL 里，不经这个卷
       - data:/data
 
     # 注意：MCP 没有 /health 路由（访问会 404），别照抄 app 的 healthcheck。
@@ -293,8 +311,9 @@ services:
       - mcp
 
 volumes:
-  # SQLite 时代的业务数据 + 一直用着的 uploads/（附件、奖励图片）
-  # ⚠️ 切到 MySQL 后**不要删除它** —— 迁移脚本就是从这里读 data.db 的
+  # uploads/（附件、奖励图片）+ logs/。**不是**业务数据 —— 那在下面的 mysql_data 里
+  # ⚠️ 但仍不要随便删：迁移期它里面放过 SQLite 的 data.db，
+  #    删了就再也拿不到那份旧快照（`.workbuddy/backup/` 里另有本机副本）
   data:
     # 命名卷（docker volume ls 里显示为 self-grow_data）
 

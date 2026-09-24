@@ -19,7 +19,7 @@
 | 领域构成 | action / habit / task / query / skill_tree / expression | **action / query / goal / task / habit / reward** | 技能树、表达训练未纳入协调层 |
 | 会话持久化 | SQLite checkpoint | **`MemorySaver`（内存）** | 见 §7 技术债 |
 | 主图上下文 | LangGraph checkpoint | **近 5 条记录 FIFO（内存 dict，TTL 30 分钟）** | 够用且可控 |
-| 前端传输 | SSE 推送中断事件 | **POST + `fetch` 读 SSE 流**（反问仍用 interruptQueue 队列） | ✅ 2026-09-16 已改为真流式，见 §6.2 |
+| 前端传输 | SSE 推送中断事件 | **POST 同步请求 + 前端 interruptQueue** | SSE 端点仅占位未实装 |
 | 写操作确认 | interrupt 确认卡片 | **未实现** | 当前直接写库 |
 | 依赖声明 | `pyproject.toml` | **`pixi.toml`** | 项目实际用 pixi 管理 |
 | 前端文件 | `frontend/js/pages/coordinator.js` | **`frontend/js/chat.js`（472 行）** | 命名调整 |
@@ -245,12 +245,8 @@ langchain-core = ">=0.3.0"
 |---|---|---|---|
 | POST | `/api/coordinator/chat` | 发送消息：路由 → 并行派发 →（全部完成时）总结 | `get_current_user` |
 | POST | `/api/coordinator/resume` | 回答反问：接回指定子图继续，**不重新路由** | `get_current_user` + 归属校验 |
-| ~~GET~~ | ~~`/api/coordinator/stream/{thread_id}`~~ | **已删除**（占位且无鉴权；`/chat` 本身已流式） | — |
-| ~~GET~~ | ~~`/api/coordinator/status/{thread_id}`~~ | **已删除**（2026-09-17，零调用方；要看编排过程直接看 `/chat` 的 SSE 流） | — |
-
-> ✅ **2026-09-16**：`/chat` 与 `/resume` 已改为 **SSE 流式** —— 推阶段事件
-> （routing / 每个子 Agent 的起止 / 工具执行）+ 协调 Agent 的总结**逐 token** 输出。
-> `done` 事件里携带的字段与改造前完全一致，前端只改了「怎么读」没改「怎么处理」。
+| GET | `/api/coordinator/status/{thread_id}` | 查询编排状态 | `get_current_user` + 归属校验 |
+| GET | `/api/coordinator/stream/{thread_id}` | SSE 流式推送（**占位，未实装**） | ❌ 无 |
 
 > ⚠️ **注意：`get_current_user` 不是真正的身份认证。** 它的实现（`routers/deps.py`）只是校验 URL 上的 `user_id` 参数是否存在于 users 表：
 
@@ -266,67 +262,12 @@ async def get_current_user(user_id: int = Query(...)):
 
 **`resume` 的幂等保护**：若该域已完成且无待处理反问，直接返回当前状态，不重复执行。
 
-**`resume` 的会话锁（2026-09-16 新增）**：同一 `thread_id` 同时只允许一个写请求，
-冲突返回 **409**。
-
-- 起因：`/resume` 是「读 state → await 子图 → 写 state」，两次并发请求会在 await 点
-  交错，双方都读到「该域还没完成」→ **子图被重复执行**。实测（单域场景连点两次发送）
-  `results` 变成 2 条、子图跑了两次。写库型工具会重复写入（连点发送 = 创建两个任务）
-- 为什么必须在服务端做：前端防抖只能挡「手滑连点」，挡不住重试、多标签页、脚本调用
-- 占用时机：**返回流式响应之前**（否则拿不到干净的 409 状态码）；
-  释放在 runner 的 `finally` 里（`StreamingResponse` 是「返回即开始」，
-  在端点里释放等于业务还没跑就把锁丢了）。客户端中途断开也会走 `finally`，不会锁死会话
-- 配套：前端把多个回答**排队串行提交**（见 §6.2），所以正常操作不会撞到 409
-
-**`resume` 的 `skip` 语义（2026-09-16 新增）**：`skip: true` 表示用户跳过这个提问 ——
-**不重新执行子图**，直接把这个域标记为已完成。
-
-- 必须显式告诉后端：跳过的域如果永远完不成，`pending_domains ⊆ completed_domains`
-  恒不成立 → **这条记录的总结永远不会生成**（改造前前端只删本地卡片，就是这个结果）
-- 不重跑子图也有实际好处：用户没给信息，再问一遍也问不出来，省一次 LLM 调用，
-  也避免子 Agent 拿不到信息硬猜着去写库
-
 ### 6.2 前端（`frontend/js/chat.js`）
 
-- **走 SSE 流式**（2026-09-16 改造）：`fetch` + `resp.body.getReader()` 读事件流
-  —— 阶段事件渲染成进度列表，`token` 事件逐字追加，`done` 里的 `reply` 覆盖已渲染文本
-  （服务端中途出错会降级成规则拼接，所以 done 才是权威值）
-- ⚠️ **不能用原生 `EventSource`**：它不能自定义请求头，而身份是 `js/auth.js`
-  包装 `fetch` 注入的 `Authorization: Bearer`，用 EventSource 必然 401
+- **不用 SSE**，走 POST 同步请求，流式能力尚未实装
+- 反问用 `interruptQueue` 队列管理，可同时挂多个域的反问卡片
 - `thread_id` 存 `sessionStorage`（key：`self_grow_coordinator_thread_id`）——刷新不丢，关闭浏览器才丢
 - 恢复时携带 `sub_thread_id`，精确指定恢复哪个子图
-
-**反问卡片的提交逻辑（2026-09-16 重写）**
-
-一次消息可能路由到多个域，**两个反问一同到达是常态**。改造前用单个 `isLoading`
-全局开关挡住第二次提交，结果是：
-
-| 问题 | 后果 |
-|---|---|
-| `if (this.isLoading) return` | 用户在 B 卡片里提交 → **静默无反应**（不报错、不提示），只能反复点 |
-| 绕过前端直接并发 | 后端子图重复执行 → 写库型工具重复写入 |
-| `_refreshInterruptArea()` 里 `innerHTML = ''` | 提交 A 会把 **B 卡片里已输入的内容清空** |
-| `skipInterrupt` 只删本地卡片 | 后端不知道该域已放弃 → 总结永远为空 |
-
-现在的做法：
-
-1. **串行队列**：`resumeInterrupt` / `skipInterrupt` 只把任务推入 `_answerJobs`，
-   由 `_drainAnswers()` 单飞循环逐个发 —— 天然不会并发撞 409
-2. **状态即防抖**：`_interruptStatus[id]` 在第一次点击时**同步**置为 `queued`，
-   后续点击（连点、Enter 连按）在入口检查处被忽略。比定时器防抖可靠 ——
-   定时器窗口之外仍可能漏
-3. **草稿保留**：重渲染前先 `_captureInterruptDrafts()`，输入框实时写回草稿 map，
-   重建后回填。提交 A 不会再清掉 B 里打的字
-4. **排队/提交中有明确反馈**：卡片降透明度 + 状态行「排队中…／正在提交…」+
-   按钮禁用（改造前是毫无反馈）
-5. **失败可重试**：请求失败时卡片**留在原地**、状态清除、输入内容还回去
-   （`delete this._interruptStatus[id]` —— 不能赋 `'idle'`，卡片判断用的是
-   `busy = !!status`，任何真值都会被当成忙）
-6. **进场动画**：卡片首次出现时淡入 + 轻微上移，两张错开 70ms；
-   用 `_interruptAnimated` 记标记，重渲染不重播
-
-配套测试：`frontend/tests/interrupt-submit.test.mjs`（Node + 极简假 DOM，
-不开浏览器、零依赖，7 组场景）。**这个测试当场抓到了上面第 5 点的 `'idle'` 真值 bug。**
 
 ### 6.3 编排状态存储
 
@@ -352,7 +293,7 @@ _thread_store: dict[str, dict] = {}
 | 1 | 编排状态 `_thread_store` 在进程内存 | 重启丢失、多实例不共享 | 迁 Redis，或落库 |
 | 2 | checkpointer 用 `MemorySaver` | 重启后所有子图会话历史丢失 | 换 `AsyncSqliteSaver` / `PostgresSaver` |
 | 3 | ~~子图工具同步调用~~ **✅ 已修复**（2026-09-08） | 原 `tool_fn.invoke(args)` 在 async 节点里阻塞事件循环，`gather` 的"并行"实际串行 | 已改为 `await asyncio.to_thread(tool_fn.invoke, args)` 丢线程池 |
-| 4 | ~~SSE 端点未实装且无鉴权~~ **✅ 已修复**（2026-09-16） | 原 `GET /stream/{thread_id}` 只发一条 `done` 且**没挂鉴权**（知道 thread_id 就能查） | 已删除；`/chat` 与 `/resume` 改为真流式并带鉴权 |
+| 4 | SSE 端点未实装且无鉴权 | 无法流式推送，且存在未授权访问 | 补齐或删除 |
 | 5 | 写操作确认流未实现 | AI 直接写库，无二次确认 | 写库前用 `ask_user` 发起确认（机制已具备，加提示词即可） |
 | 6 | 领域覆盖不全 | 技能树、表达训练未纳入协调层 | 各加一个子图 |
 | 7 | **无真正身份认证** | `get_current_user` 只校验 user_id 存在，可被伪造；越权读取/篡改他人数据 | 引入 JWT/session 鉴权（见 §6.1） |
@@ -384,9 +325,7 @@ _thread_store: dict[str, dict] = {}
 - ❌ 路由用正则 + 关键词 —— 已改为全 LLM 语义判断
 - ❌ 领域含 skill_tree / expression —— 实际为 goal / reward
 - ❌ 依赖写在 `pyproject.toml` —— 实际在 `pixi.toml`
-- ❌ 前端用 SSE 推送中断事件 —— ~~实际为 POST 同步~~ ✅ 2026-09-16 起为 POST + SSE 流；
-  中断仍走前端 `interruptQueue` 队列（这是有意的：反问卡片需要支持「跳过/放弃」，
-  用队列比用挂起状态灵活）
+- ❌ 前端用 SSE 推送中断事件 —— 实际为 POST 同步 + 前端队列
 - ⏸ 写操作确认流 —— 未实现
 
 原始工具 Schema 草稿（`route_to` / `record_action` / `set_habit_checkin` / `query_global_stats` / `ask_user`）已被 `@tool` 装饰器自动生成的 Schema 取代，不再单独维护。
