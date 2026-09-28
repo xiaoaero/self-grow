@@ -207,16 +207,11 @@ self_grow_system/
 │   ├── tools/init_password.py        # 初始化 / 重置账号密码（pixi run init-password）
 │   └── tools/archive/                # 已归档的一次性脚本（SQLite → MySQL 迁移工具）
 │
-├── docs/                             # 项目文档（17 篇：项目设计类 + 技术学习类）
-│   ├── 登录鉴权方案选型.md            # ★ 9 种登录方式对比 + JWT 落地方案
-│   ├── 技能树编辑器技术详解.md         # ★ 1700+ 行：编辑器渲染与交互 + Agent 全解析
-│   ├── 统一协调Agent设计方案.md       # 统一协调 Agent 设计（★ 改反问逻辑前必读）
-│   ├── 维度经验计分规则.md            # 8 维经验计算规则详情
-│   ├── MCP插件说明.md                # MCP 插件安装/挂载/验证/鉴权
-│   ├── 项目坑与面试讲解.md            # 踩坑复盘
-│   ├── 求职材料-简历条目与面经.md      # 简历条目 + 高频追问
-│   ├── Docker技术详解与部署实战.md     # Docker 原理讲解 + 生产部署实战（含 Nginx/HTTPS）
-│   ├── 压测说明.md                   # Locust 压测方案与结果
+├── docs/                             # 项目文档（12 篇：项目设计类 + 技术学习类）
+│   ├── 登录鉴权方案选型.md            # ★ 9 种登录方式对比 + JWT 落地方案（双令牌 / RBAC / API Key）
+│   ├── 维度经验计分规则.md            # ★ 8 维经验计分规则与等级公式的推导
+│   ├── MCP插件说明.md                # MCP 插件安装 / 挂载 / 验证 / 鉴权
+│   ├── Docker技术详解与部署实战.md     # Docker 原理讲解 + 生产部署实战（含 Nginx / HTTPS / 备份）
 │   ├── LangGraph学习指南.md           # LangGraph 原理 + 本项目两套图的对照
 │   ├── FastAPI与FastMCP学习指南.md    # FastAPI / FastMCP
 │   ├── 异步编程学习指南.md            # asyncio
@@ -230,8 +225,8 @@ self_grow_system/
 └── CLAUDE.md                         # 代码指引（给 AI 编程工具看的速查）
 ```
 
-> `docs/` 里两类文档：**项目设计/复盘类**（前 9 篇，描述本项目的实现与取舍）与
-> **技术学习类**（后 8 篇，通用知识 + 与本项目的对照）。只有第一类会随代码更新。
+> `docs/` 里两类文档：**项目设计类**（前 4 篇，描述本项目的实现与取舍）与
+> **技术学习类**（后 8 篇，通用知识 + 与本项目的对照）。
 >
 > 历史材料（描述已完成的迁移过程，保留用以追溯）：`backend/tools/archive/` 里的
 > SQLite→MySQL 迁移脚本。
@@ -680,7 +675,7 @@ docker compose exec app python tools/init_password.py
 - 后端持久化：`backend/routers/skill_tree.py` + `backend/db/skill_tree.py`
 - 后端 AI 图：`backend/routers/skill_tree_ai.py` + `backend/services/skill_tree_ai/`
 - 撤销/重做约定：历史栈为「改后快照」语义；`loadData()` 清空历史并压入基线快照（防跨树数据污染）
-- 设计文档：[`docs/技能树编辑器技术详解.md`](docs/技能树编辑器技术详解.md)（编辑器渲染与交互 + AI Agent 全解析）
+- 交互层 / 渲染层 / AI 桥接分别是 `js/interaction.js`、`js/tree-renderer.js`、`js/ai-bridge.js`
 - 几条容易改回去的硬约定：
   - **拖节点必须 Ctrl/Cmd + 左键**（左键只选中不拖；框选整组也一样要按 Ctrl；Shift 是加减选；空格/中键平移）
   - 网格是「**单位区域**」制（unit=300 画布 px）：内容包围盒按 unit 取整外扩，空树给视口中心一格；
@@ -697,9 +692,10 @@ docker compose exec app python tools/init_password.py
 - 子 Agent：`backend/services/coordinator/agents/`（6 个域 Agent + ask_user 工具）
 - SSE 统一层：`backend/services/sse.py`（事件协议 + 心跳 + ContextVar 发射器）
 - 提示词：`backend/prompts/coordinator.py`
-- 设计文档：[`docs/统一协调Agent设计方案.md`](docs/统一协调Agent设计方案.md)
+- 路由与汇总逻辑：`backend/services/coordinator/graph.py`（主图 LLM 决策 → 命中子 Agent）
+- 提示词：`backend/prompts/coordinator.py`
 
-> ⚠️ 改反问相关逻辑前先看设计文档的 §6.1/§6.2：`/chat` 与 `/resume` 有**会话级处理中锁**
+> ⚠️ 改反问相关逻辑前先记住这条：`/chat` 与 `/resume` 有**会话级处理中锁**
 > （同一 `thread_id` 并发写返回 409），前端配套**串行提交队列**，两边是配套的。
 > `skip: true` 表示跳过提问 —— 不告诉后端的话该域永远完不成，这条记录的总结不会生成。
 >
@@ -930,8 +926,8 @@ SELF_GROW_MYSQL_DATABASE=自建一个库名含 test 的库 pytest tests/ -q
 
 - 数据迁移脚本已归档到 `backend/tools/archive/migrate_sqlite_to_mysql.py`
   （SQLite 已不存在，它不再需要，留着是为了记录当时怎么迁的）
-- 两份迁移方案文档（`SQLite迁移MySQL方案.md` / `彻底移除SQLite完整方案.md`）已在
-  2026-09-24 的文档清理中从 `docs/` 移除 —— 内容属历史过程，需要时可在 git 历史里找到
+- 两份描述 SQLite → MySQL 完整迁移过程的方案文档，已在 2026-09-24 的文档清理中从 `docs/` 移除
+  —— 属历史过程，需要时可在 git 历史里找到
 
 ### 生产部署（Docker）
 

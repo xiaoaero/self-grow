@@ -116,9 +116,8 @@ self_grow_system/
 │       ├── test_mcp_auth.py                # MCP HTTP API Key 鉴权
 │       ├── test_expression_endpoints.py    # 表达训练接口（派生表别名）
 │       └── test_sql_dialect_lint.py        # ★ 静态护栏 15 项（唯一的防回退机制）
-├── docs/                  # 项目文档（17 篇，见 README「项目结构」）
-│   ├── 技能树编辑器技术详解.md / 统一协调Agent设计方案.md / 登录鉴权方案选型.md  # ★ 主力文档
-│   ├── 维度经验计分规则.md / MCP插件说明.md / 项目坑与面试讲解.md
+├── docs/                  # 项目文档（12 篇，见 README「项目结构」）
+│   ├── 登录鉴权方案选型.md / 维度经验计分规则.md / MCP插件说明.md / Docker技术详解与部署实战.md
 │   └── 其余 8 篇为技术学习指南（LangGraph / FastAPI / 异步 / 性能 / 数据库 / 网络 / 设计模式 / 浏览器）
 └── memory/                # 开发记录（按日期，57 篇）
 ```
@@ -274,7 +273,8 @@ SELF_GROW_MYSQL_HOST / PORT / USER / PASSWORD / DATABASE
 - 旧 `/api/chat`（原 `routers/ai.py` + `services/ai_service.py`）已彻底删除（无鉴权，2026-09-11 清理）
 - 撤销/重做约定：历史栈为「改后快照」语义——所有操作先修改再 `saveHistory()`；`loadData()` 时清空历史并压入基线快照（防跨树污染）
 - 权限约定：**仅管理员可进入编辑器**——三道防线：① `skills.js` 非 admin 不渲染入口 ② 编辑器启动调 `/api/auth/me` 校验，非 admin 不 `new App()` ③ 后端 `require_admin`（`routers/deps.py`）才是真正边界
-- 详细文档：`docs/技能树编辑器技术详解.md`（编辑器 + Agent 全解析，1700+ 行）、`docs/技能树AI-LangGraph改造方案.md`
+- 实现分布：交互层 `frontend/skill-tree/js/interaction.js`、渲染 `js/tree-renderer.js`、
+  AI 桥接 `js/ai-bridge.js`、后端图 `backend/services/skill_tree_ai/`
 
 ### 登录鉴权（JWT，2026-09-13 落地）
 - 凭证解析链：`backend/routers/deps.py` —— ① TRUSTED_MODE ② `Authorization: Bearer` ③ `X-API-Key` ④ 401。**旧的 `?user_id=` 不再作为身份依据**
@@ -287,7 +287,7 @@ SELF_GROW_MYSQL_HOST / PORT / USER / PASSWORD / DATABASE
 - MCP：`mcp_server.py` 的 HTTP 传输强制 `X-API-Key`（stdio 模式不鉴权，本地进程可信）
 - 测试：`tests/test_auth.py`(17) + `tests/test_skill_tree_permissions.py`(11) + `tests/test_mcp_auth.py`(6)
 - **测试约定**：`SELF_GROW_JWT_SECRET` 必须在 `tests/conftest.py` 里设置（config 在 import 时读 env，写在测试文件里全量跑会失效）；公共登录方法放 `tests/helpers.py`（conftest 不在 sys.path，不能直接 import）
-- 详细文档：`docs/登录鉴权方案选型.md`（选型论证）、`docs/安全设计说明.md`（威胁模型 + 已知风险清单）
+- 详细文档：`docs/登录鉴权方案选型.md`（9 种登录方式对比 + JWT 落地全记录）
 
 ### 统一协调 Agent 开发
 - 前端：`frontend/js/chat.js`（悬浮球 + 对话框 + 流式渲染 + 反问卡片**串行提交队列**）
@@ -296,7 +296,7 @@ SELF_GROW_MYSQL_HOST / PORT / USER / PASSWORD / DATABASE
 - 子 Agent：`backend/services/coordinator/agents/`（6 个域 Agent，基类 `base.py`）
 - 反问机制：`agents/ask_user_tool.py` 公共工具 + dispatch interrupt 检测
 - 提示词：`backend/prompts/coordinator.py`
-- 设计文档：`docs/统一协调Agent设计方案.md`
+- 路由与汇总：`services/coordinator/graph.py`（主图 LLM 决策，命中哪个域就走哪个子 Agent）
 
 ### MCP 插件开发
 - 服务器：`backend/mcp_server.py`（FastMCP，6 域 24 工具，复用 `db/`、`services/` 层）
@@ -448,7 +448,8 @@ SELF_GROW_MYSQL_DATABASE=<自建一个库名含 test 的库> .pixi/envs/default/
   - MySQL 数据在 `mysql_data` 卷；`data` 卷保留 `uploads/`（奖励图片）与 `logs/`（`app.log` / `mcp.log`）—— **别删**
   - 备份：`docker compose exec mysql sh -c 'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --databases "$MYSQL_DATABASE"' > backup.sql`
 - 测试：`cd backend && pixi run test`（当前 295 passed；MySQL 后端建议分批跑）
-- 上线前检查清单见 `docs/安全设计说明.md` §11（密钥、TRUSTED_MODE、CORS、HTTPS、备份）
+- 上线前检查清单：换掉 `SELF_GROW_JWT_SECRET`、`SELF_GROW_TRUSTED_MODE` 必须为 0、
+  CORS 不能留 `*`、公网必须 HTTPS、MySQL 与 `uploads/` 定期备份
 
 ## 8 个属性维度的颜色约定
 

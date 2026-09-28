@@ -152,7 +152,8 @@ MCP_TRANSPORT=streamable-http MCP_PORT=8000 python mcp_server.py
 ### 7.2 三个需要提前想清楚的点
 
 1. **用户身份**：MCP 是工具协议，没有内置用户概念。当前用单用户模式（`SELF_GROW_USER_ID` 环境变量固定 `user_id`）。多用户需接入 MCP 的 `context` / session 机制传 user_id。
-   > 注意：主站的协调 Agent 已有完整鉴权（见 [统一协调Agent设计方案](./统一协调Agent设计方案.md) §6.1），MCP Server 这一侧仍是单用户。
+   > 注意：主站已有完整鉴权（凭证解析链在 `backend/routers/deps.py`：TRUSTED_MODE → JWT → API Key → 401），
+   > 而 MCP Server 这一侧走的是 `X-API-Key` 或 stdio 单用户模式。
 2. **反问**：MCP 的 tool 是「请求→响应」，不适合中途挂起反问。两种做法：
    - 工具返回 `needs_user` 标记 + 客户端再调 `resume` 工具（复刻 coordinator 现有机制）；
    - 直接返回「缺参数」错误，让客户端 LLM 看工具 schema 自行追问补齐（更简单）。

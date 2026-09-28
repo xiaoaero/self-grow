@@ -174,7 +174,10 @@ async def get_current_user(user_id: int = Query(..., description="用户 ID")):
 
 **依赖注入的价值**：把"验证用户"这个通用逻辑抽出来，用 `Depends(...)` 一行挂到任何端点，不用在每个函数里重复写一遍。
 
-> ⚠️ **重要认知**：这个 `get_current_user` **不是真正的身份认证**（没有 token/password，只检查 `user_id` 存不存在）。详见 `docs/压测说明.md` §2.1.1。这也是本项目最大的安全缺口。
+> ⚠️ **重要认知**：上面这种写法 **不是真正的身份认证**（没有 token/password，只检查 `user_id` 存不存在）——
+> 那是本项目**早期版本**的实现，也是当时最大的安全缺口。现在已改为 **JWT 双令牌（Access + Refresh 轮换）
+> + RBAC + 可撤销 API Key**，凭证解析链收敛在 `routers/deps.py` 一处，业务端点因此一行没改就完成了升级。
+> 详见 [`docs/登录鉴权方案选型.md`](./登录鉴权方案选型.md)。
 
 ### 补充：三种参数类型（Query / Path / Body）
 

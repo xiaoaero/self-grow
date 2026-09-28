@@ -1111,7 +1111,7 @@ export LANGSMITH_TRACING=true
 export LANGSMITH_API_KEY=lsv2_...
 ```
 
-开了之后，每次图执行（每个节点的输入输出、每次 LLM 调用的完整请求、每个工具调用）都会上报到 LangSmith 的看板，可以按 trace 排查"为什么 LLM 在这轮做了这个决策"。免费额度够个人项目用。项目目前用的是**本地日志 + request_id 贯穿**（`docs/日志系统方案.md`），够用但粒度不如 LangSmith。
+开了之后，每次图执行（每个节点的输入输出、每次 LLM 调用的完整请求、每个工具调用）都会上报到 LangSmith 的看板，可以按 trace 排查"为什么 LLM 在这轮做了这个决策"。免费额度够个人项目用。项目目前用的是**本地日志 + request_id 贯穿**（`backend/services/logging_setup.py`），够用但粒度不如 LangSmith。
 
 ## 10.4 prebuilt 组件一览
 

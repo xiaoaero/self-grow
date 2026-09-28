@@ -1,7 +1,7 @@
 # Docker 技术详解与 Self Grow 部署实战
 
 > 目标读者：会用 Docker 跑起来，但想搞清**它到底做了什么**、**为什么这么写**、**背后牵扯哪些技术**。
-> 配套：[Docker部署方案.md](./Docker部署方案.md)（纯配置清单）、[安全设计说明.md](./安全设计说明.md)（上线检查清单）
+> 配套：仓库根目录的 `Dockerfile` / `docker-compose.yml` / `.env.example`（可运行的配置实体）
 > 核实时间：2026-09-14，对照 `backend/config.py`、`backend/main.py`、`backend/requirements.txt`（177 包）
 
 ---
@@ -309,7 +309,7 @@ sudo certbot --nginx -d your.domain.com
 
 > **本项目必须上 HTTPS 的理由**（不是"最佳实践"这种空话）：
 > JWT 的 Access Token 和 API Key 都在 HTTP 头里明文传输，
-> 公网 HTTP 下抓包即可盗用身份。见 [安全设计说明](./安全设计说明.md) §7.4。
+> 公网 HTTP 下抓包即可盗用 Access Token。**上公网必须 HTTPS**（Nginx 终止 TLS 即可）。
 
 ## 3.8 PID 1 与优雅退出、日志
 
