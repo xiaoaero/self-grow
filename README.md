@@ -1,9 +1,19 @@
 # Self Grow — 个人成长系统
 
-> 一个原生 HTML/CSS/JS 单页应用 + FastAPI 后端的个人成长追踪系统。包含等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（AI 生成节点走 **LangGraph**）、**表达训练系统（AI 出题 + 实时语音 + 评分 + 填充词检测）**、**统一协调 Agent（多智能体 + 反问机制 + 悬浮球对话）**、**MCP 插件（24 个业务工具暴露）**、**用户中心（多模型管理 + 账户安全）**、**JWT 登录鉴权（Access/Refresh 双令牌 + RBAC + API Key）**。部署方式为纯 Web + Docker。
+> 一个原生 HTML/CSS/JS 单页应用 + FastAPI 后端的个人成长追踪系统。包含等级段位体系、习惯追踪、任务管理、目标规划、八维属性雷达图、奖励商城（含条件解锁/领取双重校验）、可视化技能树编辑器（AI 生成节点走 **LangGraph**）、**表达训练系统（AI 出题 + 实时语音 + 评分 + 填充词检测）**、**统一协调 Agent（多智能体 + 反问机制 + 悬浮球对话）**、**AI 资讯板块（GitHub 趋势 + 国内/国际资讯 + 每日 AI 分析）**、**MCP 插件（24 个业务工具暴露）**、**用户中心（多模型管理 + 账户安全）**、**JWT 登录鉴权（Access/Refresh 双令牌 + RBAC + API Key）**。部署方式为纯 Web + Docker。
+
+**规模速查（2026-09-24 实测）**
+
+| 项 | 值 |
+|---|---|
+| 后端 | **91 个 py 文件 / 17.5k 行**（不含 `tests/`）；测试另有 **22 文件 / 6.1k 行** |
+| 前端 | **28 个 js 文件 / 19.0k 行** + 9 个 css / 10.5k 行 + 3 个 html |
+| 数据 / 接口 | **29 张表** + **101 个 HTTP 端点**（`app.openapi()` 实测） |
+| 测试 | **295 passed**（pytest，AI 调用全打桩）+ 前端 5 个 Node 逻辑测试文件 |
+| AI / 集成 | **7 个 AI 场景** · **24 个 MCP 工具** · 两套 LangGraph Agent · 8 维 + 10 段位 |
 
 **三项能力定位**：
-- **28 张表 / 101 个 HTTP 端点 / 6 个 AI 场景**的完整业务后端
+- **29 张表 / 101 个 HTTP 端点 / 7 个 AI 场景**的完整业务后端（**MySQL 单后端**）
 - **两套 LangGraph Agent**：统一协调 Agent（多智能体 + 反问）+ 技能树 AI（工具调用 + 危险操作确认）
 - **完整的登录鉴权**：JWT 双令牌 + 角色授权 + 可撤销 API Key，覆盖浏览器 / MCP / 脚本三类客户端
 
@@ -49,6 +59,7 @@ self_grow_system/
 │   │       ├── skills.js             # 技能 — 技能卡片列表 → 技能树查看器（iframe）+ 技能库
 │   │       ├── rewards.js            # 奖励商城 — 8 分类筛选、解锁/领取双重条件、图片上传
 │   │       ├── agent.js              # 表达训练 — AI 出题、答题计时、填充词检测、AI 评分（四维打分）
+│   │       ├── aiconsult.js          # AI 资讯 — 四类来源卡片 + 每日情报摘要 + 三个榜单（本周/本日/资讯热度）
 │   │       └── usercenter.js         # 用户中心 — 基础信息 + 账户安全（改密/API Key/登出）+ 多模型管理
 │   │
 │   ├── skill-tree/                   # 技能树编辑器（独立 SPA，支持查看器/编辑/管理三模式）
@@ -67,8 +78,12 @@ self_grow_system/
 │   │       ├── history.js            # 撤销/重做历史
 │   │       └── utils.js              # 工具函数
 │   │
-│   ├── tests/                        # 前端逻辑回归测试（Node + 极简假 DOM，零依赖不开浏览器）
-│   │   └── interrupt-submit.test.mjs # 反问卡片提交逻辑：连点防抖 / 串行队列 / 草稿保留 / 跳过（7 组场景）
+│   ├── tests/                        # 前端逻辑回归测试（Node + 极简假 DOM，零依赖不开浏览器，5 个文件）
+│   │   ├── interrupt-submit.test.mjs      # 反问卡片提交逻辑：连点防抖 / 串行队列 / 草稿保留 / 跳过
+│   │   ├── tree-editor-features.test.mjs  # 网格单位区域 / 删除边 / 手势约定 / 列表字段对齐
+│   │   ├── selection-box.test.mjs         # 框选矩形几何（SVG rect 必须用属性定位）
+│   │   ├── tree-id-normalize.test.mjs     # 技能树 id 契约（tree_id 字符串 vs 自增主键）
+│   │   └── ai-session-persist.test.mjs    # AI 对话按树持久化（切树/删树/清空/条数上限）
 │   │
 │   └── assets/                       # 静态资源
 │       └── icons/                    # 属性图标 SVG（8 维 + 行动 + 成长记录 + 标题等）
@@ -86,10 +101,10 @@ self_grow_system/
 │   │
 │   ├── db/                           # 数据访问层（每模块一个功能域）
 │   │   ├── backend.py                # ★ MySQL 连接池 + 连接代理（2026-09-23 起单后端）
-│   │   ├── connection.py             # 对外门面：get_conn / now_str（时间口径的落地点）
-│   │   ├── connection.py             # 门面：re-export get_conn / now_str（业务代码只认它）
+│   │   ├── connection.py             # 门面：get_conn / now_str / placeholders（IN 占位符唯一入口）
+│   │   ├── jsoncols.py               # JSON 列统一读法 jloads()（`dict.get` 的默认值对 NULL 无效）
 │   │   ├── testing.py                # 测试库隔离（MySQL 下无文件可换 → 删表重建，带安全闸）
-│   │   ├── init.py                   # 建表（22 张）+ 默认用户/奖励 + 数据迁移
+│   │   ├── init.py                   # 建表（29 张）+ 默认用户/奖励 + 幂等迁移
 │   │   ├── auth.py                   # 登录鉴权 SQL（refresh_tokens / api_keys / 密码与 token_version）
 │   │   ├── users.py                  # 用户 + 每日统计 CRUD
 │   │   ├── habits.py                 # 习惯 + 打卡记录 CRUD
@@ -108,12 +123,18 @@ self_grow_system/
 │   │
 │   ├── services/                     # 业务逻辑层
 │   │   ├── auth_service.py           # ★ 登录鉴权：bcrypt 哈希、JWT 签发/验签、Refresh 轮换、API Key、失败锁定
+│   │   ├── logging_setup.py          # ★ 日志唯一配置入口（由 config.py 在模块尾部调用；不 import 项目模块）
+│   │   ├── middleware.py             # 纯 ASGI 中间件：request_id 注入 + 访问日志（保 SSE 不被缓冲）
+│   │   ├── llm.py                    # ★ 多模型热切换：按六元组缓存（改配置即换 key 自动重建）
+│   │   ├── tool_args.py              # 工具参数容错 coerce_json_args()（模型常把数组传成 JSON 字符串）
 │   │   ├── exp_service.py            # EXP 奖励编排（幂等防重复结算）
 │   │   ├── ai_client.py              # 统一 AI HTTP 客户端（动态读取启用模型配置）
 │   │   ├── ai_action_service.py      # 行动记录 AI 解析（对话式提取）
 │   │   ├── ai_habit_service.py       # 习惯 AI 分析（智能洞察 + 图标分配）
 │   │   ├── asr_service.py            # 语音识别（DashScope paraformer 实时转写）
 │   │   ├── expression_service.py     # 表达训练 AI 出题/评分 + 提示生成
+│   │   ├── aiconsult_service.py      # AI 资讯抓取（GitHub 三段错峰 + 国内/国际）+ 榜单计算
+│   │   ├── aiconsult_analysis_service.py  # 每日 AI 分析（懒触发：摘要 + 仓库简介 + 资讯热度打分）
 │   │   │
 │   │   ├── coordinator/              # 统一协调 Agent（LangGraph 多智能体）
 │   │   │   ├── graph.py              # 主图编译 + run/resume
@@ -125,17 +146,16 @@ self_grow_system/
 │   │   │
 │   │   └── skill_tree_ai/            # 技能树 AI 编辑（LangGraph）
 │   │       ├── graph.py              # StateGraph 编译 + chat/resume + 结果格式化
-│   │       ├── node.py               # Agent 节点（LLM + 工具循环，消息截断防孤儿 ToolMessage）
-│   │       ├── tools.py              # 9 个工具（按节点 ID 操作 + 危险操作确认守卫）
+│   │       ├── node.py               # Agent 节点（LLM + 工具循环；上下文按「轮」裁剪防孤儿 ToolMessage）
+│   │       ├── tools.py              # 8 个工具（按节点 ID 操作 + 危险操作确认守卫）
 │   │       ├── state.py              # 会话状态定义（checkpointer 持久化）
-│   │       └── prompts.py            # 系统提示词 + 树状态动态注入
+│   │       └── prompts.py            # ★ 系统提示词（**技能树 AI 的在这里**，不在根 prompts/）
 │   │
-│   ├── prompts/                      # AI 系统提示词模板
+│   ├── prompts/                      # AI 系统提示词模板（除技能树外，各功能一个文件）
 │   │   ├── coordinator.py            # 协调 Agent 路由/汇总提示词
 │   │   ├── action_parse.py           # 行动解析提示词
 │   │   ├── habit_icon.py             # 习惯图标分配提示词
-│   │   ├── expression.py             # 表达训练出题/评分/提示生成提示词
-│   │   └── action_parse.py           # AI 行动解析提示词 + 工具定义
+│   │   └── expression.py             # 表达训练出题/评分/提示生成提示词
 │   │
 │   ├── routers/                      # API 路由层（各文件端点数按 OpenAPI 实测）
 │   │   ├── deps.py                   # ★ 依赖注入：get_current_user（凭证解析链）+ require_admin（角色授权）
@@ -153,23 +173,30 @@ self_grow_system/
 │   │   ├── model_configs.py          # 模型配置 API（6 个端点：CRUD + 切换启用 + 连通性测试）
 │   │   ├── skill_tree.py             # 技能树 CRUD API（10 个端点，写操作仅管理员）
 │   │   ├── skill_tree_ai.py          # 技能树 AI API（2：chat/resume，SSE 流式，LangGraph，仅管理员）
-│   │   └── expression.py             # 表达训练 API（11 个端点）
+│   │   ├── aiconsult.py              # AI 资讯 API（5：四类列表/每日分析/榜单/手动刷新）
+│   │   └── expression.py             # 表达训练 API（12 个端点）
 │   │
-│   ├── tests/                        # pytest 测试（227 passed，LLM 全打桩、不联网）
+│   ├── tests/                        # pytest 测试（295 passed，LLM 全打桩、不联网，22 个文件）
 │   │   ├── conftest.py               # pytest 配置（★ 在此设置 SELF_GROW_JWT_SECRET，早于 config 导入）
 │   │   ├── helpers.py                # 测试用公共方法（ensure_test_accounts / get_auth_headers）
-│   │   ├── test_auth.py              # 登录鉴权（17）
-│   │   ├── test_sleep_action.py      # 睡眠行动 + 经验计算（38）
-│   │   ├── test_ai_action.py         # AI 行动解析（20）
-│   │   ├── test_streaming.py         # SSE 流式：事件协议 / 心跳 / 发射器并发隔离 / 端点契约（21）
-│   │   ├── test_skill_tree_permissions.py  # 技能树角色权限 / 越权拦截（11）
-│   │   ├── test_time_consistency.py  # 时间口径统一（任意时区下成立，10）
-│   │   ├── test_dimension_invariant.py     # 维度数据不变式：xp_to_next == exp_for_level（6）
-│   │   ├── test_coordinator_interrupt.py   # 反问交互：会话锁 / 连点 409 / skip 语义（10）
-│   │   ├── test_skill_tree_ai_tools.py     # 技能树 AI 工具（9）
-│   │   ├── test_mcp_auth.py          # MCP HTTP 传输的 API Key 鉴权（6）
-│   │   ├── test_expression_endpoints.py    # 表达训练接口 / 派生表别名（12）
-│   │   ├── test_sql_dialect_lint.py  # 静态护栏：拦 SQLite 残留写法 / 派生表别名 / 保留字反引号（11）
+│   │   ├── test_auth.py              # 登录鉴权
+│   │   ├── test_sleep_action.py      # 睡眠行动 + 经验计算
+│   │   ├── test_ai_action.py         # AI 行动解析
+│   │   ├── test_streaming.py         # SSE 流式：事件协议 / 心跳 / 发射器并发隔离 / 端点契约
+│   │   ├── test_skill_tree_permissions.py  # 技能树角色权限 / 越权拦截
+│   │   ├── test_skill_tree_persistence.py  # 技能树持久化：真实体量写读 / 并发 upsert / id 契约
+│   │   ├── test_skill_tree_ai_tools.py     # 技能树 AI：工具 / 参数容错 / 提示词 / 上下文窗口
+│   │   ├── test_model_configs.py     # 模型配置（含「切了模型不生效」的回归）
+│   │   ├── test_aiconsult_analysis.py      # AI 分析：提示词约束 / token 上限 / user_id 传递
+│   │   ├── test_hardening.py         # 连接池 / 锁超时 / 输入上限
+│   │   ├── test_logging.py           # 日志：request_id 穿透 / 组件分文件
+│   │   ├── test_security_fixes.py    # 云同步、越权、评分降级
+│   │   ├── test_time_consistency.py  # 时间口径统一（任意时区下成立）
+│   │   ├── test_dimension_invariant.py     # 维度数据不变式：xp_to_next == exp_for_level
+│   │   ├── test_coordinator_interrupt.py   # 反问交互：会话锁 / 连点 409 / skip 语义
+│   │   ├── test_mcp_auth.py          # MCP HTTP 传输的 API Key 鉴权
+│   │   ├── test_expression_endpoints.py    # 表达训练接口 / 派生表别名
+│   │   ├── test_sql_dialect_lint.py  # ★ 静态护栏（15 项）：拦 SQLite 残留 / 派生表别名 / 保留字反引号 / 手搓占位符
 │   │   └── locustfile.py             # 压测脚本（非 pytest）
 │   │
 │   ├── .env                          # AI 配置 + 鉴权密钥 + 前端目录（不入 git）
@@ -180,35 +207,34 @@ self_grow_system/
 │   ├── tools/init_password.py        # 初始化 / 重置账号密码（pixi run init-password）
 │   └── tools/archive/                # 已归档的一次性脚本（SQLite → MySQL 迁移工具）
 │
-├── docs/                             # 项目文档（24 篇）
-│   ├── 登录鉴权方案选型.md            # ★ 9 种登录方式对比 + JWT 落地方案 + 实施进度
-│   ├── 安全设计说明.md                # ★ 威胁模型 / 令牌设计 / RBAC / 已知风险清单 10 条
+├── docs/                             # 项目文档（17 篇：项目设计类 + 技术学习类）
+│   ├── 登录鉴权方案选型.md            # ★ 9 种登录方式对比 + JWT 落地方案
 │   ├── 技能树编辑器技术详解.md         # ★ 1700+ 行：编辑器渲染与交互 + Agent 全解析
-│   ├── 技能树AI-LangGraph改造方案.md  # 技能树 AI LangGraph 架构设计
-│   ├── 统一协调Agent设计方案.md       # 统一协调 Agent 设计
-│   ├── 代码学习顺序.md（backend/services/）# services 层 6 阶段学习路线
+│   ├── 统一协调Agent设计方案.md       # 统一协调 Agent 设计（★ 改反问逻辑前必读）
+│   ├── 维度经验计分规则.md            # 8 维经验计算规则详情
 │   ├── MCP插件说明.md                # MCP 插件安装/挂载/验证/鉴权
-│   ├── 面试展示待补充清单.md           # 求职向：缺口分析 + P0~P2 分级 + 两周排期
-│   ├── 求职材料-简历条目与面经.md      # 简历条目 + 高频追问
 │   ├── 项目坑与面试讲解.md            # 踩坑复盘
-│   ├── 维度经验计分规则.md           # 8 维经验计算规则详情
-│   ├── 前端浏览器缓存与存储详解.md     # 浏览器缓存与存储
-│   ├── 数据库知识深入学习指南.md       # 数据库学习资料
-│   ├── SQLite迁移MySQL方案.md         # ★ 迁移实录：改动面实测 / 分阶段步骤 / 8 项验证清单（历史）
-│   ├── 彻底移除SQLite完整方案.md      # ★ 移除 SQLite 的完整方案（六批实施 + 验收清单）
-│   ├── 网络知识深入学习指南.md         # 网络学习资料
-│   ├── 异步编程学习指南.md            # asyncio 学习资料
-│   ├── 性能优化学习指南.md            # 性能优化学习资料
-│   ├── 设计模式学习指南.md            # 设计模式学习资料
-│   ├── FastAPI与FastMCP学习指南.md    # FastAPI / FastMCP 学习资料
-│   ├── Docker技术详解与部署实战.md    # Docker 原理讲解 + 生产部署实战（含 Nginx/HTTPS）
+│   ├── 求职材料-简历条目与面经.md      # 简历条目 + 高频追问
+│   ├── Docker技术详解与部署实战.md     # Docker 原理讲解 + 生产部署实战（含 Nginx/HTTPS）
 │   ├── 压测说明.md                   # Locust 压测方案与结果
-│   └── 手机版部署方案.md            # 移动端部署方案
+│   ├── LangGraph学习指南.md           # LangGraph 原理 + 本项目两套图的对照
+│   ├── FastAPI与FastMCP学习指南.md    # FastAPI / FastMCP
+│   ├── 异步编程学习指南.md            # asyncio
+│   ├── 性能优化学习指南.md            # 性能优化
+│   ├── 数据库知识深入学习指南.md       # 数据库原理（含本项目 MySQL 落地对照）
+│   ├── 网络知识深入学习指南.md         # 网络
+│   ├── 设计模式学习指南.md            # 设计模式
+│   └── 前端浏览器缓存与存储详解.md     # 浏览器缓存与存储
 │
-└── memory/                           # 开发记录（Claude Code 自动管理）
-    ├── MEMORY.md                     # 记忆索引
-    └── ...
+├── memory/                           # 开发记录（按日期，57 篇）
+└── CLAUDE.md                         # 代码指引（给 AI 编程工具看的速查）
 ```
+
+> `docs/` 里两类文档：**项目设计/复盘类**（前 9 篇，描述本项目的实现与取舍）与
+> **技术学习类**（后 8 篇，通用知识 + 与本项目的对照）。只有第一类会随代码更新。
+>
+> 历史材料（描述已完成的迁移过程，保留用以追溯）：`backend/tools/archive/` 里的
+> SQLite→MySQL 迁移脚本。
 
 ---
 
@@ -227,6 +253,7 @@ self_grow_system/
 | **技能树编辑器** | 独立 SPA，**仅管理员可进入**（普通用户无入口，只能查看已发布内容并学习）。可视化节点编辑（拖拽、缩放、连线）、学习状态管理（locked/available/learning/completed）、前置条件检查、撤销/重做、**AI 智能编辑（LangGraph Agent，按节点 ID 操作 + 危险操作确认卡片）** |
 | **奖励商城** | 8 分类筛选、解锁条件 + 领取条件双重验证、图片上传、手动确认条件 |
 | **表达训练** | 扩展 → AI Agent，AI 出题（4 种题型，实时查重避免重复）、答题计时器（开始/暂停/完成）、实时语音识别输入（paraformer）、实时填充词高亮检测（密度+重复+句首+簇拥四重规则）、AI 评分（流畅度/逻辑性/内容质量/语言表达四维 0-100 分）、双层展开提示面板 |
+| **AI 资讯** | 四类来源（GitHub 本周/今日 + 国内/国际）卡片列表 + **每日情报摘要**（3~5 条要点带出处 + 一句趋势判断）+ 三个榜单（本周新鲜榜 Top5 / 本日新鲜榜 / 资讯热度榜 Top5）。分析是**懒触发**：点进页面才生成，每天一份、全局共享 |
 | **用户中心** | 基础信息卡（等级徽章/总经验/注册时间/用户 ID）、**账户安全卡（登录状态 / 修改密码 / API Key 管理 / 退出登录）**、模型信息卡（LLM/ASR 增删改 + 切换启用 + 连通性测试），切换模型即时生效 |
 | **登录页** | 用户名 + 密码表单，上方用户卡片点击即填用户名；本地免鉴权模式（`SELF_GROW_TRUSTED_MODE=1`）下隐藏表单、点卡片直进 |
 | **AI 悬浮球** | 全局悬浮球对话框，自然语言直达协调 Agent（6 域 24 工具），反问卡片 FIFO 队列（最多 2 张）+ 域名标签 + 跳过 + 输入框 |
@@ -272,17 +299,26 @@ echo "SELF_GROW_JWT_SECRET=$(openssl rand -hex 32)" >> backend/.env
 
 > 改密码：`pixi run init-password admin 新密码`，或在「用户中心 → 账户安全」自助修改。
 
-后端首次运行自动建表（22 张）。**数据库有两个后端，靠环境变量切换**：
+后端首次运行自动建表（**29 张**）。项目**只支持 MySQL**（2026-09-23 彻底移除 SQLite）：
+没有 `SELF_GROW_DB_BACKEND` 开关、没有 `DB_PATH`、没有 `data.db`，方言转换层
+（`backend/db/dialect.py`）整文件删除；源码里写的就是 MySQL 原生 SQL，
+`tests/test_sql_dialect_lint.py`（15 项）负责拦住 SQLite 写法的回退。
+
+配置只认这几个环境变量：
 
 ```bash
-# SELF_GROW_DB_BACKEND 已于 2026-09-23 废弃：项目只支持 MySQL。
-# 该变量仍会被读取但**不生效**（读到会打一条 WARNING），避免老部署以为切了库。
+SELF_GROW_MYSQL_HOST / PORT / USER / PASSWORD / DATABASE
 ```
 
-项目**只支持 MySQL**（2026-09-23 移除 SQLite）。源码里写的就是 MySQL 原生 SQL ——
-原来的方言自动转换层已删除，`tests/test_sql_dialect_lint.py` 负责拦住 SQLite 写法的回退。
+启动时自动拉起 **APScheduler 定时任务**：
 
-启动时自动拉起 **APScheduler 定时任务**（每日 03:00 归档任务/刷新模板/习惯结算/统计快照，每周一 03:00 刷新周模板任务）。
+| 触发时间 | 任务 |
+|---|---|
+| 每日 03:00 | 归档任务 / 刷新模板 / 习惯结算 / 统计快照 |
+| 每周一 03:00 | 刷新周模板任务 |
+| 每日 2 / 8 / 14 / 20 点 | AI 资讯：GitHub daily 三段错峰抓取（H-20 / H-10 / H:00 暂存，H:05 合并） |
+| 每日 3 / 15 点 | AI 资讯：国内 / 国际资讯抓取 |
+| 每周 3 / 15 点 | AI 资讯：GitHub weekly 抓取 |
 
 ### 2. 前端（两种形态任选）
 
@@ -325,12 +361,13 @@ SELF_GROW_JWT_SECRET=用 openssl rand -hex 32 生成
 
 > `.env` 只是兜底配置 — 运行时优先读 `model_configs` 表中当前启用的模型（用户中心可视化切换，即时生效）。
 
-AI 功能支持六个场景：
-- **技能树编辑器**：LangGraph Agent，按节点 ID 操作（生成/修改/删除/连线/批量子树），危险操作二次确认（9 个工具）
+AI 功能支持七个场景：
+- **技能树编辑器**：LangGraph Agent，按节点 ID 操作（生成/修改/删除/连线/移动/批量建节点），危险操作二次确认（**8 个工具**）
 - **统一协调 Agent**：主图 LLM 路由 → 6 个子 Agent（行动/查询/目标/任务/习惯/奖励），支持反问澄清，前端悬浮球交互
 - **行动记录**：通过 AI 对话自然语言记录行动（解析为结构化数据存入后端）
 - **习惯分析**：智能洞察分析 + 自动推荐习惯图标
 - **表达训练**：AI 出题（查重避免重复）+ AI 评分（四维打分 + 填充词统计）+ 智能提示生成 + 实时语音识别
+- **AI 资讯分析**：GitHub 趋势 + 资讯的每日情报摘要、仓库中文简介、资讯热度打分（懒触发，每天一份）
 - **MCP 插件**：24 个业务工具通过 MCP 协议暴露给 Claude Desktop / Cursor / WorkBuddy 等客户端
 
 ### 4. MCP 插件（可选）
@@ -362,14 +399,9 @@ docker compose exec app python tools/init_password.py
 # 浏览器访问 http://服务器IP:3001
 ```
 
-> ⚠️ **历史说明（2026-09-23 之前的版本适用）**：当时若已在跑 SQLite 版本、想切到 MySQL，先迁数据再切，否则 app 会在空库里
-> 重建 28 张表、看起来像「数据全丢了」：
->
-> ```bash
-> docker compose up -d mysql
-> docker compose run --rm app python tools/archive/migrate_sqlite_to_mysql.py
-> docker compose up -d app mcp
-> ```
+> ⚠️ **注意数据目录**：app 首次启动会在空库里建 29 张表（看起来像「数据全丢了」）。
+> 换库 / 换卷之前先导数据；SQLite 时代的迁移脚本已归档在
+> `backend/tools/archive/migrate_sqlite_to_mysql.py`（仅在从旧版 SQLite 部署迁移时才需要）。
 
 镜内依赖安装走 `backend/requirements.txt`（由 `pixi run export-reqs` 从 pixi 锁定版本生成，与开发环境版本一致）。
 
@@ -451,12 +483,18 @@ docker compose exec app python tools/init_password.py
 
 | AI 服务 | 位置 | 架构 | 说明 |
 |---------|------|------|------|
-| 技能树 AI | `services/skill_tree_ai/` | LangGraph 单 Agent 图 | 9 个工具按节点 ID 操作，checkpointer 会话，危险操作确认卡片，`/api/skill-trees/{id}/chat` |
+| 技能树 AI | `services/skill_tree_ai/` | LangGraph 单 Agent 图 | **8 个工具**按节点 ID 操作，checkpointer 会话，危险操作确认卡片，`/api/skill-trees/{id}/chat` |
 | 统一协调 Agent | `services/coordinator/` | LangGraph 多智能体 | 主图 LLM 路由 → 6 子 Agent，ask_user 反问机制，`/api/coordinator/chat` |
 | 行动解析 | `ai_action_service.py` | 对话式提取 | 自然语言 → 结构化行动记录，支持多轮交互 |
 | 习惯分析 | `ai_habit_service.py` | 智能洞察 + 图标 | 数据分析 + 习惯建议 + 自动分配 SVG 图标 |
 | 表达训练 | `expression_service.py` | 出题 + 评分 + 提示 | AI 出题（查重）、四维评分、智能提示生成 |
+| AI 资讯分析 | `aiconsult_analysis_service.py` | 两路 LLM 并发 | 摘要 + 仓库简介/资讯打分；**翻译打分类任务不限制输出 token**（撞上限会被截断，榜会整块消失） |
 | MCP 插件 | `mcp_server.py` | FastMCP | 6 域 24 工具，Literal 枚举约束 + 数值校验；stdio 免鉴权（本地进程可信）/ HTTP 强制 `X-API-Key` 且身份随 Key 走 |
+
+**两条跨场景的硬约定**（都踩过坑，新增 AI 功能时照着做）：
+
+1. **调 `get_llm()` 必须显式传 `user_id`** —— 内部是 `user_id or 1`，漏传会**静默**用错用户的模型配置（症状：在用户中心换了模型，这个功能却没变）。测试里有一条项目级护栏扫全部调用点。
+2. **工具执行前必须过 `coerce_json_args()`** —— 模型常把 list/dict 参数序列化成 JSON 字符串（`connections='[{"from_name":...}]'`），LangChain 校验会直接拒收，导致工具永远执行不了、模型反复重试（实测一轮烧 93 秒只建出 1 个节点）。
 
 **多模型动态切换**：`model_configs` 表按用户存 LLM/ASR 配置，所有 AI 服务经 `get_llm(user_id)` 动态读取启用配置，用户中心切换即时生效（缓存 key 含模型三元组，自动重建实例）。
 
@@ -515,7 +553,7 @@ docker compose exec app python tools/init_password.py
 - **前端零改动接入**：`frontend/js/auth.js` 包装 `window.fetch` 自动带 `Authorization` 并处理 401 自动续期，**52 处 `fetch(...?user_id=)` 一行未改**
 - 旧 `?user_id=` 参数**不再作为身份依据**
 
-详见 [`docs/登录鉴权方案选型.md`](docs/登录鉴权方案选型.md) 与 [`docs/安全设计说明.md`](docs/安全设计说明.md)。
+详见 [`docs/登录鉴权方案选型.md`](docs/登录鉴权方案选型.md)。
 
 ### 性能优化
 
@@ -542,12 +580,17 @@ docker compose exec app python tools/init_password.py
 | — | 技能树 AI 重写为 LangGraph（下线无鉴权旧端点） | ✅ 已完成 |
 | — | 技能树编辑器 14 项 bug 修复（撤销栈污染/连线残留/节点叠在原点等） | ✅ 已完成 |
 | — | 技能树编辑器权限管控（仅管理员可进入，普通用户无入口） | ✅ 已完成 |
-| — | **JWT 登录鉴权全栈落地**（双令牌 + RBAC + API Key + MCP 鉴权，101 tests passed） | ✅ 已完成 |
-| — | `docs/安全设计说明.md`、`docs/技能树编辑器技术详解.md`、`docs/代码学习顺序.md` | ✅ 已完成 |
+| — | **JWT 登录鉴权全栈落地**（双令牌 + RBAC + API Key + MCP 鉴权） | ✅ 已完成 |
+| — | **日志系统**（三层：request_id 穿透 / 组件分文件 / 纯 ASGI 中间件） | ✅ 已完成 |
+| — | **全项目代码审查 + 加固**（输入长度上限 / 越权 / 连接池两个静默失效点 / 锁等待超时） | ✅ 已完成 |
+| — | **彻底移除 SQLite**（方言层删除，SQL 固化为 MySQL 原生 + 15 项静态护栏） | ✅ 已完成 |
+| — | **AI 资讯板块**（GitHub 三段错峰 + 国内/国际资讯 + 每日 AI 分析 + 三个榜单） | ✅ 已完成 |
+| — | 技能树持久化链路修复（列宽 / 原子 upsert / id 契约 / 对话按树持久化） | ✅ 已完成 |
+| — | 技能树编辑器交互完善（单位区域网格 / 框选 / 多选菜单 / 手势约定） | ✅ 已完成 |
 
 ### 后端数据库
 
-共 **28 张表**：
+共 **29 张表**：
 
 | 表名 | 说明 |
 |------|------|
@@ -573,8 +616,17 @@ docker compose exec app python tools/init_password.py
 | `user_skills` | 用户技能关联 |
 | `expression_questions` | 表达训练题目 |
 | `expression_answers` | 表达训练回答记录（含 AI 评分） |
+| `aiconsult_items` | AI 资讯条目（四类来源：GitHub 周/日 + 国内/国际） |
+| `aiconsult_gh_snap` | GitHub 星数快照（日快照 / 周基线，用于算涨幅） |
+| `aiconsult_board` | 榜单产出（weekly / daily / news_hot，按 period_key 存） |
+| `aiconsult_analysis` | 每日 AI 分析产出（同时是「今天生成过没」的哨兵） |
+| `aiconsult_repo_intro` | 仓库中文简介缓存（按仓库名，只给新上榜的生成） |
 
 （`categories` 8 维分类定义硬编码在 `models/constants.py` 中，不作为数据库表）
+
+> 写 SQL 前请先看本文档 **「数据库（MySQL，唯一后端）」** 一节的「八个必须知道的点」——
+> 保留字反引号、派生表别名、`TEXT` 限制、占位符统一入口、`rowcount` 误判、并发 upsert
+> 这几条都是**真踩过**的（症状往往和"没存上"一模一样，很容易查错方向）。
 
 ### 后端定时任务
 
@@ -582,7 +634,13 @@ docker compose exec app python tools/init_password.py
 |----------|------|
 | 每日 03:00 | 归档未完成任务、从 daily 模板创建今日任务、结算昨日习惯 EXP、统计快照 |
 | 每周一 03:00 | 从 weekly 模板创建本周任务 |
+| 2 / 8 / 14 / 20 点 | AI 资讯：GitHub daily 三段错峰抓取 + H:05 合并（每轮各记一次快照） |
+| 3 / 15 点 | AI 资讯：国内 / 国际资讯抓取（周榜在同一时刻抓） |
 | 启动时 | 补归档机制（错过的定时任务补偿执行） |
+
+> ⚠️ 「本日新鲜榜」的语义是「**今天涨了多少**」= 当前星数 − 今天**最早**那次快照的星数，
+> `delta > 0` 才上榜。所以它需要**同一天至少两次快照**，也就是后端要连续跑满一天。
+> 白天才开的开发环境只攒到一两轮 → 这个榜为空是正常现象（不是 bug）。
 
 ---
 
@@ -622,7 +680,15 @@ docker compose exec app python tools/init_password.py
 - 后端持久化：`backend/routers/skill_tree.py` + `backend/db/skill_tree.py`
 - 后端 AI 图：`backend/routers/skill_tree_ai.py` + `backend/services/skill_tree_ai/`
 - 撤销/重做约定：历史栈为「改后快照」语义；`loadData()` 清空历史并压入基线快照（防跨树数据污染）
-- 设计文档：[`docs/技能树AI-LangGraph改造方案.md`](docs/技能树AI-LangGraph改造方案.md)
+- 设计文档：[`docs/技能树编辑器技术详解.md`](docs/技能树编辑器技术详解.md)（编辑器渲染与交互 + AI Agent 全解析）
+- 几条容易改回去的硬约定：
+  - **拖节点必须 Ctrl/Cmd + 左键**（左键只选中不拖；框选整组也一样要按 Ctrl；Shift 是加减选；空格/中键平移）
+  - 网格是「**单位区域**」制（unit=300 画布 px）：内容包围盒按 unit 取整外扩，空树给视口中心一格；
+  接缝只画内部且很淡 —— 画成和外框一样明显会像"几块板子拼接"
+  - 多选右键菜单 = 移动（跟随鼠标 + 再点放下 + 0.1s 防抖）/ 删除边（只删两端都在选中集合里的）/ 删除结点
+  - 列表对外的 `id` 必须是 **tree_id 字符串**（不是数据库自增主键），否则前端拼出的
+  `/api/skill-trees/{id}/chat` 会 404，**症状和"树没存上"一模一样**
+  - AI 对话记录按树存在 localStorage；上下文只带最近 **5 个来回**（按 HumanMessage 切点，按条数切会产生孤儿 ToolMessage → LLM 400）
 
 ### 统一协调 Agent 开发
 
@@ -739,8 +805,14 @@ docker compose exec app python tools/init_password.py
 | POST | `/api/expression/beautify` ⚡ | AI 美化自定义题目（SSE 流式） |
 | GET | `/api/expression/history/questions` | 出题历史（按题目聚合） |
 | GET | `/api/expression/history/questions/{id}/answers` | 某道题目的全部回答 |
+| GET | `/api/aiconsult/all` | 四类来源最新一轮数据 + 各源 configured 标记（一屏拉完） |
+| GET | `/api/aiconsult/analysis` | 每日 AI 分析（**懒触发**：今天没生成过就丢后台任务，先返回 `generating`） |
+| GET | `/api/aiconsult/board` | 榜单查询（`kind` = weekly / daily / news_hot，可带 `period`） |
+| GET | `/api/aiconsult/{category}` | 某类资讯列表（`github_weekly` / `github_daily` / `domestic` / `international`） |
+| POST | `/api/aiconsult/refresh` | 手动触发抓取（管理员） |
 
 > 旧 `POST /api/chat`（无鉴权的技能树 AI 代理）已于 2026-09-03 下线，由 `/api/skill-trees/{id}/chat` 替代。
+> ⚠️ `/api/aiconsult/{category}` 是通配路由，**必须注册在最后** —— 否则 `/analysis`、`/board` 会被它先匹配走（然后因为不在分类列表里报 404）。
 
 ### 登录鉴权开发
 
@@ -759,8 +831,9 @@ docker compose exec app python tools/init_password.py
 - AI 服务在 `backend/services/` — 六个 AI 服务场景独立封装（含 coordinator/、skill_tree_ai/ 两个 LangGraph 包）
 - AI 提示词在 `backend/prompts/` — 每个功能独立文件
 - 等级公式唯一来源：`backend/models/level.py`
-- 运行后端测试：`cd backend && pixi run test`（当前 **227 passed**，AI 调用全打桩，不联网）
-- 运行前端逻辑测试：`node frontend/tests/interrupt-submit.test.mjs`（零依赖，不用开浏览器）
+- 运行后端测试：`SELF_GROW_MYSQL_DATABASE=<库名含 test> .pixi/envs/default/python.exe -m pytest tests/ -q -p no:randomly`
+  （当前 **295 passed**，AI 调用全打桩，不联网，全量约 3 分钟）
+- 运行前端逻辑测试：`node frontend/tests/*.test.mjs`（5 个文件，零依赖，不用开浏览器）
 - 依赖唯一事实源：`backend/pixi.toml`；导出锁定版到 pip/Docker：`cd backend && pixi run export-reqs`
 
 ### 数据库（MySQL，唯一后端）
@@ -780,12 +853,12 @@ SELF_GROW_MYSQL_HOST/PORT/USER/PASSWORD/DATABASE   # 唯一的数据源配置
 
 | 层 | 文件 | 作用 |
 |---|---|---|
-| 连接池 | `backend/db/backend.py` | `DBUtils.PooledDB` + `MysqlConn`/`MysqlCursor` 代理。代理补上 `sqlite3.Connection` 才有的 `execute()` 便利方法，让项目里 190+ 处 `get_conn()` / `conn.execute(...)` 写法不用改（`close()` = 归还连接） |
-| 门面 | `backend/db/connection.py` | 对外只暴露 `get_conn()` / `now_str()` / `backend_name()` / `close_pool()` |
+| 连接池 | `backend/db/backend.py` | `DBUtils.PooledDB` + `MysqlConn`/`MysqlCursor` 代理。代理补上 `sqlite3.Connection` 才有的 `execute()` 便利方法，让项目里 **160 处 `get_conn()` / 280 处 `execute()`** 写法不用改（`close()` = 归还连接） |
+| 门面 | `backend/db/connection.py` | 对外只暴露 `get_conn()` / `now_str()` / `placeholders()` / `backend_name()` / `close_pool()` |
 | 测试隔离 | `backend/db/testing.py` | MySQL 没有文件可换 → **删表重建**（带「库名必须含 test」安全闸，**不要绕过**） |
 | 静态护栏 | `backend/tests/test_sql_dialect_lint.py` | 拦住 SQLite 写法与 MySQL 硬性限制回退，见下 |
 
-**六个必须知道的点**
+**十个必须知道的点**（前 6 条是迁移期踩的，7~10 条是后来陆续撞出来的）
 
 1. **连接池不能小。** 协调 Agent 会用 `asyncio.gather` 并行跑多个子 Agent，每个工具调用都
    `to_thread` + `get_conn()`。池满时 `DBUtils` 的 `blocking=True` 是**无限等待（没有超时）**
@@ -804,6 +877,23 @@ SELF_GROW_MYSQL_HOST/PORT/USER/PASSWORD/DATABASE   # 唯一的数据源配置
    现有表都只有一组相关唯一约束所以行为一致 —— 将来给这些表加第二组 `UNIQUE` 时要重新确认
 6. **派生表必须有别名**（MySQL errno 1248，SQLite 不报）。
    这条踩过：`/api/expression/stats` 曾在 MySQL 下 500 而**测试全绿**。现在有 lint 兜
+7. **`IN (...)` 的占位符走唯一入口 `db.connection.placeholders(n)`。**
+   手搓 `",".join("?" * n)` 是 SQLite 遗留，pymysql 会报
+   `not all arguments converted during string formatting` ——
+   ⚠️ 而且**静态护栏扫不到它**：`?` 是运行时拼出来的，源码里只有 `"?"` 这个常量
+   （不含 SQL 关键字 → 被准入判断放掉）。所以只能靠"唯一入口 + 不许手搓"的规则兜。
+   实测踩过：AI 分析每次打开都失败，而空库时一切正常（那行只在集合非空时才走到）
+8. **JSON 列用 `db/jsoncols.py::jloads()` 读，别写 `json.loads(row.get(k, default))`。**
+   MySQL 驱动给的是 dict，键**存在但值为 None** —— `dict.get` 的默认值只在"键不存在"时生效，
+   于是 `json.loads(None)` 直接 TypeError。任何"该列为 NULL"的记录一读就 500
+9. **别用 `rowcount` 判归属/成败。** MySQL 返回的是「**实际改变**行数」，
+   保存一模一样的内容时它是 0，会被误判成"没写进去"
+10. **「先 SELECT 判存在、再 INSERT/UPDATE」是 check-then-act 竞态。**
+    并发时两个请求都查到"不存在"，后一个撞唯一键报 **1062 Duplicate entry**
+    （实测：编辑器保存 与 本地树补传同时发出）。写成**一条原子 upsert**：
+    建记录用 `ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`；
+    改记录用 ODKU + **每个 SET 里写归属守卫** `IF(user_id = VALUES(user_id), 新值, 旧值)`
+    （ODKU 不支持 WHERE）
 
 **静态护栏（`tests/test_sql_dialect_lint.py`）**
 
@@ -814,8 +904,16 @@ SQLite 移除后没有自动转换兜底了，这份 lint 就成了唯一的防�
 | SQLite 残留写法 | `?` 占位符、`AUTOINCREMENT`、`INSERT OR IGNORE`、`ON CONFLICT`、`datetime('now')`、`CREATE INDEX IF NOT EXISTS`、`PRAGMA`、`sqlite_master`、`excluded.col`、`INSERT OR REPLACE` |
 | SQLite 依赖 | `import sqlite3` / `sqlite3.Row` |
 | MySQL 硬性限制 | 派生表缺别名（1248）、保留字列名未加反引号（1064） |
+| 手搓占位符生成器（规则组 C，2026-09-24 新增） | `join("?"` / `"?" *` / `"?" +` / `"?" for` —— 这类是**运行时拼出来的**，上面那些扫 SQL 文本的规则看不见它 |
 
 每条规则都配一条**灵敏度自测**（故意造违规，确认抓得到；再造正确写法，确认不误报）。
+
+⚠️ **取样别只看 `ast.Constant`**：Python 3.12 起 f-string 是一棵 `JoinedStr`，会被拆成多个
+`Constant` 片段 —— `f"UPDATE t SET {cols}, updated_at = datetime('now') WHERE id = %s"` 里
+「有 SQL 关键字」和「有 SQLite 写法」被切进**两个片段**，准入判断一挡，**违规整条溜过**。
+而它偏偏是 f-string 不是巧合：**动态 SET 子句只能用 f-string 拼**。
+真踩过：`PUT /api/model-configs/{id}` 500 而当时全量测试是绿的。
+现在取样走 `_sql_text_units()`（`ast.JoinedStr` 取 `get_source_segment()` 的**原文**）。
 
 **测试**
 
@@ -825,15 +923,15 @@ SELF_GROW_MYSQL_DATABASE=自建一个库名含 test 的库 pytest tests/ -q
 ```
 
 - ⚠️ **库名必须含 `test`** —— `db/testing.py` 会拒绝重置其它库（这是保护真实数据的安全闸）
-- ⚠️ **全量约 2.5 分钟**（每个用例都要 DROP + 重建 28 张表），必要时分批跑
-- 当前全量：**227 passed**
+- ⚠️ **全量约 3 分钟**（每个用例都要 DROP + 重建 29 张表），必要时分批跑
+- 当前全量：**295 passed**（22 个测试文件）
 
 **历史材料**（迁移过程，非当前用法）
 
-- 迁移实录：[`docs/SQLite迁移MySQL方案.md`](docs/SQLite迁移MySQL方案.md)
-- 移除方案与实施结果：[`docs/彻底移除SQLite完整方案.md`](docs/彻底移除SQLite完整方案.md)
 - 数据迁移脚本已归档到 `backend/tools/archive/migrate_sqlite_to_mysql.py`
   （SQLite 已不存在，它不再需要，留着是为了记录当时怎么迁的）
+- 两份迁移方案文档（`SQLite迁移MySQL方案.md` / `彻底移除SQLite完整方案.md`）已在
+  2026-09-24 的文档清理中从 `docs/` 移除 —— 内容属历史过程，需要时可在 git 历史里找到
 
 ### 生产部署（Docker）
 
@@ -884,7 +982,8 @@ cd .. && docker compose build --no-cache && docker compose up -d --force-recreat
 
 ## 已知限制
 
-> 完整清单（含改进方案与优先级）见 [`docs/安全设计说明.md`](docs/安全设计说明.md) §10。
+> 上线前检查清单：密钥（`SELF_GROW_JWT_SECRET` 必须换新）、`SELF_GROW_TRUSTED_MODE` 必须关闭、
+> CORS 不能留 `*`、公网必须 HTTPS、MySQL 与 `uploads/` 定期备份。
 
 **遗留技术问题**
 
@@ -892,6 +991,8 @@ cd .. && docker compose build --no-cache && docker compose up -d --force-recreat
 - 数据库连接未使用上下文管理器（低优先级）
 - 编排状态存内存（`_thread_store`，TTL 30min）→ 重启即失，多实例不通用（中优先级）
 - 技能树 AI 未做资源级隔离：所有 admin 可改所有技能树（中优先级）
+- **会话与产出都在内存/本机**：LangGraph checkpointer 是 `MemorySaver`，后端重启即失
+  （所以技能树的对话记录改成前端按树持久化）；调度器是 `AsyncIOScheduler`，**多实例会重复执行**
 
 **已完成（不再是限制）**
 
