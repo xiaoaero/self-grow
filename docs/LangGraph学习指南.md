@@ -637,7 +637,7 @@ def my_tool(query: str, state: Annotated[dict, InjectedState()]) -> dict:
 result = tool_fn.invoke({**args, "state": state})
 ```
 
-技能树 AI 的 9 个工具全部按"节点 ID"操作（而不是按内容猜），工具需要拿到 `state["tree"]` 才能干活——由循环统一注入，LLM 的 schema 里只有"节点 ID、操作类型"这些它该填的。
+技能树 AI 的 8 个工具全部按"节点 ID"操作（而不是按内容猜），工具需要拿到 `state["tree"]` 才能干活——由循环统一注入，LLM 的 schema 里只有"节点 ID、操作类型"这些它该填的。
 
 ## 4.6 并行工具调用与错误处理
 
@@ -1316,7 +1316,7 @@ backend/services/
 │   ├── graph.py                    # ★ 图编译 + run/resume + aget_state 读确认（§3.4）
 │   ├── node.py                     # ★ ReAct 循环 + 消息截断防孤儿（§4.3）
 │   ├── state.py                    # ★ SkillTreeChatState（reucer 正反例 §2.2）
-│   ├── tools.py                    # 9 个工具 + InjectedState + 危险操作守卫
+│   ├── tools.py                    # 8 个工具 + InjectedState + 危险操作守卫
 │   └── prompts.py                  # 系统提示词 + 树状态动态注入
 │
 ├── sse.py                          # 自建流式层（ContextVar emitter，§7.4）

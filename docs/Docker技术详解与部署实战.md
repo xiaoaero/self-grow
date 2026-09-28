@@ -130,7 +130,8 @@ created → running → paused → stopped → deleted
 | 绑定挂载 | `-v /host/path:/data` | 宿主机指定路径 | 需要直接编辑的文件（配置、代码热重载） |
 | tmpfs | `--tmpfs /tmp` | **内存** | 敏感临时数据 |
 
-**本项目必须用命名卷**：`data.db` 和 `uploads/` 都在 `/data` 下，删容器不能丢。
+**本项目必须用命名卷**：数据库落在 `mysql_data` 卷，`uploads/`（奖励图片）与 `logs/` 落在 `data` 卷，
+删容器不能丢。
 
 ```bash
 docker volume inspect self-grow_data    # 看卷实际在宿主机哪个目录
@@ -339,23 +340,27 @@ docker compose logs --tail 100 app
 **绝对不能做**：把 `AI_API_KEY`、`SELF_GROW_JWT_SECRET` 写进 Dockerfile 或提交到 git。
 镜像是分层的——即使后面一层删掉了，前面那层里密钥仍在（`docker history` 能看到）。
 
-## 3.10 SQLite 的备份特殊性（本项目坑点）
+## 3.10 MySQL 容器的备份（本项目做法）
 
-数据库是单文件，**但直接 `cp` 正在写入的 `data.db` 可能拿到损坏的快照**（WAL 模式下尤其）。
-正确做法是用 SQLite 的在线备份 API：
+数据库跑在 **compose 里的 `mysql` 服务**（数据在 `mysql_data` 命名卷，且**不对外发布端口**）。
+备份不能直接 `cp` 卷目录（InnoDB 有 redo/undo，热拷会拿到不一致的快照），要用 `mysqldump`：
 
 ```bash
-# 用 Python 的 backup API（镜像里一定有 python）
-docker compose exec self-grow python -c "
-import sqlite3
-src = sqlite3.connect('/data/data.db')
-dst = sqlite3.connect('/data/backup.db')
-with dst: src.backup(dst)
-print('backup ok')
-"
+# ① 一致性逻辑备份（--single-transaction 保证不锁表）
+docker compose exec mysql sh -c \
+  'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --databases "$MYSQL_DATABASE"' \
+  > backup-$(date +%F).sql
+
+# ② 恢复
+docker compose exec -T mysql sh -c \
+  'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < backup-2026-09-24.sql
 ```
 
-然后 `docker cp` 出来。或者简单粗暴：备份前先 `docker compose stop`。
+> ⚠️ `--single-transaction` 只对 **InnoDB** 有效（本项目全是 InnoDB），
+> 它靠一致性快照读，不会阻塞写入。
+>
+> 另一个卷 `data` 存的是**非数据库**数据（`uploads/` 奖励图片、`logs/`），
+> 那部分可以直接 `docker run --rm -v ...:/data alpine tar` 打包，没有一致性要求。
 
 ## 3.11 CI/CD 一句话
 
@@ -378,17 +383,18 @@ print('backup ok')
 
 | 特征 | 对 Docker 部署的影响 |
 |---|---|
-| **单进程 FastAPI** | 一个容器搞定，不需要多服务编排 |
-| **SQLite 单文件**（WAL 模式） | 必须挂卷；**不能水平扩展多副本**（多进程写同一库会锁竞争） |
-| **APScheduler 定时任务**（每日 03:00） | **绝对不能跑 2 个副本**，否则任务执行两次 |
-| `uploads/` 存奖励图片 | 也在 `DATA_DIR` 下，一起挂卷 |
+| **FastAPI 应用容器** | 一个 `app` 容器；另有 `mcp`（MCP 插件）与 `mysql` |
+| **MySQL 8.0**（独立容器） | 数据在 `mysql_data` 卷；**不发布端口**，只在 compose 网络内可连 |
+| **APScheduler 定时任务**（每日 03:00 等） | **绝对不能跑 2 个副本**，否则任务重复执行（含 AI 资讯抓取） |
+| `uploads/` 存奖励图片、`logs/` 存日志 | 一起挂在 `data` 卷 |
 | **后端同源 serve 前端** | 不需要 Nginx 也能跑，配 `SELF_GROW_FRONTEND_DIR` 即可 |
 | **JWT 密钥** | 必须作为环境变量注入，**缺失会拒绝启动** |
 | **CORS** | 公网部署必须用 `SELF_GROW_CORS_ORIGINS` 显式指定域名（默认只放行 localhost） |
-| **MemorySaver 会话** | 重启容器后 AI 会话丢失（已知限制，前端已兜底提示） |
+| **MemorySaver 会话** | 重启容器后 AI 会话丢失（已知限制；技能树对话记录已由前端按树持久化） |
 
-**结论**：**单容器 + 一个命名卷 + 可选 Nginx**，不需要 Redis、不需要数据库容器、不需要编排平台。
-这是**为规模做的正确取舍**，不是"不懂微服务"——面试要主动说这句。
+**结论**：**三个容器（app + mcp + mysql）+ 两个命名卷 + 可选 Nginx**，不需要 Redis、不需要编排平台。
+这是**为规模做的正确取舍**，不是"不懂微服务"——面试要主动说这句：
+真正需要多副本时，要先解决的是「会话状态外置 + 定时任务加分布式锁」，而不是先加机器。
 
 ## 4.2 环境变量清单（更新到鉴权之后）
 
@@ -397,7 +403,8 @@ print('backup ok')
 | 环境变量 | 默认 | 说明 |
 |---|---|---|
 | `PORT` | `3001` | 服务端口 |
-| `SELF_GROW_DATA_DIR` | `backend/` 源码目录 | **决定 `data.db` 与 `uploads/` 落点**，Docker 下设为 `/data` |
+| `SELF_GROW_DATA_DIR` | `backend/` 源码目录 | **决定 `uploads/` 与 `logs/` 落点**，Docker 下设为 `/data` |
+| **`SELF_GROW_MYSQL_HOST/PORT/USER/PASSWORD/DATABASE`** | — | **唯一的数据源配置**。Docker 下 `HOST` 必须是 **服务名 `mysql`**，写 `127.0.0.1` 会指向 app 容器自己 |
 | `SELF_GROW_FRONTEND_DIR` | `""`（空则不 serve 前端） | Docker 下设为 `/app/frontend` |
 | `AI_API_BASE_URL` / `AI_API_KEY` / `AI_MODEL` | — | LLM 配置（也可在用户中心改，存 `model_configs` 表） |
 | `DASHSCOPE_API_KEY` | — | ASR 语音识别（表达训练需要） |
@@ -407,14 +414,16 @@ print('backup ok')
 | `SELF_GROW_TRUSTED_MODE` | `0` | **生产必须为 0**（开了等于免登录） |
 | **`SELF_GROW_CORS_ORIGINS`** | 本机来源 | **公网部署必须显式填域名**，如 `https://grow.example.com` |
 
-派生路径（`config.py:119/122`）：
+派生路径（`config.py`）：
 
 ```python
-DB_PATH    = os.path.join(DATA_DIR, "data.db")    # → /data/data.db
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")    # → /data/uploads
+LOG_DIR    = os.path.join(DATA_DIR, "logs")       # → /data/logs（app.log / mcp.log）
 ```
 
 > ⚠️ `SELF_GROW_PACKAGED` 是个**不存在的变量**（旧 Dockerfile 遗留，代码从未读取），不要写。
+> ⚠️ `SELF_GROW_DB_BACKEND` / `DB_PATH` / `data.db` 也都**不存在了**（2026-09-23 移除 SQLite），
+> 老部署里留着只会看到一条"已废弃"的 WARNING。
 
 ## 4.3 三个配置文件（可直接复制）
 
@@ -429,7 +438,7 @@ WORKDIR /app
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
-# 再拷全部代码（.dockerignore 已排除 .git / .pixi / data.db 等）
+# 再拷全部代码（.dockerignore 已排除 .git / .pixi / .env 等）
 COPY . .
 
 WORKDIR /app/backend
@@ -455,10 +464,8 @@ __pycache__/
 .pixi/
 backend/.pixi/
 backend/__pycache__/
-backend/data.db
-backend/data.db-wal
-backend/data.db-shm
 backend/uploads/*
+backend/logs/*
 backend/.env
 backend/tests/
 backend/pixi.lock
@@ -580,27 +587,22 @@ docker compose exec self-grow python tools/init_password.py
 ## 5.6 备份与恢复
 
 ```bash
-# 备份（在线安全备份，见 3.10）
-docker compose exec self-grow python -c "
-import sqlite3
-s=sqlite3.connect('/data/data.db'); d=sqlite3.connect('/data/backup.db')
-with d: s.backup(d)
-"
-docker cp self-grow:/data/backup.db ./backup-$(date +%F).db
-docker compose exec self-grow rm /data/backup.db
+# ① 数据库（一致性逻辑备份，见 3.10）—— 不用停服务
+docker compose exec mysql sh -c \
+  'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --databases "$MYSQL_DATABASE"' \
+  > backup-db-$(date +%F).sql
 
-# 整卷打包（简单粗暴版，需先停服务）
-docker compose stop
+# ② 附件与日志（data 卷，没有一致性要求）
 docker run --rm -v self-grow_data:/data -v $PWD:/backup busybox \
   tar czf /backup/data-$(date +%F).tar.gz /data
-docker compose start
 
-# 恢复
-docker compose stop
-docker run --rm -v self-grow_data:/data -v $PWD:/backup busybox \
-  tar xzf /backup/data-2026-09-14.tar.gz -C /
-docker compose start
+# ③ 恢复数据库
+docker compose exec -T mysql sh -c \
+  'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < backup-db-2026-09-24.sql
 ```
+
+> ⚠️ 别去 `cp` `mysql_data` 卷目录 —— InnoDB 有 redo/undo 日志，热拷拿到的快照**不保证一致**，
+> 恢复时报错或静默损坏都遇到过。`mysqldump --single-transaction` 才是正路。
 
 ## 5.7 升级
 
@@ -635,17 +637,19 @@ docker image prune -f         # 清理悬空镜像
 
 # 第七部分：面试怎么讲（60 秒）
 
-> "部署上我用 Docker 单容器：基础镜像 `python:3.12-slim`，依赖走 `requirements.txt`——
-> 它是从 pixi 锁定版本导出的，保证线上和开发环境版本一致。
+> "部署上是 `docker compose` 三个容器：`app`（FastAPI 同时 serve 前端）、`mcp`（MCP 插件）、
+> `mysql`。基础镜像 `python:3.12-slim`，依赖走 `requirements.txt`——它是从 pixi 锁定版本导出的，
+> 保证线上和开发环境版本一致。`app` 和 `mcp` 都 `depends_on: mysql: service_healthy`，
+> 探测用 `mysqladmin ping` 而不是 TCP——因为 MySQL 初始化期间会有一个临时 server 监听 3306，
+> 端口通但 SQL 还不能跑。
 >
-> 有两个点值得说：一是**数据目录用环境变量 `SELF_GROW_DATA_DIR` 指向 `/data` 并挂命名卷**，
-> 因为 SQLite 是单文件，写在容器可写层的话删容器数据就没了；
-> 二是**密钥一律走 compose 的 environment 注入**，镜像里不放任何敏感信息——
-> 镜像是分层的，写进去再删也没用，`docker history` 能看到。
+> 两个点值得说：一是**两个命名卷分开**——`mysql_data` 放数据库、`data` 放 `uploads/` 和 `logs/`，
+> 都不在容器可写层，删容器不丢；二是**密钥一律走 compose 的 environment 注入**，
+> 镜像里不放任何敏感信息——镜像是分层的，写进去再删也没用，`docker history` 能看到。
 >
-> 架构上我刻意**只用一个容器**：SQLite + APScheduler 决定了它不能水平扩展多副本，
-> 否则定时任务会执行两次、数据库会有锁竞争。这不是不懂微服务，
-> 是这个规模下多副本的收益远小于复杂度。真要上量，我会先把 SQLite 换掉再谈扩展。"
+> 架构上我刻意**不扩多副本**：APScheduler 是进程内调度器，两个副本就会重复执行定时任务
+> （归档、结算、AI 资讯抓取），LangGraph 的会话也在内存里。这不是不懂微服务，
+> 是这个规模下多副本的收益远小于复杂度；真要上量，我会先补分布式锁 + 会话外置，再谈扩容。"
 
 **常见追问**：
 
@@ -655,7 +659,7 @@ docker image prune -f         # 清理悬空镜像
 | 镜像为什么分层？ | 共享、缓存、增量传输；所以 Dockerfile 要把稳定的写前面 |
 | 数据怎么持久化？ | 命名卷；容器可写层随容器消失 |
 | 密钥怎么管？ | 环境变量/compose 注入，绝不进镜像（分层删不掉） |
-| 为什么不扩展多副本？ | SQLite 单文件 + APScheduler，多副本会重复执行定时任务（**能主动说这个很加分**） |
+| 为什么不扩展多副本？ | APScheduler 是进程内调度 + 会话在内存，多副本会重复执行定时任务（**能主动说这个很加分**） |
 | 怎么瘦身镜像？ | slim 基础镜像、多阶段构建、`.dockerignore`、`--no-cache-dir` |
 
 ---

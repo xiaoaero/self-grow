@@ -17,10 +17,10 @@
 | 反问机制 | `interrupt()` + `Command(resume)` | **`ask_user` 工具 + `needs_user` 标志 + resume 追加消息** | 见 §3.2，三条理由 |
 | 意图路由 | 正则 + 关键词，LLM 兜底 | **全部 LLM 语义判断** | 关键词维护成本高，LLM 足够快 |
 | 领域构成 | action / habit / task / query / skill_tree / expression | **action / query / goal / task / habit / reward** | 技能树、表达训练未纳入协调层 |
-| 会话持久化 | SQLite checkpoint | **`MemorySaver`（内存）** | 见 §7 技术债 |
+| 会话持久化 | 落库 checkpointer | **`MemorySaver`（内存）** | 见 §7 技术债 |
 | 主图上下文 | LangGraph checkpoint | **近 5 条记录 FIFO（内存 dict，TTL 30 分钟）** | 够用且可控 |
-| 前端传输 | SSE 推送中断事件 | **POST 同步请求 + 前端 interruptQueue** | SSE 端点仅占位未实装 |
-| 写操作确认 | interrupt 确认卡片 | **未实现** | 当前直接写库 |
+| 前端传输 | —— | **POST + SSE 流式 + 前端 interruptQueue** | ✅ 2026-09-16 已实装（原来是两个假占位端点） |
+| 写操作确认 | interrupt 确认卡片 | **`ask_user` 反问 + 前端确认卡片** | ✅ 已实现（危险操作走 `pending_confirmation`） |
 | 依赖声明 | `pyproject.toml` | **`pixi.toml`** | 项目实际用 pixi 管理 |
 | 前端文件 | `frontend/js/pages/coordinator.js` | **`frontend/js/chat.js`（472 行）** | 命名调整 |
 
@@ -291,10 +291,10 @@ _thread_store: dict[str, dict] = {}
 | # | 问题 | 影响 | 改进方向 |
 |---|---|---|---|
 | 1 | 编排状态 `_thread_store` 在进程内存 | 重启丢失、多实例不共享 | 迁 Redis，或落库 |
-| 2 | checkpointer 用 `MemorySaver` | 重启后所有子图会话历史丢失 | 换 `AsyncSqliteSaver` / `PostgresSaver` |
+| 2 | checkpointer 用 `MemorySaver` | 重启后所有子图会话历史丢失 | 换 `PostgresSaver` / Redis checkpointer |
 | 3 | ~~子图工具同步调用~~ **✅ 已修复**（2026-09-08） | 原 `tool_fn.invoke(args)` 在 async 节点里阻塞事件循环，`gather` 的"并行"实际串行 | 已改为 `await asyncio.to_thread(tool_fn.invoke, args)` 丢线程池 |
-| 4 | SSE 端点未实装且无鉴权 | 无法流式推送，且存在未授权访问 | 补齐或删除 |
-| 5 | 写操作确认流未实现 | AI 直接写库，无二次确认 | 写库前用 `ask_user` 发起确认（机制已具备，加提示词即可） |
+| 4 | ~~SSE 端点未实装且无鉴权~~ **✅ 已修复** | 原来两个 `GET .../stream` 只是占位（其中一个还没挂鉴权） | 已删除占位端点，改由 `/chat` 与 `/resume` 自身推 SSE |
+| 5 | ~~写操作确认流未实现~~ **✅ 已实现** | `ask_user` 工具 + `needs_user` 标志 + resume 追加 HumanMessage；技能树危险操作走确认卡片 | —— |
 | 6 | 领域覆盖不全 | 技能树、表达训练未纳入协调层 | 各加一个子图 |
 | 7 | **无真正身份认证** | `get_current_user` 只校验 user_id 存在，可被伪造；越权读取/篡改他人数据 | 引入 JWT/session 鉴权（见 §6.1） |
 
